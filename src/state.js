@@ -1,0 +1,119 @@
+// ============================================================
+// GAME STATE + SAVE / LOAD
+// ============================================================
+import { SAVE_KEY } from './constants.js';
+import { gridToWorld } from './render/camera.js';
+
+export let state = {
+  coins: 100, trips: 0,
+  resources: { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0 },
+  ships: [], nodes: [],
+  selectedShip: null, activeTab: 'log', log: [],
+  renamingShip: null,
+  pendingAssign: null,
+  basePanelOpen: false, bpTab: 'overview',
+  fleetFilter: { type: null, node: null, idleOnly: false, sort: null, sortDir: 1 },
+  sol: 1,
+  solTimer: 0,
+  solStarted: false,
+  rp: 0,
+  marketBoost: null,
+  tutStep: 0,
+  firstDeposit: false,
+  firstCraftable: false,
+  firstNodeSwitch: false,
+  seenMsgs: {},
+  eventCounts: {},
+  researchUnlocks: {},
+  turrets: [],
+  placingTurret: false,
+  selectedTurret: null,
+  movingTurret: null,
+  unplacedTurrets: 0,
+  hpBoostCount: 0,
+  nextEventTimer: null,
+  activeWarning: null,
+  base: {
+    level: 1,
+    health: 10000,
+    maxHealth: 10000,
+  },
+};
+
+export let shipIdCounter = 1;
+export function setShipIdCounter(v) { shipIdCounter = v; }
+export function bumpShipIdCounter() { return shipIdCounter++; }
+
+export function saveGame() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      coins: state.coins, trips: state.trips,
+      resources: state.resources, shipIdCounter,
+      base: state.base,
+      sol: state.sol, rp: state.rp, marketBoost: state.marketBoost,
+      solStarted: state.solStarted, tutStep: state.tutStep,
+      firstDeposit: state.firstDeposit, firstCraftable: state.firstCraftable,
+      firstNodeSwitch: state.firstNodeSwitch, seenMsgs: state.seenMsgs,
+      nextEventTimer: state.nextEventTimer, eventCounts: state.eventCounts,
+      researchUnlocks: state.researchUnlocks, hpBoostCount: state.hpBoostCount,
+      turrets: state.turrets, unplacedTurrets: state.unplacedTurrets,
+      ships: state.ships.map(s => ({
+        id:s.id, name:s.name, type:s.type,
+        capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
+        capacityLevel:s.capacityLevel, flySpeedLevel:s.flySpeedLevel, mineSpeedLevel:s.mineSpeedLevel,
+        targetNode: s.targetNode,
+      })),
+    }));
+  } catch(e) {}
+}
+
+export function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    state.coins = d.coins ?? 100;
+    state.trips = d.trips ?? 0;
+    state.resources = { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0, ...(d.resources||{}) };
+    state.base = { level:1, health:10000, maxHealth:10000, ...(d.base||{}) };
+    state.sol  = d.sol ?? 1;
+    state.rp   = d.rp  ?? 0;
+    state.marketBoost = d.marketBoost ?? null;
+    state.solStarted = d.solStarted ?? false;
+    state.tutStep = d.tutStep ?? 0;
+    state.firstDeposit = d.firstDeposit ?? false;
+    state.firstCraftable = d.firstCraftable ?? false;
+    state.firstNodeSwitch = d.firstNodeSwitch ?? false;
+    state.seenMsgs = d.seenMsgs ?? {};
+    state.nextEventTimer = d.nextEventTimer ?? null;
+    state.eventCounts = d.eventCounts ?? {};
+    state.researchUnlocks = d.researchUnlocks ?? {};
+    state.turrets = d.turrets ?? [];
+    // Migrate old turrets
+    state.turrets.forEach(t => { if (t.range > 2 && t.level === 1) t.range = 2; });
+    state.unplacedTurrets = d.unplacedTurrets ?? 0;
+    state.hpBoostCount = d.hpBoostCount ?? 0;
+    // scheduleNextEvent() called by main.js after loadGame() if nextEventTimer === null
+    state.activeWarning = null;
+    state.solTimer = 0;
+    shipIdCounter = d.shipIdCounter ?? 1;
+    state.ships = (d.ships||[]).map(sd => {
+      const base = gridToWorld(12, 12);
+      return {
+        id:sd.id, name:sd.name, type:sd.type,
+        capacity:sd.capacity ?? 10,
+        flySpeed:sd.flySpeed ?? 1.0,
+        mineSpeed:sd.mineSpeed ?? 1.0,
+        mineTier:sd.mineTier ?? 1,
+        capacityLevel:sd.capacityLevel ?? 0,
+        flySpeedLevel:sd.flySpeedLevel ?? 0,
+        mineSpeedLevel:sd.mineSpeedLevel ?? 0,
+        cargo:0, cargoType:null,
+        status:'idle', targetNode: sd.targetNode ?? null,
+        heading: -Math.PI/2,
+        x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0, pauseTimer:0,
+      };
+    });
+    return true;
+  } catch(e) { return false; }
+}
