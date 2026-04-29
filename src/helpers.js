@@ -1,6 +1,8 @@
 // ============================================================
 // SHARED HELPERS & UTILITIES
 // ============================================================
+import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
+import { TIER_COLORS } from './data/ships.js';
 
 /** Convert a CSS hex colour to "r,g,b" string */
 export function hexToRgb(hex) {
@@ -33,13 +35,14 @@ export function addLog(msg) {
 // ── Tooltip ──
 export const tooltipEl = () => document.getElementById('tooltip');
 
-export function showTooltip(e, resourceType, RESOURCE_DEFS, MINE_TIERS, TIER_COLORS, state, fmt2) {
+export function showTooltip(e, resourceType) {
   const def = RESOURCE_DEFS[resourceType];
   if (!def) return;
+  const state = _stateRef;
   const tierEntry = Object.entries(MINE_TIERS).find(([,v]) => v.resources.includes(resourceType));
   const tierLabel = tierEntry ? MINE_TIERS[tierEntry[0]].label : '';
   const tierColor = tierEntry ? (TIER_COLORS[parseInt(tierEntry[0])] || '#e8eaf0') : '#8ab';
-  const stock = state.resources[resourceType] || 0;
+  const stock = state ? (state.resources[resourceType] || 0) : 0;
   const tt = tooltipEl();
   tt.innerHTML = `
     <div class="tt-name"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${def.color};margin-right:5px;vertical-align:middle"></span>${def.label}</div>

@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
-import { CRAFT_RECIPES } from '../data/ships.js';
+import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { BASE_MAX_SHIPS } from '../data/nodes.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE } from '../data/research.js';

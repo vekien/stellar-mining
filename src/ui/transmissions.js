@@ -9,7 +9,7 @@ let admiralTimer = 0;
 let admiralDuration = 0;
 let admiralVisible = false;
 
-export function showOnce(id, text, duration, npcId) {
+export function showOnce(id, text, duration = 10, npcId) {
   if (state.seenMsgs[id]) return;
   state.seenMsgs[id] = true;
   showTransmissionMessage(text, duration, npcId);
@@ -38,7 +38,13 @@ export function flushAdmiralQueue() {
   if (body) body.innerHTML = msg.text;
   if (prog) prog.style.width = '100%';
   const panel = document.getElementById('admiral-panel');
-  if (panel) panel.classList.add('visible');
+  if (panel) {
+    panel.classList.add('visible');
+    panel.classList.remove('pulsing');
+    void panel.offsetWidth; // force reflow so animation restarts
+    panel.classList.add('pulsing');
+    setTimeout(() => panel.classList.remove('pulsing'), 3000);
+  }
 }
 
 export function tickAdmiral(dt) {
@@ -52,6 +58,14 @@ export function tickAdmiral(dt) {
     admiralVisible = false;
     setTimeout(flushAdmiralQueue, 600);
   }
+}
+
+// Dismiss current message and let the queue continue
+export function dismissTransmission() {
+  const panel = document.getElementById('admiral-panel');
+  if (panel) panel.classList.remove('visible');
+  admiralVisible = false;
+  setTimeout(flushAdmiralQueue, 600);
 }
 
 window.dismissAdmiral = function() {

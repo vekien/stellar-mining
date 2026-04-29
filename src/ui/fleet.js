@@ -3,8 +3,9 @@
 // ============================================================
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
+import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
-  CRAFT_RECIPES, TIER_COLORS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
+  SHIP_DEFS, TIER_COLORS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
   UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
   upgradeChunk, upgradeTotalCost, toRoman,
 } from '../data/ships.js';
@@ -277,16 +278,14 @@ export function renderActionPanel() {
                     : ship.status === 'returning' || ship.status === 'pausing' ? '#fa6'
                     : '#4d8';
 
-  const recipe   = CRAFT_RECIPES.find(r => r.id === ship.type);
-  const buyCost  = recipe ? recipe.cost : 0;
+  const stats = SHIP_DEFS[ship.type] || SHIP_DEFS.scout;
 
   let upgradeCost = 0;
   for (let i = 0; i < ship.capacityLevel;  i++) upgradeCost += Math.floor(40  * Math.pow(1.10, i));
   for (let i = 0; i < ship.flySpeedLevel;  i++) upgradeCost += Math.floor(60  * Math.pow(1.10, i));
   for (let i = 0; i < ship.mineSpeedLevel; i++) upgradeCost += Math.floor(60  * Math.pow(1.10, i));
-  const baseTier = (recipe ? recipe.mineTier : 1);
-  for (let t = baseTier + 1; t <= ship.mineTier; t++) upgradeCost += SHIP_TIER_COSTS[t] || 0;
-  const sellVal = Math.max(10, buyCost + upgradeCost);
+  for (let t = stats.mineTier + 1; t <= ship.mineTier; t++) upgradeCost += SHIP_TIER_COSTS[t] || 0;
+  const sellVal = Math.max(10, upgradeCost);
 
   const isIdle    = ship.status === 'idle';
   const typeLabel = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
@@ -303,7 +302,7 @@ export function renderActionPanel() {
       </div>
       <div class="ship-data-row">
         <span class="ship-data-label">Cargo</span>
-        <span class="ship-data-value">${ship.cargo} / ${ship.capacity}</span>
+        <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
       </div>
     </div>
     <div class="ship-data-section">
@@ -325,7 +324,7 @@ export function renderActionPanel() {
       </div>
     </div>
     <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
-      <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ UPGRADES</div>
+      <div id="upgrades-section-header" style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ UPGRADES</div>
       ${(() => {
         const s2 = state.ships.find(s => s.id === ship.id); if (!s2) return '';
         const st = Math.min(10, Math.max(1, s2.mineTier || 1));

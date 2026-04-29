@@ -8,6 +8,12 @@ export const NPCS = {
     ship: 'Commanding Officer · ISV Hyperion',
     portrait: 'assets/images/npcs/juno.jpg',
     bio: "Admiral Juno commands the ISV Hyperion, Star Command's flagship vessel stationed in the outer belt. A decorated veteran of the Resource Wars, she oversees all civilian mining operations in the sector.",
+    transmissionLines: {
+      first_deposit:
+        `Hey Commander — Admiral Juno aboard the <strong>ISV Hyperion</strong>!<br><br>` +
+        `You've just collected your first batch of resources. Sell them back to Star Command for coins, or use them to <strong>craft more ships</strong>.<br><br>` +
+        `Tip: select a ship and click a <strong>different node</strong> to redirect it — you'll need a variety of materials to build new hulls!`,
+    },
   },
   sera: {
     id: 'sera',
@@ -15,6 +21,12 @@ export const NPCS = {
     ship: 'Chief Science Officer · ISV Hyperion',
     portrait: 'assets/images/npcs/sera.jpg',
     bio: 'Admiral Sera serves as Chief Science Officer aboard the ISV Hyperion. She leads the research division and is responsible for analysing new resource deposits across the sector.',
+    transmissionLines: {
+      sera_base_upgrade:
+        `Commander, Admiral Sera here. Your operation is growing fast — I'd strongly recommend <strong>upgrading your Base Station</strong>.<br><br>` +
+        `A higher base level increases your <strong>ship capacity</strong>, expands your <strong>map range</strong> to reach richer nodes, and unlocks heavier ship classes in the Craft tab.<br><br>` +
+        `Click the <strong>Base Station</strong> on the map and hit Upgrade when you're ready.`,
+    },
   },
   vex: {
     id: 'vex',
@@ -29,6 +41,28 @@ export const NPCS = {
     ship: 'Scrappy · Sector 7 Scrap Yard',
     portrait: 'assets/images/npcs/rigs.jpg',
     bio: "Rigs runs the Scrap Yard on the edge of Sector 7 with two hands, a blowtorch, and zero patience for paperwork. She can strip a wrecked ship down to raw materials faster than anyone in the belt — and she always knows where the good salvage is.",
+    shipLines: {
+      scout:     "She's light, she's quick, and she'll get to that node before anyone else. Don't expect her to haul much back — but for scouting new deposits, she's exactly what you need.",
+      swift:     "Pure speed. If you need resources fast and don't care about volume, the Swift Runner is your girl. She burns hard and turns fast — just don't ask her to carry much.",
+      hauler:    "Now we're talking. The Hauler is built for volume — slow and steady, but she'll bring back more per run than anything in the light class. Great for your main iron and copper routes.",
+      freighter: "This is the big one, Commander. The Freighter moves like a barge but carries like a warehouse. Assign her to your richest node and let her work. You won't be disappointed.",
+      default:   "She's all yours, Commander. Get her out there.",
+    },
+    transmissionLines: {
+      rigs_upgrades:
+        `Commander, Rigs here. Now you've got another ship out there — start thinking about <strong>upgrades</strong>.<br><br>` +
+        `Select any ship and check the <strong>Upgrades</strong> section. Cargo capacity means bigger hauls, mine speed means faster turnaround. Every level compounds over time.`,
+      first_craftable:
+        `Commander, Rigs here. You've got the raw materials to build yourself a new ship.<br><br>` +
+        `Head to the <strong>Base Station → Ships tab</strong> and let's get another hull in the fleet. More ships means more hauls — simple as that!`,
+      base_unlock: (names) =>
+        `Commander, it's Rigs down at the yard. Just got word your base hit a new tier — that means I can now build you a ${names}.<br><br>` +
+        `Head to the <strong>Base Station → Craft</strong> tab and let's get to work!`,
+      sol_idle: ({ names, count }) =>
+        `Hey! ${count > 1 ? `${count} ships are` : `${names} is`} sitting idle and doing absolutely nothing!<br><br>` +
+        `${count > 1 ? `That includes: ${names}.<br><br>` : ''}` +
+        `Either assign ${count > 1 ? 'them' : 'it'} to a node or sell ${count > 1 ? 'them' : 'it'} for parts — dead weight costs you every SOL!`,
+    },
   },
   kade: {
     id: 'kade',
@@ -36,6 +70,12 @@ export const NPCS = {
     ship: "Earth's Star Space Agency · Tax Division",
     portrait: 'assets/images/npcs/kade.png',
     bio: "Revenue Marshal Octavian Kade represents Earth's Star Space Agency Tax Division. Cold, meticulous, and utterly humourless — Kade has pursued unpaid sector levies across three star systems. He always collects.",
+    transmissionLines: {
+      kade_intro:
+        `Greetings, Commander. Revenue Marshal Octavian Kade — Earth's Star Space Agency, Tax Division.<br><br>` +
+        `I've been monitoring your operation with great interest. I strongly advise you make full use of the <strong>Trade</strong> panel to sell your resources and maintain healthy liquidity.<br><br>` +
+        `...One never knows when tax legislation might be extended to the outer belt. Stay compliant, Commander.`,
+    },
   },
   architect: {
     id: 'architect',
@@ -50,6 +90,18 @@ export const NPCS = {
     ship: 'Lead Researcher · Sector Science Division',
     portrait: 'assets/images/npcs/vane.jpg',
     bio: "Dr. Elliot Vane heads the Sector Science Division's field research unit. Chronically under-slept and over-caffeinated, he's responsible for translating raw resource data into usable research breakthroughs. If something strange is happening in the belt, Vane already knows — he just hasn't filed the report yet.",
+    transmissionLines: {
+      vane_solar_explain:
+        `Commander, Dr. Vane here. That solar flare you just experienced is a Class-M electromagnetic surge — fairly common this far out in the belt.<br><br>` +
+        `They selectively damage exposed resource depots. Oxygen is shielded by its containment units, but metals and silicates take the hit.<br><br>` +
+        `I'm working on a shielding upgrade. Until then — expect more of these.`,
+      vane_comet_explain: (hpPct) =>
+        `Commander, Vane. That comet was a stray fragment from the outer debris field — they hit harder the longer you've been out here.<br><br>` +
+        `Base integrity is now at <strong>${hpPct}%</strong>. ${hpPct < 30
+          ? '<span style="color:#f88">Structural failure is a real risk at this level — repair immediately.</span>'
+          : 'I recommend repairing via the Base Station when you get a chance.'}<br><br>` +
+        `Upgrading the base increases its maximum health pool significantly.`,
+    },
   },
   doran: {
     id: 'doran',

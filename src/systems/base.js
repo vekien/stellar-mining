@@ -3,11 +3,12 @@
 // ============================================================
 import { state } from '../state.js';
 import { BASE_UPGRADE_COSTS, BASE_RANGE, BASE_MAX_SHIPS } from '../data/nodes.js';
-import { CRAFT_RECIPES } from '../data/ships.js';
+import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { addLog, fmt } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { spawnRangePulse, spawnNodeUnlock } from '../render/animations.js';
 import { showOnce } from '../ui/transmissions.js';
+import { NPCS } from '../data/npcs.js';
 
 export function getRepairCost(amount) {
   return { coins: amount }; // 1:1 coin per HP
@@ -45,10 +46,7 @@ window.upgradeBase = function() {
   const newShips = CRAFT_RECIPES.filter(r => r.mineTier === state.base.level);
   if (newShips.length > 0) {
     const names = newShips.map(r => `<strong>${r.name}</strong>`).join(' and ');
-    setTimeout(() => showOnce('base_unlock_' + state.base.level,
-      `Commander, it's Rigs down at the yard. Just got word your base hit a new tier — that means I can now build you a ${names}.<br><br>Head to the <strong>Base Station → Craft</strong> tab and let's get to work!`,
-      25, 'rigs'
-    ), 1000);
+    setTimeout(() => showOnce('base_unlock_' + state.base.level, NPCS.rigs.transmissionLines.base_unlock(names), 25, 'rigs'), 1000);
   }
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();

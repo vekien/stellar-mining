@@ -4,34 +4,37 @@
 import { TILE_H } from '../constants.js';
 import { state, bumpShipIdCounter } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
-import { CRAFT_RECIPES, SHIP_TIER_COSTS, MINE_TIERS as _mt, TIER_UPGRADE_CAP,
+import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
+import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
          UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
          upgradeTotalCost, upgradeChunk } from '../data/ships.js';
 import { BASE_MAX_SHIPS } from '../data/nodes.js';
+import { NPCS } from '../data/npcs.js';
 import { addLog, fmt } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { BASE_POS, gridToWorld, nodeWorldPos } from '../render/camera.js';
 import { spawnFloatie } from '../render/animations.js';
-import { showOnce, showTransmissionMessage } from '../ui/transmissions.js';
-import { removeReassignTooltip } from '../ui/tutorial.js';
+import { showOnce, showTransmissionMessage, dismissTransmission } from '../ui/transmissions.js';
+import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 
 // ── Spawn ──
-export function spawnShip(type = 'starter') {
+export function spawnShip(type = 'scout') {
   const maxShips = BASE_MAX_SHIPS[(state.base.level-1)] || 20;
   if (state.ships.length >= maxShips) { addLog('⚠ Ship capacity full! Upgrade the Base.'); return; }
   const recipe = CRAFT_RECIPES.find(r => r.id === type);
+  const stats  = SHIP_DEFS[type] || SHIP_DEFS.scout;
   const base = gridToWorld(12, 12);
   const id = bumpShipIdCounter();
   const ship = {
     id,
     name: recipe ? `${recipe.name} #${id}` : `Starter #${id}`,
     type,
-    capacity:   recipe ? recipe.capacity  : 10,
-    flySpeed:   recipe ? recipe.flySpeed  : 1.0,
-    mineSpeed:  recipe ? recipe.mineSpeed : 1.0,
-    mineTier:   recipe ? recipe.mineTier  : 1,
+    capacity:  stats.capacity,
+    flySpeed:  stats.flySpeed,
+    mineSpeed: stats.mineSpeed,
+    mineTier:  stats.mineTier,
     capacityLevel:0, flySpeedLevel:0, mineSpeedLevel:0,
-    cargo:0, cargoType:null,
+    cargo:0, cargoResource:null,
     status:'idle', targetNode:null,
     heading: -Math.PI/2,
     x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0,
@@ -51,12 +54,27 @@ export function assignShip(ship, node) {
   const accessible = [];
   for (let t = 1; t <= ship.mineTier; t++) accessible.push(...MINE_TIERS[t].resources);
   if (!accessible.includes(node.type)) return;
-  if (ship.status !== 'idle') {
-    if (ship.cargo > 0) addLog(`⚠ ${ship.name} dropped ${ship.cargo} cargo to change course`);
-    ship.cargo = 0;
-  }
+  if (ship.cargo > 0) addLog(`⚠ ${ship.name} dropped ${ship.cargo} cargo to change course`);
+  console.log(`[assign] ${ship.name} → node ${node.id} (${node.type}) | was status=${ship.status} cargo=${ship.cargo} cargoResource=${ship.cargoResource}`);
+  ship.cargo = 0;
+  ship.cargoResource = null;
   import('../ui/tutorial.js').then(({ dismissTutorial }) => dismissTutorial());
   if (state.tutStep < 2) state.tutStep = 2;
+  state.redirectTutActive = false;
+
+  // Rigs upgrade tutorial — fires first time a non-starter ship is assigned
+  if (state.ships.length > 1 && !state.seenMsgs['rigs_upgrades']) {
+    const alreadyUpgraded = state.ships.some(
+      s => s.capacityLevel > 0 || s.flySpeedLevel > 0 || s.mineSpeedLevel > 0 || s.mineTier > 1
+    );
+    setTimeout(() => {
+      showOnce('rigs_upgrades', NPCS.rigs.transmissionLines.rigs_upgrades, 20, 'rigs');
+      if (!alreadyUpgraded) {
+        state.upgradesTutActive = true;
+        if (refresh.ui) refresh.ui();
+      }
+    }, 1200);
+  }
   document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   removeReassignTooltip();
   ship.targetNode = node.id;
@@ -83,10 +101,11 @@ export function tickShip(ship, dt) {
         if (refresh.ui) refresh.ui();
       } else {
         // Arrived at base
-        if (ship.cargo>0 && ship.cargoType && RESOURCE_DEFS[ship.cargoType]) {
-          tickEvents.push({ type:'deposit', name:ship.name, cargoType:ship.cargoType, amount:ship.cargo });
+        console.log(`[return] ${ship.name} arrived at base | cargo=${ship.cargo} cargoResource=${ship.cargoResource}`);
+        if (ship.cargo>0 && ship.cargoResource && RESOURCE_DEFS[ship.cargoResource]) {
+          tickEvents.push({ type:'deposit', name:ship.name, cargoResource:ship.cargoResource, amount:ship.cargo });
         }
-        ship.cargo=0; ship.cargoType=null;
+        ship.cargo=0; ship.cargoResource=null;
         if (ship.targetNode !== null) {
           const node = state.nodes.find(n => n.id === ship.targetNode);
           if (node) { ship.status='pausing'; ship.pauseTimer=0.4; }
@@ -123,8 +142,12 @@ export function tickShip(ship, dt) {
     const node = state.nodes.find(n => n.id === ship.targetNode);
     if (!node) { ship.targetNode=null; ship.status='idle'; tickEvents.push({ type:'idle', ship }); return; }
     if (ship.mineTimer >= MINE_INTERVAL) {
+      const prevResource = ship.cargoResource;
       ship.cargo = Math.min(ship.capacity, ship.cargo+1);
-      ship.cargoType = ship.cargoType || node.type;
+      ship.cargoResource = node.type;
+      if (prevResource !== ship.cargoResource) {
+        console.log(`[mine] ${ship.name} cargoResource set to ${ship.cargoResource} (was ${prevResource}) | cargo=${ship.cargo}`);
+      }
       ship.mineTimer = 0;
       if (ship.cargo >= ship.capacity) {
         ship.status='returning';
@@ -182,33 +205,27 @@ window.sellShip = function(shipId, sellVal) {
 // ── Craft ──
 window.craftShip = function(recipeId) {
   const recipe = CRAFT_RECIPES.find(r => r.id === recipeId); if (!recipe) return;
-  if (recipe.cost > 0 && state.coins < recipe.cost) return;
   for (const [r,n] of Object.entries(recipe.reqs)) if ((state.resources[r]||0) < n) return;
   for (const [r,n] of Object.entries(recipe.reqs)) state.resources[r] -= n;
-  if (recipe.cost > 0) state.coins -= recipe.cost;
   if (state.tutStep === 7) {
     state.tutStep = 8; state.basePanelOpen = false;
     document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   }
+  dismissTransmission();
   spawnShip(recipeId);
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  const rigsLines = {
-    scout:     "She's light, she's quick, and she'll get to that node before anyone else. Don't expect her to haul much back — but for scouting new deposits, she's exactly what you need.",
-    swift:     "Pure speed. If you need resources fast and don't care about volume, the Swift Runner is your girl. She burns hard and turns fast — just don't ask her to carry much.",
-    hauler:    "Now we're talking. The Hauler is built for volume — slow and steady, but she'll bring back more per run than anything in the light class. Great for your main iron and copper routes.",
-    freighter: "This is the big one, Commander. The Freighter moves like a barge but carries like a warehouse. Assign her to your richest node and let her work. You won't be disappointed.",
-  };
-  const flavour = rigsLines[recipeId] || "She's all yours, Commander. Get her out there.";
+  const shipStats  = SHIP_DEFS[recipeId] || SHIP_DEFS.scout;
+  const flavour    = NPCS.rigs.shipLines[recipeId] || NPCS.rigs.shipLines.default;
   const statsTable = `<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;">
-    <tr><td style="color:#4a7aaa;padding:2px 0;width:55%;">▲ Cargo Capacity</td><td style="color:#cde;font-weight:bold;">${recipe.capacity} units</td></tr>
-    <tr><td style="color:#4a7aaa;padding:2px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${recipe.flySpeed}x</td></tr>
-    <tr><td style="color:#4a7aaa;padding:2px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${recipe.mineSpeed}x</td></tr>
+    <tr><td style="color:#4a7aaa;padding:2px 0;width:55%;">▲ Cargo Capacity</td><td style="color:#cde;font-weight:bold;">${shipStats.capacity} units</td></tr>
+    <tr><td style="color:#4a7aaa;padding:2px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${shipStats.flySpeed}x</td></tr>
+    <tr><td style="color:#4a7aaa;padding:2px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${shipStats.mineSpeed}x</td></tr>
   </table>`;
   setTimeout(() => showOnce('craft_' + recipeId,
     `<strong>${recipe.name}</strong> rolling out of the yard!${statsTable}${flavour}`,
-    22, 'rigs'
+    5, 'rigs'
   ), 600);
 };
 
@@ -241,6 +258,10 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     state.coins -= cost; ship.mineTier=nextTier;
     addLog(`⬆ ${ship.name} upgraded to ${MINE_TIERS[nextTier].label}!`);
   }
+  state.upgradesTutActive = false;
+  document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
+  dismissTransmission();
+  checkTradeTutorial();
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
 };
@@ -268,56 +289,28 @@ window.doAssign = function(shipId, nodeId) {
 export function flushTickEvents(canvas) {
   for (const ev of tickEvents) {
     if (ev.type === 'deposit') {
-      state.resources[ev.cargoType] += ev.amount;
+      console.log(`[deposit] ${ev.name} depositing ${ev.amount}x ${ev.cargoResource}`);
+      state.resources[ev.cargoResource] += ev.amount;
       state.trips++;
       state.solStarted = true;
-      addLog(`📦 ${ev.name} returned with ${ev.amount} ${RESOURCE_DEFS[ev.cargoType].label}`);
-      spawnFloatie(ev.cargoType, ev.amount);
+      addLog(`📦 ${ev.name} returned with ${ev.amount} ${RESOURCE_DEFS[ev.cargoResource].label}`);
+      spawnFloatie(ev.cargoResource, ev.amount);
       if (state.tutStep === 3) { state.tutStep=4; state.seenMsgs['tut_mining_done']=true; document.querySelectorAll('.tut-pointer').forEach(el=>el.remove()); }
       import('../ui/tutorial.js').then(({ checkTradeTutorial }) => checkTradeTutorial());
       if (!state.firstDeposit) {
         state.firstDeposit = true;
-        setTimeout(() => showOnce('first_deposit',
-          `Hey Commander — Admiral Juno aboard the <strong>ISV Hyperion</strong>!<br><br>You've just collected your first batch of resources. You can either <strong>sell these</strong> back to Star Command for coins, or use them to <strong>craft more ships</strong> and base materials. Keep that fleet growing!`,
-          15, 'juno'
-        ), 800);
+        state.redirectTutActive = true;
+        setTimeout(() => showOnce('first_deposit', NPCS.juno.transmissionLines.first_deposit, 15, 'juno'), 800);
       }
       if (!state.firstCraftable) {
         const canBuildAny = CRAFT_RECIPES.some(r => Object.entries(r.reqs).every(([res, amt]) => (state.resources[res]||0) >= amt));
         if (canBuildAny) {
           state.firstCraftable = true;
           if (state.tutStep <= 4) state.tutStep = 5;
-          setTimeout(() => showOnce('first_craftable',
-            `Commander, this is Admiral Juno. Our scanners show you've stockpiled enough raw materials to <strong>construct a new ship</strong>.<br><br>Head to the <strong>Base Station</strong> and open the <strong>Ships</strong> tab to expand your fleet — a bigger fleet means bigger hauls!`,
-            15, 'juno'
-          ), 1200);
+          setTimeout(() => showOnce('first_craftable', NPCS.rigs.transmissionLines.first_craftable, 15, 'rigs'), 1200);
         }
       }
       if (state.activeTab === 'craft' && refresh.ui) refresh.ui();
-      {
-        const iron   = state.resources.iron   || 0;
-        const copper = state.resources.copper || 0;
-        const sellVal = iron*2 + copper*3;
-        const hasBuiltAny = state.ships.some(s => s.type !== 'starter');
-        if (!hasBuiltAny && (iron >= 50 || copper >= 40 || sellVal >= 120)) {
-          setTimeout(() => showOnce('rigs_sell_nudge',
-            `Hey Commander, Rigs here. You've stockpiled enough materials to build yourself a new ship.<br><br>` +
-            `Head to the <strong>Base Station → Ships tab</strong> and let's get another hull in the fleet. More ships means more hauls — simple as that!`,
-            15, 'rigs'
-          ), 800);
-        }
-      }
-      if (!state.firstNodeSwitch) {
-        const iron = state.resources.iron || 0;
-        const copper = state.resources.copper || 0;
-        if (iron >= 15 || copper >= 10) {
-          state.firstNodeSwitch = true;
-          setTimeout(() => showOnce('first_node_switch',
-            `Commander — you've built up a solid stockpile. Did you know you can <strong>select a ship</strong> and click a <strong>different node</strong> to redirect it?<br><br>Try branching out to collect different materials — you'll need a variety to craft new ships!`,
-            15, 'juno'
-          ), 1000);
-        }
-      }
     } else if (ev.type === 'idle') {
       if (state.selectedShip === ev.ship.id) {
         state.pendingAssign = ev.ship.id;

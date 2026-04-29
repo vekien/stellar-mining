@@ -7,6 +7,7 @@ import { addLog, fmt } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { spawnSolarFlare, spawnComet } from '../render/animations.js';
 import { showOnce } from '../ui/transmissions.js';
+import { NPCS } from '../data/npcs.js';
 
 export function showEventWarning(label, detail, duration = 6000) {
   const banner = document.getElementById('event-warning');
@@ -37,12 +38,7 @@ export const RANDOM_EVENTS = [
         10000
       );
       spawnSolarFlare();
-      setTimeout(() => showOnce('vane_solar_explain',
-        `Commander, Dr. Vane here. That solar flare you just experienced is a Class-M electromagnetic surge — fairly common this far out in the belt.<br><br>` +
-        `They selectively damage exposed resource depots. Oxygen is shielded by its containment units, but metals and silicates take the hit.<br><br>` +
-        `I'm working on a shielding upgrade. Until then — expect more of these.`,
-        15, 'vane'
-      ), 15000);
+      setTimeout(() => showOnce('vane_solar_explain', NPCS.vane.transmissionLines.vane_solar_explain, 15, 'vane'), 15000);
       if (refresh.ui) refresh.ui();
     }
   },
@@ -67,12 +63,7 @@ export const RANDOM_EVENTS = [
         `BASE DAMAGE: ${fmt(actual)} HP · INTEGRITY: ${hpPct}%${critical ? ' · ⚠ CRITICAL' : ''}`,
         10000
       );
-      setTimeout(() => showOnce('vane_comet_explain',
-        `Commander, Vane. That comet was a stray fragment from the outer debris field — they hit harder the longer you've been out here.<br><br>` +
-        `Base integrity is now at <strong>${hpPct}%</strong>. ${critical ? '<span style="color:#f88">Structural failure is a real risk at this level — repair immediately.</span>' : 'I recommend repairing via the Base Station when you get a chance.'}<br><br>` +
-        `Upgrading the base increases its maximum health pool significantly.`,
-        15, 'vane'
-      ), 15000);
+      setTimeout(() => showOnce('vane_comet_explain', NPCS.vane.transmissionLines.vane_comet_explain(hpPct), 15, 'vane'), 15000);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
       if (refresh.ui) refresh.ui();
     }

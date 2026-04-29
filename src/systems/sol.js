@@ -8,6 +8,8 @@ import { addLog } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { tickRandomEvents } from './events.js';
 import { showTransmissionMessage } from '../ui/transmissions.js';
+import { checkTradeTutorial } from '../ui/tutorial.js';
+import { NPCS } from '../data/npcs.js';
 
 export function scheduleNextEvent() {
   const minT = 180, maxT = 480; // 3-8 minutes into SOL
@@ -18,6 +20,7 @@ export function tickSOL(dt) {
   if (!state.solStarted) return;
   tickRandomEvents(dt);
   state.solTimer += dt;
+  checkTradeTutorial();
   if (state.solTimer >= SOL_DURATION) {
     state.solTimer -= SOL_DURATION;
     state.sol++;
@@ -38,13 +41,7 @@ export function tickSOL(dt) {
     const idleShips = state.ships.filter(s => s.status === 'idle' && s.targetNode === null);
     if (idleShips.length > 0) {
       const names = idleShips.map(s => `<strong>${s.name}</strong>`).join(', ');
-      const plural = idleShips.length > 1;
-      showTransmissionMessage(
-        `Hey! ${plural ? `${idleShips.length} ships are` : `${names} is`} sitting idle and doing absolutely nothing!<br><br>` +
-        `${plural ? `That includes: ${names}.<br><br>` : ''}` +
-        `Either assign ${plural ? 'them' : 'it'} to a node or sell ${plural ? 'them' : 'it'} for parts — dead weight costs you every SOL!`,
-        20, 'rigs'
-      );
+      showTransmissionMessage(NPCS.rigs.transmissionLines.sol_idle({ names, count: idleShips.length }), 20, 'rigs');
     }
 
     saveGame();

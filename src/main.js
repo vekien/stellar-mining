@@ -4,7 +4,7 @@
 import { state, loadGame, saveGame } from './state.js';
 import { ALL_NODES } from './data/nodes.js';
 import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
-import { CRAFT_RECIPES } from './data/ships.js';
+import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
 import { SOL_DURATION } from './constants.js';
 import { setStateRef } from './helpers.js';
 import { hideTooltip } from './helpers.js';
@@ -61,7 +61,7 @@ resize();
 initNodes();
 
 const loaded = loadGame();
-if (!loaded) spawnShip('starter');
+if (!loaded) spawnShip('scout');
 
 // Schedule first event if not already scheduled (loadGame may not if nextEventTimer was null)
 if (state.nextEventTimer === null) scheduleNextEvent();
@@ -103,8 +103,13 @@ if (state.ships.some(s => s.targetNode !== null)) {
 
 // ── Sidebar events ────────────────────────────────────────────
 let sidebarHovered = false;
+let overlayHovered = false;  // base-panel-overlay + hdr-modal
 document.getElementById('sidebar').addEventListener('mouseenter', () => sidebarHovered = true);
 document.getElementById('sidebar').addEventListener('mouseleave', () => { sidebarHovered = false; hideTooltip(); });
+document.getElementById('base-panel-overlay').addEventListener('mouseenter', () => overlayHovered = true);
+document.getElementById('base-panel-overlay').addEventListener('mouseleave', () => overlayHovered = false);
+document.getElementById('hdr-modal-overlay').addEventListener('mouseenter', () => overlayHovered = true);
+document.getElementById('hdr-modal-overlay').addEventListener('mouseleave', () => overlayHovered = false);
 
 document.getElementById('sidebar').addEventListener('mousedown', e => {
   const interactive = e.target.closest('.ship-card, button, input, select, .tab, .sell-btn-s, .filter-btn, .upgrade-row, #tab-content, label');
@@ -179,6 +184,12 @@ function patchShipCards() {
     const txt = document.getElementById(`cargo-text-${ship.id}`);
     if (txt) txt.textContent = `▲ ${ship.cargo}/${ship.capacity}`;
   }
+  // Keep action panel cargo stat live for the selected ship
+  if (state.selectedShip !== null) {
+    const ship = state.ships.find(s => s.id === state.selectedShip);
+    const el = document.getElementById('action-panel-cargo');
+    if (ship && el) el.textContent = `${ship.cargo} / ${ship.capacity}`;
+  }
   requestAnimationFrame(patchShipCards);
 }
 
@@ -213,7 +224,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── Slow interval — full UI rebuild ──────────────────────────
-setInterval(() => { if (!sidebarHovered && refresh.ui) refresh.ui(); }, 800);
+setInterval(() => { if (!sidebarHovered && !overlayHovered && refresh.ui) refresh.ui(); }, 800);
 
 // ── Autosave ─────────────────────────────────────────────────
 setInterval(saveGame, 5000);

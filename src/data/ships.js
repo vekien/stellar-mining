@@ -1,20 +1,61 @@
 // ============================================================
 // SHIP & UPGRADE DATA
 // ============================================================
-export const CRAFT_RECIPES = [
-  { id:'scout',     name:'Scout Ship',   desc:'Fast, light cargo',           capacity:15, flySpeed:1.4, mineSpeed:1.0, mineTier:1, reqs:{iron:15,copper:10},                                            cost:100  },
-  { id:'swift',     name:'Swift Runner', desc:'Extreme speed, low capacity', capacity:12, flySpeed:2.2, mineSpeed:1.5, mineTier:1, reqs:{iron:30,copper:30},                                            cost:30   },
-  { id:'hauler',    name:'Hauler',       desc:'Slow but big cargo',          capacity:30, flySpeed:0.8, mineSpeed:0.8, mineTier:2, reqs:{iron:50,titanium:30,silicon:25,oxygen:10},                      cost:200  },
-  { id:'freighter', name:'Freighter',    desc:'Massive cargo bay',           capacity:60, flySpeed:0.6, mineSpeed:0.6, mineTier:3, reqs:{iron:150,titanium:80,copper:100,gold:25,oxygen:25,silicon:10},  cost:1000 },
-];
+
+// Base stats for each ship type (used at spawn + display)
+export const SHIP_DEFS = {
+  scout: {
+    capacity:  15,
+    flySpeed:  1.4,
+    mineSpeed: 1.0,
+    mineTier:  1,
+  },
+  swift: {
+    capacity:  12,
+    flySpeed:  2.2,
+    mineSpeed: 1.5,
+    mineTier:  1,
+  },
+  hauler: {
+    capacity:  30,
+    flySpeed:  0.8,
+    mineSpeed: 0.8,
+    mineTier:  2,
+  },
+  freighter: {
+    capacity:  60,
+    flySpeed:  0.6,
+    mineSpeed: 0.6,
+    mineTier:  3,
+  },
+};
 
 // Tier upgrade costs: ~2.5x each step
 export const SHIP_TIER_COSTS = {
-  2:1000, 3:2500, 4:6250, 5:15625, 6:39063, 7:97656, 8:244141, 9:610352, 10:1525879
+  2:1000,
+  3:2500,
+  4:6250, 
+  5:15625, 
+  6:39063,
+  7:97656, 
+  8:244141, 
+  9:610352, 
+  10:1525879
 };
 
 // Max upgrade level per tier for each stat
-export const TIER_UPGRADE_CAP = { 1:10, 2:25, 3:50, 4:80, 5:120, 6:170, 7:230, 8:300, 9:380, 10:470 };
+export const TIER_UPGRADE_CAP = { 
+  1:10, 
+  2:25, 
+  3:50, 
+  4:80, 
+  5:120, 
+  6:180, 
+  7:250, 
+  8:300, 
+  9:400, 
+  10:500 
+};
 
 // Tier rarity colours for display
 export const ROMAN = ['','I','II','III','IV','V','VI','VII','VIII','IX','X'];

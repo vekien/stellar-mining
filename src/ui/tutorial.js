@@ -1,149 +1,242 @@
 // ============================================================
-// TUTORIAL SYSTEM — pointers, banners, reassign tooltip
+// TUTORIAL SYSTEM — modular pointer defs, rendering, helpers
 // ============================================================
 import { state } from '../state.js';
 import { cam, gridToWorld } from '../render/camera.js';
 import { W, H } from '../render/renderer.js';
-import { TILE_H } from '../constants.js';
+import { TILE_H, SOL_DURATION } from '../constants.js';
 import { showOnce } from './transmissions.js';
+import { NPCS } from '../data/npcs.js';
 
+// ── Canvas world-position → screen-pixel helper ──────────────
+function canvasPos(worldX, worldY) {
+  const canvas = document.getElementById('main-canvas');
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (worldX - cam.x) * cam.zoom + W / 2 + rect.left,
+    y: (worldY - cam.y) * cam.zoom + H / 2 + rect.top,
+  };
+}
+
+// ── Tutorial definitions ──────────────────────────────────────
+//
+// Each entry:
+//   id         — unique string; used as the DOM element's id
+//   condition  — fn(state) → bool  when this pointer should be visible
+//   text       — label shown in the pointer chip
+//   placement  — 'above': pointer sits above the target, arrow points ↓
+//                'below': pointer sits below the target, arrow points ↑
+//   getEl      — fn() → Element | null    target is a DOM element
+//   getPos     — fn(state) → {x,y} | null target is a canvas world position
+//
+// Rules:
+//   • Only ONE of getEl / getPos should be supplied per entry.
+//   • The higher a step's tutStep value, the later it fires. State tracks
+//     the highest step reached, so earlier steps auto-skip on loaded saves.
+//   • Independent multi-step tutorials (redirect, upgrades) use their own
+//     state flags rather than tutStep so they can co-exist.
+
+const TUTORIAL_DEFS = [
+
+  // ── Core tutorial flow ──────────────────────────────────────
+
+  {
+    id: 'tut-ptr-ship',
+    condition: s => s.tutStep === 0
+      && s.ships.length === 1
+      && s.ships[0].status === 'idle'
+      && s.ships[0].targetNode === null,
+    text: 'SELECT SHIP',
+    placement: 'above',
+    getEl: () => document.querySelector('.ship-card'),
+  },
+
+  {
+    id: 'tut-ptr-node',
+    condition: s => s.tutStep === 1
+      && s.ships.length === 1
+      && s.ships[0].status === 'idle'
+      && s.ships[0].targetNode === null,
+    text: 'SELECT IRON NODE',
+    placement: 'above',
+    getPos: s => {
+      const node = s.nodes.find(n => n.type === 'iron' && n.minLevel <= s.base.level);
+      if (!node) return null;
+      const w = gridToWorld(node.gr[0], node.gr[1]);
+      return canvasPos(w.x, w.y + TILE_H / 2);
+    },
+  },
+
+  {
+    id: 'tut-ptr-mining',
+    condition: s => s.tutStep === 3 && !s.seenMsgs['tut_mining_done'],
+    text: '⛏ MINING PROGRESS SHOWN HERE',
+    placement: 'below',
+    getEl: () => document.querySelector('.ship-card'),
+  },
+
+  {
+    id: 'tut-ptr-base',
+    condition: s => s.tutStep === 5,
+    text: '⬡ SELECT YOUR BASE',
+    placement: 'above',
+    getPos: () => {
+      const bw = gridToWorld(12, 12);
+      return canvasPos(bw.x, bw.y + TILE_H / 2);
+    },
+  },
+
+  {
+    id: 'tut-ptr-ships-tab',
+    condition: s => s.tutStep === 6,
+    text: 'SHIPS TAB',
+    placement: 'above',
+    getEl: () => Array.from(document.querySelectorAll('.bp-tab'))
+      .find(el => el.textContent.trim() === 'SHIPS') || null,
+  },
+
+  {
+    id: 'tut-ptr-scout',
+    condition: s => s.tutStep === 7,
+    text: '🚀 BUILD SCOUT SHIP',
+    placement: 'below',
+    getEl: () => document.querySelector('.bp-craft-item'),
+  },
+
+  {
+    id: 'tut-ptr-newship',
+    condition: s => s.tutStep === 8,
+    text: 'SELECT SHIP → ASSIGN TO NODE',
+    placement: 'below',
+    getEl: () => {
+      const cards = document.querySelectorAll('.ship-card');
+      return cards[cards.length - 1] || null;
+    },
+  },
+
+  {
+    id: 'tut-ptr-trade',
+    condition: s => s.tutStep === 10,
+    text: 'SELL RESOURCES UNDER TRADE',
+    placement: 'below',
+    getEl: () => Array.from(document.querySelectorAll('.hdr-btn'))
+      .find(el => el.querySelector('.label')?.textContent === 'TRADE') || null,
+  },
+
+  // ── Redirect tutorial (fires after "solid stockpile" message) ──
+  // Step A: select any ship
+
+  {
+    id: 'tut-ptr-redirect-ship',
+    condition: s => s.redirectTutActive && !s.selectedShip,
+    text: 'SELECT A SHIP',
+    placement: 'below',
+    getEl: () => document.querySelector('.ship-card'),
+  },
+
+  // Step B: click a node of a different type to redirect
+  {
+    id: 'tut-ptr-redirect-node',
+    condition: s => s.redirectTutActive && !!s.pendingAssign,
+    text: 'REDIRECT TO NEW NODE',
+    placement: 'above',
+    getPos: s => {
+      // Find types already assigned to ships
+      const assignedTypes = new Set(
+        s.ships
+          .filter(sh => sh.targetNode !== null)
+          .map(sh => s.nodes.find(n => n.id === sh.targetNode)?.type)
+          .filter(Boolean)
+      );
+      // Point to the nearest accessible node of a different type
+      const node = s.nodes.find(n => n.minLevel <= s.base.level && !assignedTypes.has(n.type));
+      if (!node) return null;
+      const w = gridToWorld(node.gr[0], node.gr[1]);
+      return canvasPos(w.x, w.y + TILE_H / 2);
+    },
+  },
+
+  // ── Upgrades tutorial (fires after first non-starter ship is assigned) ──
+  // Step A: select any ship
+
+  {
+    id: 'tut-ptr-upgrade-ship',
+    condition: s => s.upgradesTutActive && !s.selectedShip,
+    text: 'SELECT A SHIP',
+    placement: 'below',
+    getEl: () => document.querySelector('.ship-card'),
+  },
+
+  // Step B: point at the Upgrades section in the action panel
+  {
+    id: 'tut-ptr-upgrades',
+    condition: s => s.upgradesTutActive && !!s.selectedShip,
+    text: 'UPGRADES',
+    placement: 'above',
+    getEl: () => document.getElementById('upgrades-section-header'),
+  },
+
+];
+
+// ── Render all active tutorial pointers ──────────────────────
 export function renderTutPointers() {
-  // Remove any existing pointers
   document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
 
-  if (state.tutStep === 0 || state.tutStep === 1) {
-    // Only show during early tutorial and if game has just 1 ship that is idle and unassigned
-    const isNewGame = state.ships.length === 1 && state.ships[0].status === 'idle' && state.ships[0].targetNode === null;
-    if (!isNewGame) return;
+  for (const def of TUTORIAL_DEFS) {
+    if (!def.condition(state)) continue;
 
-    if (state.tutStep === 0) {
-      const card = document.querySelector('.ship-card');
-      if (!card) return;
-      const rect = card.getBoundingClientRect();
-      const ptr = document.createElement('div');
-      ptr.className = 'tut-pointer';
-      ptr.id = 'tut-ptr-ship';
-      ptr.innerHTML = '<div class="tut-pointer-label">SELECT SHIP</div><div class="tut-pointer-arrow"></div>';
-      ptr.style.left = (rect.left + rect.width/2 - 50) + 'px';
-      ptr.style.top  = (rect.top - 54) + 'px';
-      document.body.appendChild(ptr);
+    let x, y;
+
+    if (def.getEl) {
+      const el = def.getEl();
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = def.placement === 'below' ? rect.bottom + 6 : rect.top - 54;
+
+    } else if (def.getPos) {
+      const pos = def.getPos(state);
+      if (!pos) continue;
+      x = pos.x;
+      y = def.placement === 'below' ? pos.y + 6 : pos.y - 58;
+
+    } else {
+      continue;
     }
 
-    if (state.tutStep === 1) {
-      const ironNode = state.nodes.find(n => n.type === 'iron' && n.minLevel <= state.base.level);
-      if (!ironNode) return;
-      const canvas = document.getElementById('main-canvas');
-      const canvasRect = canvas.getBoundingClientRect();
-      const w  = gridToWorld(ironNode.gr[0], ironNode.gr[1]);
-      const sx = (w.x - cam.x) * cam.zoom + W/2 + canvasRect.left;
-      const sy = (w.y + TILE_H/2 - cam.y) * cam.zoom + H/2 + canvasRect.top;
-      const ptr = document.createElement('div');
-      ptr.className = 'tut-pointer';
-      ptr.id = 'tut-ptr-node';
-      ptr.innerHTML = '<div class="tut-pointer-label">SELECT IRON NODE</div><div class="tut-pointer-arrow"></div>';
-      ptr.style.left = (sx - 68) + 'px';
-      ptr.style.top  = (sy - 58) + 'px';
-      document.body.appendChild(ptr);
-    }
-  }
-
-  if (state.tutStep === 3 && !state.seenMsgs['tut_mining_done']) {
-    const miningShip = state.ships.find(s => s.status === 'mining');
-    if (!miningShip) return;
-    const card = document.querySelector('.ship-card');
-    if (!card) return;
-    const rect = card.getBoundingClientRect();
     const ptr = document.createElement('div');
-    ptr.className = 'tut-pointer tut-above';
-    ptr.id = 'tut-ptr-mining';
-    ptr.innerHTML = '<div class="tut-pointer-label">⛏ MINING PROGRESS SHOWN HERE</div><div class="tut-pointer-arrow"></div>';
-    ptr.style.left = (rect.left + rect.width / 2) + 'px';
-    ptr.style.top  = (rect.bottom + 6) + 'px';
-    document.body.appendChild(ptr);
-  }
-
-  if (state.tutStep === 5) {
-    const canvas = document.getElementById('main-canvas');
-    const canvasRect = canvas.getBoundingClientRect();
-    const bw = gridToWorld(12, 12);
-    const sx = (bw.x - cam.x) * cam.zoom + W/2 + canvasRect.left;
-    const sy = (bw.y + TILE_H/2 - cam.y) * cam.zoom + H/2 + canvasRect.top;
-    const ptr = document.createElement('div');
-    ptr.className = 'tut-pointer';
-    ptr.id = 'tut-ptr-base';
-    ptr.innerHTML = '<div class="tut-pointer-label">⬡ SELECT YOUR BASE</div><div class="tut-pointer-arrow"></div>';
-    ptr.style.left = sx + 'px';
-    ptr.style.top  = (sy - 58) + 'px';
-    document.body.appendChild(ptr);
-  }
-
-  if (state.tutStep === 6) {
-    const shipsTab = Array.from(document.querySelectorAll('.bp-tab')).find(el => el.textContent.trim() === 'SHIPS');
-    if (!shipsTab) return;
-    const rect = shipsTab.getBoundingClientRect();
-    const ptr = document.createElement('div');
-    ptr.className = 'tut-pointer';
-    ptr.id = 'tut-ptr-ships-tab';
-    ptr.innerHTML = '<div class="tut-pointer-label">SHIPS TAB</div><div class="tut-pointer-arrow"></div>';
-    ptr.style.left = (rect.left + rect.width / 2 - 50) + 'px';
-    ptr.style.top  = (rect.top - 54) + 'px';
-    document.body.appendChild(ptr);
-  }
-
-  if (state.tutStep === 7) {
-    const craftItem = document.querySelector('.bp-craft-item');
-    if (!craftItem) return;
-    const rect = craftItem.getBoundingClientRect();
-    const ptr = document.createElement('div');
-    ptr.className = 'tut-pointer tut-above';
-    ptr.id = 'tut-ptr-scout';
-    ptr.innerHTML = '<div class="tut-pointer-label">🚀 BUILD SCOUT SHIP</div><div class="tut-pointer-arrow"></div>';
-    ptr.style.left = (rect.left + rect.width / 2) + 'px';
-    ptr.style.top  = (rect.bottom + 6) + 'px';
-    document.body.appendChild(ptr);
-  }
-
-  if (state.tutStep === 8) {
-    const cards = document.querySelectorAll('.ship-card');
-    const card = cards[cards.length - 1];
-    if (!card) return;
-    const rect = card.getBoundingClientRect();
-    const ptr = document.createElement('div');
-    ptr.className = 'tut-pointer tut-above';
-    ptr.id = 'tut-ptr-newship';
-    ptr.innerHTML = '<div class="tut-pointer-label">SELECT SHIP → ASSIGN TO NODE</div><div class="tut-pointer-arrow"></div>';
-    ptr.style.left = (rect.left + rect.width / 2) + 'px';
-    ptr.style.top  = (rect.bottom + 6) + 'px';
-    document.body.appendChild(ptr);
-  }
-
-  if (state.tutStep === 10) {
-    const tradeBtn = Array.from(document.querySelectorAll('.hdr-btn')).find(el => el.querySelector('.label')?.textContent === 'TRADE');
-    if (!tradeBtn) return;
-    const rect = tradeBtn.getBoundingClientRect();
-    const ptr = document.createElement('div');
-    ptr.className = 'tut-pointer tut-above';
-    ptr.id = 'tut-ptr-trade';
-    ptr.innerHTML = '<div class="tut-pointer-label">SELL RESOURCES UNDER TRADE</div><div class="tut-pointer-arrow"></div>';
-    ptr.style.left = (rect.left + rect.width / 2) + 'px';
-    ptr.style.top  = (rect.bottom + 8) + 'px';
+    ptr.className = `tut-pointer${def.placement === 'below' ? ' tut-above' : ''}`;
+    ptr.id = def.id;
+    ptr.innerHTML = `<div class="tut-pointer-label">${def.text}</div><div class="tut-pointer-arrow"></div>`;
+    ptr.style.left = x + 'px';
+    ptr.style.top  = y + 'px';
     document.body.appendChild(ptr);
   }
 }
 
+// ── Trade / Kade tutorial trigger ────────────────────────────
+// Fires once any of three conditions is met:
+//   1. Player reaches 500 coins
+//   2. Player hits 0 coins after upgrading a ship
+//   3. 10 minutes of total game time have elapsed
 export function checkTradeTutorial() {
-  if (state.tutStep !== 9) return;
-  if (state.ships.length < 2) return;
-  if (!Object.values(state.resources).some(v => v >= 30)) return;
-  state.tutStep = 10;
-  setTimeout(() => showOnce('kade_intro',
-    `Greetings, Commander. Revenue Marshal Octavian Kade — Earth\'s Star Space Agency, Tax Division.<br><br>` +
-    `I\'ve been monitoring your operation with great interest. I strongly advise you make full use of the <strong>Trade</strong> panel to sell your resources and maintain healthy liquidity.<br><br>` +
-    `...One never knows when tax legislation might be extended to the outer belt. Stay compliant, Commander.`,
-    20, 'kade'
-  ), 800);
+  if (state.seenMsgs['kade_intro']) return;
+
+  // SOL clock is mapped to a 24-hour display; 10:00 = solTimer >= SOL_DURATION * 10/24
+  const has500Coins  = state.coins >= 500;
+  const brokeAfterUpgrade = state.coins <= 0 && state.ships.some(
+    s => s.capacityLevel > 0 || s.flySpeedLevel > 0 || s.mineSpeedLevel > 0 || s.mineTier > 1
+  );
+  const solAt10 = state.solTimer >= SOL_DURATION * 10 / 24;
+
+  if (!has500Coins && !brokeAfterUpgrade && !solAt10) return;
+
+  state.tutStep = Math.max(state.tutStep, 10);
+  setTimeout(() => showOnce('kade_intro', NPCS.kade.transmissionLines.kade_intro, 20, 'kade'), 800);
 }
 
+// ── Dismiss mission briefing banner ──────────────────────────
 export function dismissTutorial() {
   const banner = document.getElementById('tutorial-banner');
   if (banner) {
@@ -153,15 +246,15 @@ export function dismissTutorial() {
   }
 }
 
+// ── Reassign tooltip (shown while pendingAssign is active) ───
 export function showReassignTooltip(ship) {
   removeReassignTooltip();
   const el = document.createElement('div');
   el.id = 'reassign-tooltip';
   const sidebarW = 350;
   const canvasCentreX = (window.innerWidth - sidebarW) / 2;
-  const topOffset = 100;
   el.style.cssText = `
-    position:fixed; top:${topOffset}px; left:${canvasCentreX}px; transform:translateX(-50%);
+    position:fixed; top:100px; left:${canvasCentreX}px; transform:translateX(-50%);
     background:rgba(180,140,0,0.15); border:1px solid #ffe066;
     border-radius:4px; padding:6px 14px; font-size:12px; color:#ffe066;
     font-family:'Share Tech Mono',monospace; letter-spacing:1px;

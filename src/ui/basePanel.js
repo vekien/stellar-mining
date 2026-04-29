@@ -3,7 +3,8 @@
 // ============================================================
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
-import { CRAFT_RECIPES } from '../data/ships.js';
+import { CRAFTS, CRAFT_SHIPS as CRAFT_RECIPES, getCraft } from '../data/crafts.js';
+import { SHIP_DEFS } from '../data/ships.js';
 import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE } from '../data/nodes.js';
 import { fmt } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
@@ -123,12 +124,12 @@ export function renderBasePanel() {
     const atCap = state.ships.length >= maxShips;
     let items = '';
     for (const recipe of CRAFT_RECIPES) {
-      const tierLocked = recipe.mineTier > bl;
+      const stats     = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
+      const tierLocked = stats.mineTier > bl;
       if (tierLocked) continue;
-      const canAfford = recipe.cost === 0 || state.coins >= recipe.cost;
-      const reqsMet   = Object.entries(recipe.reqs).every(([r,n]) => (state.resources[r]||0) >= n);
-      const canCraft  = !tierLocked && canAfford && reqsMet && !atCap;
-      const tierColor = MINE_TIERS[recipe.mineTier]?.color || '#fff';
+      const reqsMet  = Object.entries(recipe.reqs).every(([r,n]) => (state.resources[r]||0) >= n);
+      const canCraft = !tierLocked && reqsMet && !atCap;
+      const tierColor = MINE_TIERS[stats.mineTier]?.color || '#fff';
       let reqsHtml = '';
       for (const [r,n] of Object.entries(recipe.reqs)) {
         const have = state.resources[r] || 0;
@@ -136,27 +137,23 @@ export function renderBasePanel() {
         reqsHtml += `<span class="bp-craft-req ${met?'met':'unmet'}" style="font-size:12px;">${RESOURCE_DEFS[r].label}: ${n}</span>`;
       }
       const lockBanner = tierLocked
-        ? `<div style="background:rgba(80,10,10,0.5);border:1px solid #803030;border-radius:3px;padding:5px 8px;margin-bottom:7px;font-size:11px;color:#f88;letter-spacing:0.5px;">⚠ REQUIRES BASE STATION LEVEL ${recipe.mineTier}</div>`
+        ? `<div style="background:rgba(80,10,10,0.5);border:1px solid #803030;border-radius:3px;padding:5px 8px;margin-bottom:7px;font-size:11px;color:#f88;letter-spacing:0.5px;">⚠ REQUIRES BASE STATION LEVEL ${stats.mineTier}</div>`
         : '';
       const buildBtn = tierLocked ? '' :
         `<button class="btn primary" style="width:100%;margin-top:6px;" ${!canCraft?'disabled':''} onclick="craftShip('${recipe.id}')">BUILD SHIP</button>`;
-      const costMet  = recipe.cost === 0 || state.coins >= recipe.cost;
-      const costPill = recipe.cost > 0
-        ? `<span class="bp-craft-req" style="font-size:12px;border-color:${costMet?'#7a6010':'#802020'};background:${costMet?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)'};color:${costMet?'#ffe066':'#f88'};">${fmt(recipe.cost)}¢</span>`
-        : `<span class="bp-craft-req" style="font-size:12px;border-color:#2a6040;background:rgba(20,60,30,0.4);color:#4d8;">FREE</span>`;
       items += `<div class="bp-craft-item" style="${tierLocked?'opacity:0.45;':''}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <div style="font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:#e8eef8;letter-spacing:1px;text-transform:uppercase;flex:1;">${recipe.name}</div>
-          <span style="font-size:10px;padding:2px 7px;border-radius:3px;border:1px solid ${tierColor}40;background:${tierColor}18;color:${tierColor};font-family:'Orbitron',sans-serif;letter-spacing:1px;">TIER ${recipe.mineTier}</span>
+          <span style="font-size:10px;padding:2px 7px;border-radius:3px;border:1px solid ${tierColor}40;background:${tierColor}18;color:${tierColor};font-family:'Orbitron',sans-serif;letter-spacing:1px;">TIER ${stats.mineTier}</span>
         </div>
         <div style="font-size:12px;color:#4a6a8a;margin-bottom:8px;">${recipe.desc}</div>
         <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:13px;">
-          <tr><td style="color:#4a7aaa;padding:3px 0;width:50%;">▲ Cargo Cap</td><td style="color:#cde;font-weight:bold;">${recipe.capacity} units</td></tr>
-          <tr><td style="color:#4a7aaa;padding:3px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${recipe.flySpeed}x</td></tr>
-          <tr><td style="color:#4a7aaa;padding:3px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${recipe.mineSpeed}x</td></tr>
+          <tr><td style="color:#4a7aaa;padding:3px 0;width:50%;">▲ Cargo Cap</td><td style="color:#cde;font-weight:bold;">${stats.capacity} units</td></tr>
+          <tr><td style="color:#4a7aaa;padding:3px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${stats.flySpeed}x</td></tr>
+          <tr><td style="color:#4a7aaa;padding:3px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${stats.mineSpeed}x</td></tr>
         </table>
         ${lockBanner}
-        <div class="bp-craft-reqs">${costPill}${reqsHtml}</div>
+        <div class="bp-craft-reqs">${reqsHtml}</div>
         ${buildBtn}
       </div>`;
     }
@@ -199,16 +196,16 @@ export function renderBasePanel() {
         </div>
         <div style="font-size:12px;color:#5a7a9a;margin-bottom:8px;">Build turrets on free map tiles to defend your base. Each turret has 5,000 HP, 100 damage and 6-tile range.</div>
         ${(() => {
-          const canCoins  = state.coins >= 500;
-          const canIron   = (state.resources.iron   || 0) >= 10;
-          const canCopper = (state.resources.copper || 0) >= 5;
-          const canBuild  = canCoins && canIron && canCopper;
+          const turretCraft = getCraft('turrets', 'turret');
+          const canCoins  = state.coins >= turretCraft.cost;
+          const reqsMet   = Object.entries(turretCraft.reqs).map(([r, n]) => [(state.resources[r] || 0) >= n, r, n]);
+          const canBuild  = canCoins && reqsMet.every(([met]) => met);
           const pill    = (met, label) => '<span class="bp-craft-req" style="font-size:12px;border-color:'+(met?'#7a6010':'#802020')+';background:'+(met?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)')+';color:'+(met?'#ffe066':'#f88')+';">'+label+'</span>';
           const resPill = (met, label) => '<span class="bp-craft-req '+(met?'met':'unmet')+'" style="font-size:12px;">'+label+'</span>';
+          const resPills = reqsMet.map(([met, r, n]) => resPill(met, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
           return '<div class="bp-craft-reqs" style="margin-bottom:8px;">'
-            + pill(canCoins, '500¢')
-            + resPill(canIron, 'Iron: 10')
-            + resPill(canCopper, 'Copper: 5')
+            + pill(canCoins, turretCraft.cost + '¢')
+            + resPills
             + '</div>'
             + (state.unplacedTurrets > 0
               ? '<button class="btn primary" style="width:100%;font-size:12px;" onclick="beginPlacingTurret()">🔫 PLACE TURRET ('+state.unplacedTurrets+')</button>'

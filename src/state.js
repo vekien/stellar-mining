@@ -5,7 +5,7 @@ import { SAVE_KEY } from './constants.js';
 import { gridToWorld } from './render/camera.js';
 
 export let state = {
-  coins: 100, trips: 0,
+  coins: 200, trips: 0,
   resources: { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0 },
   ships: [], nodes: [],
   selectedShip: null, activeTab: 'log', log: [],
@@ -22,6 +22,8 @@ export let state = {
   firstDeposit: false,
   firstCraftable: false,
   firstNodeSwitch: false,
+  redirectTutActive: false,
+  upgradesTutActive: false,
   seenMsgs: {},
   eventCounts: {},
   researchUnlocks: {},
@@ -72,7 +74,7 @@ export function loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return false;
     const d = JSON.parse(raw);
-    state.coins = d.coins ?? 100;
+    state.coins = d.coins ?? 200;
     state.trips = d.trips ?? 0;
     state.resources = { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0, ...(d.resources||{}) };
     state.base = { level:1, health:10000, maxHealth:10000, ...(d.base||{}) };
@@ -108,7 +110,7 @@ export function loadGame() {
         capacityLevel:sd.capacityLevel ?? 0,
         flySpeedLevel:sd.flySpeedLevel ?? 0,
         mineSpeedLevel:sd.mineSpeedLevel ?? 0,
-        cargo:0, cargoType:null,
+        cargo:0, cargoResource:null,
         status:'idle', targetNode: sd.targetNode ?? null,
         heading: -Math.PI/2,
         x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0, pauseTimer:0,
