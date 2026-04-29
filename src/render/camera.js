@@ -2,6 +2,7 @@
 // CAMERA + COORDINATE HELPERS
 // ============================================================
 import { TILE_W, TILE_H } from '../constants.js';
+import { BASE_COL, BASE_ROW } from '../constants.js';
 
 export const ZOOM_MIN_V = 0.35;
 export const ZOOM_MAX_V = 3.0;
@@ -18,7 +19,7 @@ export function screenToWorld(sx, sy, W, H) {
 
 export const gridToIso = gridToWorld;
 
-export function BASE_POS() { return gridToWorld(12, 12); }
+export function BASE_POS() { return gridToWorld(BASE_COL, BASE_ROW); }
 
 export function nodeWorldPos(node) {
   const w = gridToWorld(node.gr[0], node.gr[1]);
@@ -32,7 +33,7 @@ export function focusOn(wx, wy, zoom) {
 }
 
 export function focusOnBase(zoom) {
-  const base = gridToWorld(12, 12);
+  const base = gridToWorld(BASE_COL, BASE_ROW);
   focusOn(base.x, base.y, zoom);
 }
 

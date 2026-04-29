@@ -34,12 +34,19 @@ export function renderResources() {
     pill.className = 'res-pill';
     pill.innerHTML = `
       <div class="res-pill-dot" style="background:${def.color};box-shadow:0 0 5px ${def.color}88"></div>
-      <span class="res-pill-letter" style="color:${def.color}">${def.label[0]}</span>
-      <span class="res-pill-qty">${fmt(state.resources[type] || 0)}</span>
+      <span class="res-pill-qty" id="res-qty-${type}">${fmt(state.resources[type] || 0)}</span>
     `;
     pill.addEventListener('mousemove', e => showTooltip(e, type));
     pill.addEventListener('mouseleave', hideTooltip);
     bar.appendChild(pill);
+  }
+}
+
+// Patch only the qty numbers in the depot bar — no DOM rebuild
+export function patchResources() {
+  for (const [type] of Object.entries(RESOURCE_DEFS)) {
+    const el = document.getElementById(`res-qty-${type}`);
+    if (el) el.textContent = fmt(state.resources[type] || 0);
   }
 }
 
@@ -58,6 +65,7 @@ export function renderUI() {
 export function initRefresh() {
   refresh.ui        = renderUI;
   refresh.header    = updateHeader;
+  refresh.resources = patchResources;
   refresh.basePanel = renderBasePanel;
 }
 

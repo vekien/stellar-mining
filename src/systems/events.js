@@ -38,7 +38,7 @@ export const RANDOM_EVENTS = [
         10000
       );
       spawnSolarFlare();
-      setTimeout(() => showOnce('vane_solar_explain', NPCS.vane.transmissionLines.vane_solar_explain, 15, 'vane'), 15000);
+      setTimeout(() => showOnce('vane_solar_explain', NPCS.vane.transmissionLines.vane_solar_explain, 14, 'vane'), 15000);
       if (refresh.ui) refresh.ui();
     }
   },

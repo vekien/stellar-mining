@@ -16,9 +16,11 @@
   <button class="stat-chip hdr-btn" onclick="openHdrPanel('market')"><span class="label">TRADE</span><span class="value" id="hdr-coins">0¢</span></button>
   <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
   <button class="stat-chip hdr-btn" onclick="openHdrPanel('fleet')"><span class="label">SHIPS</span><span class="value" id="hdr-ships">0/5</span></button>
+  <button class="stat-chip hdr-btn" onclick="openHdrPanel('stats')"><span class="label">STATS</span></button>
   <button class="stat-chip hdr-btn" onclick="openHdrPanel('codex')"><span class="label">CODEX</span></button>
   <div id="header-right">
     <button class="btn-about" onclick="openAbout()">? ABOUT</button>
+    <button class="btn-about" onclick="openSettings()">⚙ SETTINGS</button>
     <button class="btn-new-game" onclick="promptNewGame()">⟳ NEW GAME</button>
   </div>
 </div>
@@ -36,6 +38,10 @@
         <button class="zoom-btn" onclick="adjustZoom(-0.15)">−</button>
       </div>
       <div id="zoom-hint">scroll to zoom · drag to pan</div>
+    </div>
+    <div id="ship-upgrade-drawer">
+      <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
+      <div id="ship-upgrade-content"></div>
     </div>
     <div id="turret-modal-overlay" onclick="closeTurretModal(event)" style="display:none;position:fixed;top:44px;left:0;right:350px;bottom:0;background:rgba(0,0,0,0.55);z-index:200;align-items:flex-start;justify-content:center;padding-top:24px;">
   <div id="turret-modal" onclick="event.stopPropagation()" style="width:340px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a6a2a;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;">
@@ -122,7 +128,7 @@
     <button class="about-close" onclick="closeAbout()">✕</button>
     <div class="about-star">★</div>
     <h2 class="about-title">STELLAR MINING CO.</h2>
-    <div class="about-version">v0.0.2</div>
+    <div class="about-version">v0.0.3</div>
     <div class="about-divider"></div>
     <div class="about-dev">Developed by <span>Vekien Ltd</span></div>
     <div class="about-divider"></div>
@@ -131,6 +137,35 @@
       <p style="margin-top:10px;">What you do with it is up to you.</p>
     </div>
     <button class="btn" style="margin-top:18px;width:100%" onclick="closeAbout()">CLOSE</button>
+  </div>
+</div>
+
+<div id="settings-overlay" onclick="closeSettings(event)">
+  <div id="settings-box" onclick="event.stopPropagation()">
+    <button class="about-close" onclick="closeSettings()">✕</button>
+    <h2 class="about-title">SETTINGS</h2>
+    <div class="about-divider"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;">
+      <div style="font-size:17px;color:#8ab;">Show Grid Coordinates</div>
+      <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
+        <input id="setting-grid-coords" type="checkbox" onchange="toggleGridCoords(this.checked)">
+        On
+      </label>
+    </div>
+    <button class="btn" style="margin-top:14px;width:100%" onclick="closeSettings()">CLOSE</button>
+  </div>
+</div>
+
+<div id="sell-overlay">
+  <div id="sell-box">
+    <div class="rename-title">⊘ Sell Ship</div>
+    <div id="sell-ship-name" style="font-size:15px;color:#cde;margin-bottom:8px;"></div>
+    <div id="sell-ship-value" style="font-size:17px;color:#6fff9a;margin-bottom:10px;"></div>
+    <div class="rename-hint" style="margin-bottom:14px;">This cannot be undone.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn danger" style="flex:1;" onclick="confirmSellOverlay()">CONFIRM SELL</button>
+      <button class="btn" style="flex:1;" onclick="closeSellOverlay()">CANCEL</button>
+    </div>
   </div>
 </div>
 

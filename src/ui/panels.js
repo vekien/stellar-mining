@@ -4,13 +4,14 @@
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
-import { BASE_MAX_SHIPS } from '../data/nodes.js';
+import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/nodes.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE } from '../data/research.js';
 import { fmt } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
 import { renderBasePanel } from './basePanel.js';
+import { removeReassignTooltip } from './tutorial.js';
 
 let _hdrPanelOpen = null;
 let _codexTab = 'crew';
@@ -33,6 +34,18 @@ export function closeHdrPanel(e) {
 export function dismissHdrModal() {
   document.getElementById('hdr-modal-overlay').classList.remove('open');
   _hdrPanelOpen = null;
+}
+
+export function refreshHdrPanelIfOpen() {
+  const overlay = document.getElementById('hdr-modal-overlay');
+  if (!_hdrPanelOpen || !overlay?.classList.contains('open')) return;
+
+  // Avoid re-rendering codex on interval so its scroll position stays stable.
+  if (_hdrPanelOpen === 'codex') return;
+
+  const current = _hdrPanelOpen;
+  _hdrPanelOpen = null;
+  openHdrPanel(current);
 }
 
 export function handleBasePanelOverlayClick(e) {
@@ -59,6 +72,14 @@ export function openHdrPanel(type) {
     _hdrPanelOpen = null;
     return;
   }
+
+  // Opening any header panel clears active ship selection.
+  state.selectedShip = null;
+  state.pendingAssign = null;
+  const canvas = document.getElementById('main-canvas');
+  if (canvas) canvas.style.cursor = '';
+  removeReassignTooltip();
+
   cancelTurretPlacement();
   if (type === 'market' && state.tutStep === 10) {
     state.tutStep = 11;
@@ -66,6 +87,11 @@ export function openHdrPanel(type) {
   }
   _hdrPanelOpen = type;
   overlay.classList.add('open');
+
+  if (type === 'research' && state.seenMsgs['dax_lv3_intro'] && state.seenMsgs['kai_lv3_intro']) {
+    state.seenMsgs['lv3_research_pointer_done'] = true;
+    document.querySelectorAll('#tut-ptr-research-lv3').forEach(el => el.remove());
+  }
 
   // ── SOL OVERVIEW ───────────────────────────────────────────
   if (type === 'sol') {
@@ -159,9 +185,14 @@ export function openHdrPanel(type) {
     let tradeHtml = '';
     if (state.marketBoost) {
       const bd = RESOURCE_DEFS[state.marketBoost.type];
-      tradeHtml += `<div style="font-size:14px;background:rgba(20,60,10,0.6);border:1px solid #4a8020;border-radius:4px;padding:8px 10px;margin-bottom:10px;text-align:center;line-height:1.25">
-        <span style="font-weight:bold;color:${bd.color}">${bd.label}</span> <span style="color:#cde">in demand!</span>
-        <span style="color:#ffe066;font-weight:bold"> · 1.5× this SOL</span></div>`;
+      const boostMult = state.marketBoost.multiplier ?? 1.5;
+      tradeHtml += `<div style="background:linear-gradient(180deg, rgba(10,30,70,0.9) 0%, rgba(6,16,48,0.94) 100%);border:1px solid #4aa8ff;border-radius:6px;padding:10px 12px;margin-bottom:12px;text-align:center;line-height:1.2;box-shadow:0 0 16px rgba(80,170,255,0.35), 0 0 28px rgba(60,140,255,0.18), inset 0 0 16px rgba(90,180,255,0.14);">
+        <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:1.5px;color:#9be89b;margin-bottom:4px;">SOL ${state.sol} - DEMAND</div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:${bd.color};text-shadow:0 0 10px ${bd.color}55;display:flex;align-items:center;justify-content:center;gap:8px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${bd.color};display:inline-block;box-shadow:0 0 8px ${bd.color}aa;"></span>
+          <span>${bd.label} <span style="color:#ffe066;">@ ${boostMult}x!</span></span>
+        </div>
+      </div>`;
     }
     if (!hasAny) {
       tradeHtml += `<div style="padding:14px;text-align:center;color:#3a5a7a;font-size:13px;">⏳ No resources to sell yet.</div>`;
@@ -172,25 +203,38 @@ export function openHdrPanel(type) {
         if (amt <= 0) continue;
         const sellAmt = amt < 100 ? 1 : amt < 1000 ? 10 : amt < 10000 ? 25 : 100;
         const price   = getSellPrice(type);
+        const earnedSellAmt = sellAmt * price;
+        const earnedAll = amt * price;
         const boosted = state.marketBoost?.type === type;
         const priceHtml = boosted
-          ? `<span style="color:#ffe066;font-size:12px;flex-shrink:0">${price}¢✦</span>`
-          : `<span style="color:#5a8;font-size:12px;flex-shrink:0">${price}¢</span>`;
+          ? `<span style="color:#ffe066;font-size:14px;flex-shrink:0">${price}¢✦</span>`
+          : `<span style="color:#6fff9a;font-size:14px;flex-shrink:0">${price}¢</span>`;
         tradeHtml += `<div class="sell-row">
           <span style="width:9px;height:9px;border-radius:50%;background:${def.color};display:inline-block;flex-shrink:0"></span>
           ${priceHtml}
           <span class="res-name-s">${def.label}</span>
           <span class="res-qty">${fmt(amt)}</span>
-          <button class="sell-btn-s" onclick="sellResource('${type}',${sellAmt});_hdrPanelOpen=null;openHdrPanel('market')">SELL ${fmt(sellAmt)}</button>
-          <button class="sell-btn-s" onclick="sellResource('${type}',${amt});_hdrPanelOpen=null;openHdrPanel('market')">ALL</button>
+          <button class="sell-btn-s" onmousedown="sellResource('${type}',${sellAmt});_hdrPanelOpen=null;openHdrPanel('market')">SELL ${fmt(sellAmt)} <span style="color:#ffe066">@ $${fmt(earnedSellAmt)}</span></button>
+          <button class="sell-btn-s" onmousedown="sellResource('${type}',${amt});_hdrPanelOpen=null;openHdrPanel('market')">ALL <span style="color:#ffe066">@ $${fmt(earnedAll)}</span></button>
         </div>`;
       }
       tradeHtml += '</div>';
     }
+    const totalResources = Object.values(state.resources).reduce((sum, n) => sum + (n || 0), 0);
     body.innerHTML = `
-      <div style="padding:12px 0 14px;border-bottom:1px solid #1a3a6e;margin-bottom:12px;">
-        <div style="font-size:24px;color:#ffe066;font-family:'Orbitron',sans-serif;font-weight:bold;line-height:1;">${fmt(state.coins)}¢</div>
-        <div style="font-size:11px;color:#4a6a8a;margin-top:2px;">CURRENT BALANCE</div>
+      <div style="padding:12px 0 14px;border-bottom:1px solid #1a3a6e;margin-bottom:12px;display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:end;">
+        <div>
+          <div style="font-size:30px;color:#ffe066;font-family:'Orbitron',sans-serif;font-weight:bold;line-height:1;">${fmt(state.coins)}¢</div>
+          <div style="font-size:13px;color:#7fa4c8;margin-top:4px;letter-spacing:0.8px;">CURRENT BALANCE</div>
+        </div>
+        <div>
+          <div style="font-size:22px;color:#cde;font-family:'Orbitron',sans-serif;font-weight:bold;line-height:1;">${fmt(totalResources)}</div>
+          <div style="font-size:13px;color:#7fa4c8;margin-top:4px;letter-spacing:0.8px;">CURRENT RESOURCES</div>
+        </div>
+        <div>
+          <div style="font-size:22px;color:#cde;font-family:'Orbitron',sans-serif;font-weight:bold;line-height:1;">0%</div>
+          <div style="font-size:13px;color:#7fa4c8;margin-top:4px;letter-spacing:0.8px;">TAX RATE</div>
+        </div>
       </div>
       <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ SELL RESOURCES</div>
       ${tradeHtml}`;
@@ -225,6 +269,47 @@ export function openHdrPanel(type) {
       </table>`;
   }
 
+  // ── OPERATIONS STATS ───────────────────────────────────────
+  else if (type === 'stats') {
+    heading.textContent = 'OPERATIONS STATS';
+
+    const nodeAssign = {};
+    for (const s of state.ships) {
+      if (!s.targetNode) continue;
+      const node = state.nodes.find(n => n.id === s.targetNode);
+      if (!node) continue;
+      const label = RESOURCE_DEFS[node.type].label;
+      nodeAssign[label] = (nodeAssign[label] || 0) + 1;
+    }
+
+    const mpm = {};
+    for (const s of state.ships) {
+      if (!s.targetNode || s.status === 'idle') continue;
+      const node = state.nodes.find(n => n.id === s.targetNode);
+      if (!node) continue;
+      const label = RESOURCE_DEFS[node.type].label;
+      mpm[label] = (mpm[label] || 0) + (60 / (1.5 / s.mineSpeed));
+    }
+
+    const assignHtml = Object.entries(nodeAssign)
+      .map(([t, n]) => `<tr><td style="padding:6px 8px;color:#8ab;font-size:15px;">${t} Node</td><td style="padding:6px 8px;text-align:right;color:#4d8;font-weight:bold;font-size:15px;">${n} ship${n > 1 ? 's' : ''}</td></tr>`)
+      .join('') || '<tr><td style="padding:8px 8px;color:#3a5a7a;font-size:15px;" colspan="2">None assigned</td></tr>';
+
+    const mpmHtml = Object.entries(mpm)
+      .map(([t, n]) => `<tr><td style="padding:6px 8px;color:#8ab;font-size:15px;">${t}</td><td style="padding:6px 8px;text-align:right;color:#ffe066;font-weight:bold;font-size:15px;">${Math.round(n)}/m</td></tr>`)
+      .join('') || '<tr><td style="padding:8px 8px;color:#3a5a7a;font-size:15px;" colspan="2">Not mining</td></tr>';
+
+    body.innerHTML = `
+      <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ NODE ASSIGNMENTS</div>
+      <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;overflow:hidden;margin-bottom:14px;">
+        ${assignHtml}
+      </table>
+      <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ YIELD RATE</div>
+      <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;overflow:hidden;">
+        ${mpmHtml}
+      </table>`;
+  }
+
   // ── CODEX ──────────────────────────────────────────────────
   else if (type === 'codex') {
     heading.textContent = 'CODEX';
@@ -232,6 +317,7 @@ export function openHdrPanel(type) {
       <button onclick="event.stopPropagation();switchCodexTab('crew')" style="flex:1;padding:7px 4px;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1.5px;border:none;border-bottom:2px solid ${_codexTab==='crew'?'#4af':'transparent'};background:none;color:${_codexTab==='crew'?'#4af':'#456'};cursor:pointer;transition:all 0.15s;text-transform:uppercase;">Crew &amp; Contacts</button>
       <button onclick="event.stopPropagation();switchCodexTab('events')" style="flex:1;padding:7px 4px;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1.5px;border:none;border-bottom:2px solid ${_codexTab==='events'?'#4af':'transparent'};background:none;color:${_codexTab==='events'?'#4af':'#456'};cursor:pointer;transition:all 0.15s;text-transform:uppercase;">Events</button>
       <button onclick="event.stopPropagation();switchCodexTab('resources')" style="flex:1;padding:7px 4px;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1.5px;border:none;border-bottom:2px solid ${_codexTab==='resources'?'#4af':'transparent'};background:none;color:${_codexTab==='resources'?'#4af':'#456'};cursor:pointer;transition:all 0.15s;text-transform:uppercase;">Resources</button>
+      <button onclick="event.stopPropagation();switchCodexTab('upgrades')" style="flex:1;padding:7px 4px;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1.5px;border:none;border-bottom:2px solid ${_codexTab==='upgrades'?'#4af':'transparent'};background:none;color:${_codexTab==='upgrades'?'#4af':'#456'};cursor:pointer;transition:all 0.15s;text-transform:uppercase;">Upgrades</button>
     </div>`;
 
     let tabContent = '';
@@ -240,7 +326,7 @@ export function openHdrPanel(type) {
       const groups = [
         { label: '◈ Star Command · ISV Hyperion', ids: ['juno','sera'] },
         { label: '◈ The Marauder · Pirate Crew',  ids: ['vex','scarlett'] },
-        { label: '◈ Sector Specialists',           ids: ['rigs','vane','doran','kade','dax','kai'] },
+        { label: '◈ Sector Specialists',           ids: ['rigs','vane','zoe','doran','kade','dax','kai'] },
         { label: '◈ Unknown',                      ids: ['architect','android'] },
       ];
       for (const group of groups) {
@@ -248,9 +334,8 @@ export function openHdrPanel(type) {
         if (!members.length) continue;
         tabContent += `<div class="codex-group-label">${group.label}</div>`;
         tabContent += members.map(npc => {
-          const isPirate = group.ids.includes('vex') || group.ids.includes('scarlett');
           return `<div class="codex-card">
-            <img class="codex-avatar${isPirate?' large':''}" src="${npc.portrait}" alt="${npc.name}">
+            <img class="codex-avatar large" src="${npc.portrait}" alt="${npc.name}">
             <div class="codex-info">
               <div class="codex-name">${npc.name}</div>
               <div class="codex-title">${npc.ship}</div>
@@ -278,7 +363,8 @@ export function openHdrPanel(type) {
       tabContent = Object.entries(RESOURCE_DEFS).map(([key, def]) => {
         const tierInfo = resourceTier[key];
         const boost = state.marketBoost && state.marketBoost.type === key;
-        const sellDisplay = boost ? `<span style="color:#ffe066;">${def.sellPrice * 1.5}¢ ★ BOOSTED</span>` : `${def.sellPrice}¢`;
+        const mult = state.marketBoost?.multiplier ?? 1.5;
+        const sellDisplay = boost ? `<span style="color:#ffe066;">${Math.round(def.sellPrice * mult)}¢ ★ BOOSTED</span>` : `${def.sellPrice}¢`;
         return `<div style="background:rgba(10,20,50,0.5);border:1px solid #1e3a6e;border-left:3px solid ${def.color};border-radius:5px;padding:12px 14px;margin-bottom:8px;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
             <div style="width:14px;height:14px;border-radius:50%;background:${def.color};flex-shrink:0;box-shadow:0 0 8px ${def.color}88;"></div>
@@ -294,6 +380,22 @@ export function openHdrPanel(type) {
         </div>`;
       }).join('');
 
+    } else if (_codexTab === 'upgrades') {
+      tabContent = `<div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ BASE UPGRADE COSTS</div>
+        <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;overflow:hidden;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px 8px;color:#4af;font-size:11px;letter-spacing:1.5px;border-bottom:1px solid #1a3a6e;">LEVEL</th>
+              <th style="text-align:right;padding:6px 8px;color:#4af;font-size:11px;letter-spacing:1.5px;border-bottom:1px solid #1a3a6e;">COST</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${BASE_UPGRADE_COSTS.map((cost, idx) => idx === 0 ? '' : `<tr>
+              <td style="padding:6px 8px;color:#8ab;border-bottom:1px solid rgba(26,58,110,0.4);">Lv ${idx} -> Lv ${idx + 1}</td>
+              <td style="padding:6px 8px;text-align:right;color:#ffe066;font-weight:bold;border-bottom:1px solid rgba(26,58,110,0.4);">${fmt(cost)}¢</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
     } else {
       // Events tab
       const eventDefs = [

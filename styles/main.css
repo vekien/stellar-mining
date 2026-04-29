@@ -33,14 +33,15 @@
   }
 
   .stat-chip {
-    background: rgba(20,50,100,0.6);
+    background: rgba(20, 50, 100, 0.6);
     border: 1px solid #1a4080;
     border-radius: 3px;
-    padding: 4px 12px;
-    font-size: 13px;
+    padding: 6px 12px 3px 12px;
+    font-size: 14px;
     display: flex;
     align-items: center;
     gap: 6px;
+    line-height: 1.5;
   }
   .stat-chip .label { color: #5a8fd0; }
   .stat-chip .value { color: #ffe066; font-weight: bold; }
@@ -98,7 +99,7 @@
   .codex-avatar { width: 64px; height: 64px; border-radius: 50%; border: 1px solid #1a4080; flex-shrink: 0; object-fit: cover; }
   .codex-avatar.large { width: 72px; height: 72px; }
   .codex-info { flex: 1; }
-  .codex-name { font-family: 'Orbitron',sans-serif; font-size: 15px; color: #cde; letter-spacing: 1px; }
+  .codex-name { font-family: 'Orbitron',sans-serif; font-size: 17px; color: #ffe066; letter-spacing: 1px; text-shadow: 0 0 8px rgba(255,224,102,0.35); }
   .codex-title { font-size: 14px; color: #4a6a8a; margin: 2px 0 5px; }
   .codex-bio { font-size: 14px; color: #7a9ab8; line-height: 1.25; }
   .codex-group-label { font-family: 'Orbitron',sans-serif; font-size: 14px; letter-spacing: 2px; color: #4af; padding: 10px 0 6px; border-bottom: 1px solid #1a3a6e; margin-bottom: 4px; }
@@ -108,12 +109,16 @@
 
   .btn-new-game {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    background: rgba(60,10,10,0.6);
-    border: 1px solid #803020;
+    font-size: 14px;
+    background: rgba(20, 50, 100, 0.6);
+    border: 1px solid #1a4080;
     color: #f88;
-    padding: 5px 10px;
+    padding: 6px 12px 3px 12px;
     border-radius: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.5;
     cursor: pointer;
     letter-spacing: 1px;
     transition: all 0.15s;
@@ -122,17 +127,41 @@
 
   .btn-about {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    background: rgba(10,30,70,0.6);
-    border: 1px solid #2a5090;
+    font-size: 14px;
+    background: rgba(20, 50, 100, 0.6);
+    border: 1px solid #1a4080;
     color: #6af;
-    padding: 5px 10px;
+    padding: 6px 12px 3px 12px;
     border-radius: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.5;
     cursor: pointer;
     letter-spacing: 1px;
     transition: all 0.15s;
   }
   .btn-about:hover { background: rgba(20,60,130,0.8); border-color: #4af; color: #8cf; }
+
+  #settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #settings-overlay.show { display: flex; }
+  #settings-box {
+    width: 360px;
+    background: linear-gradient(180deg, #080d1a 0%, #050810 100%);
+    border: 1px solid #1a3a6e;
+    border-radius: 8px;
+    padding: 18px;
+    position: relative;
+    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+  }
 
   #game-area { display: flex; flex: 1; overflow: hidden; flex-direction: row; }
 
@@ -154,6 +183,12 @@
   }
 
   .panel { border-bottom: 1px solid #1a3a6e; padding: 10px; }
+  #sidebar .panel:first-of-type {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
 
   .panel-title {
     font-family: 'Orbitron', sans-serif;
@@ -164,6 +199,11 @@
     text-transform: uppercase;
   }
 
+  #sidebar .panel:first-of-type .panel-title {
+    font-size: 14px;
+    letter-spacing: 3.5px;
+  }
+
   #resource-bar {
     display: flex; align-items: center; gap: 5px;
     padding: 5px 14px;
@@ -172,7 +212,7 @@
     flex-shrink: 0; flex-wrap: wrap; z-index: 9;
   }
   #resource-bar .res-label {
-    font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 2px;
+    font-family: 'Orbitron', monospace; font-size: 11px; letter-spacing: 2px;
     color: #2a4a7a; margin-right: 4px; flex-shrink: 0;
   }
   .res-pill {
@@ -183,21 +223,46 @@
   }
   .res-pill:hover { border-color: #4af; }
   .res-pill-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-  .res-pill-letter { font-family: 'Orbitron', monospace; font-size: 10px; font-weight: 700; }
-  .res-pill-qty { font-family: 'Share Tech Mono', monospace; font-size: 12px; color: #ffe066; min-width: 20px; text-align: right; }
+  .res-pill-letter { font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700; }
+  .res-pill-qty { font-family: 'Share Tech Mono', monospace; font-size: 14px; color: #ffe066; min-width: 20px; text-align: right; }
 
-  #ships-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; padding-right: 4px; }
+  #ships-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
 
   /* Fleet filters */
   #fleet-filters { display: flex; flex-direction: column; gap: 5px; margin-bottom: 6px; }
-  .ff-row { display: flex; align-items: center; gap: 4px; min-height: 20px; }
+  .ff-row { display: flex; align-items: center; gap: 6px; min-height: 24px; }
   .ff-label {
-    font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 1px;
-    color: #4a7aaa; text-transform: uppercase; width: 44px; flex-shrink: 0; padding-right: 6px;
+    font-family: 'Orbitron', monospace; font-size: 12px; letter-spacing: 1px;
+    color: #4a7aaa; text-transform: uppercase; width: 48px; flex-shrink: 0; padding-right: 6px;
   }
+  .ff-control { flex: 1; }
+  .fleet-select {
+    width: 100%;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    background: rgba(10,25,60,0.7);
+    border: 1px solid #1a3a6e;
+    color: #8ab;
+    padding: 3px 7px;
+    border-radius: 3px;
+    outline: none;
+    letter-spacing: 0.5px;
+  }
+  .fleet-select:hover { border-color: #4af; color: #cde; }
+  .fleet-select:focus { border-color: #4af; box-shadow: 0 0 0 1px rgba(80,180,255,0.25); }
+  .fleet-select option { background: #0c1a36; color: #cde; }
+  .ff-row-clear { justify-content: flex-end; }
   .ff-pills { display: flex; flex-wrap: wrap; gap: 3px; flex: 1; }
   .fleet-filter {
-    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    font-family: 'Share Tech Mono', monospace; font-size: 12px;
     background: rgba(10,25,60,0.6); border: 1px solid #1a3a6e;
     color: #4a6a8a; padding: 2px 7px; border-radius: 3px; cursor: pointer;
     white-space: nowrap; letter-spacing: 0.5px;
@@ -206,6 +271,9 @@
   .fleet-filter.active { background: rgba(20,60,130,0.7); border-color: #4af; color: #fff; }
   .fleet-filter.active.sort-asc::after  { content: ' ↑'; }
   .fleet-filter.active.sort-desc::after { content: ' ↓'; }
+  .fleet-filter-clear { color: #f88; border-color: #6a2a2a; }
+  .fleet-filter-clear { font-size: 12px; }
+  .fleet-filter-clear:hover { color: #fbb; border-color: #a34; }
   .ship-card {
     background: rgba(10,25,60,0.7);
     border: 1px solid #1a2a4a;
@@ -247,12 +315,28 @@
 
   /* Rename overlay */
   #rename-overlay {
-    position: absolute; inset: 0; z-index: 50;
+    position: absolute; inset: 0; z-index: 1200;
     background: rgba(2,6,20,0.88);
     display: none; align-items: center; justify-content: center;
     backdrop-filter: blur(2px);
   }
   #rename-overlay.show { display: flex; }
+  #sell-overlay {
+    position: absolute; inset: 0; z-index: 1200;
+    background: rgba(2,6,20,0.88);
+    display: none; align-items: center; justify-content: center;
+    backdrop-filter: blur(2px);
+  }
+  #sell-overlay.show { display: flex; }
+  #sell-box {
+    background: linear-gradient(135deg, rgba(6,14,40,0.98), rgba(10,24,65,0.98));
+    border: 1px solid #8a3a3a;
+    border-radius: 8px;
+    padding: 20px 22px 18px;
+    width: 300px;
+    text-align: center;
+    box-shadow: 0 0 40px rgba(120,40,40,0.25);
+  }
   #rename-box {
     background: linear-gradient(135deg, rgba(6,14,40,0.98), rgba(10,24,65,0.98));
     border: 1px solid #2a5faa;
@@ -283,7 +367,7 @@
   #rename-box input:focus { border-color: #8df; box-shadow: 0 0 10px rgba(80,180,255,0.2); }
   #rename-box .rename-hint { font-size: 11px; color: #3a5a7a; }
 
-  .ship-status { font-size: 11px; padding: 1px 6px; border-radius: 2px; flex-shrink: 0; }
+  .ship-status { font-size: 13px; padding: 1px 6px; border-radius: 2px; flex-shrink: 0; }
   .ship-status.idle     { background: #1a4020; color: #4d8; }
   .ship-status.flying   { background: #1a2050; color: #48f; }
   .ship-status.returning{ background: #3a2010; color: #fa6; }
@@ -311,12 +395,12 @@
   .btn.danger { background: rgba(60,10,10,0.7); border-color: #803020; color: #f88; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  #action-panel { padding: 10px; border-bottom: 1px solid #1a3a6e; }
+  #action-panel { display: none; padding: 10px; border-bottom: 1px solid #1a3a6e; }
   #action-content { font-size: 14px; }
 
   .ship-data-row {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 4px 0; border-bottom: 1px solid #0d1f3a; font-size: 12px;
+    padding: 4px 0; border-bottom: 1px solid #0d1f3a; font-size: 14px;
   }
   .ship-data-row:last-of-type { border-bottom: none; }
   .ship-data-label { color: #4a6a8a; }
@@ -344,18 +428,19 @@
   .sell-grid { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; overflow-y: auto; }
   .sell-row {
     display: flex; align-items: center; gap: 6px;
-    padding: 6px 8px;
-    background: rgba(10,25,60,0.5);
+    padding: 8px 10px;
+    background: rgba(10,25,60,0.65);
     border: 1px solid #1a3a6e;
     border-radius: 3px;
-    font-size: 13px;
+    font-size: 15px;
   }
-  .sell-row .res-name-s { flex: 1; color: #8ab; }
-  .sell-row .res-qty { color: #ffe066; width: 34px; text-align: right; }
+  .sell-row .res-name-s { flex: 1; color: #9bc; font-size: 15px; }
+  .sell-row .res-qty { color: #ffe066; width: 44px; text-align: right; font-size: 15px; }
   .sell-btn-s {
-    font-family: 'Share Tech Mono', monospace; font-size: 12px;
+    font-family: 'Share Tech Mono', monospace; font-size: 13px;
     background: rgba(10,60,30,0.6); border: 1px solid #2a6030;
-    color: #4fa; padding: 3px 8px; border-radius: 2px; cursor: pointer;
+    color: #4fa; padding: 4px 9px; border-radius: 2px; cursor: pointer;
+    white-space: nowrap;
   }
   .sell-btn-s:hover { background: rgba(20,100,50,0.8); }
   .sell-btn-s:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -373,8 +458,8 @@
     padding: 8px 0; border-bottom: 1px solid #0d1f40; gap: 6px;
   }
   .upgrade-label { color: #8ab; flex: 1; font-size: 14px; }
-  .upgrade-val { color: #cde; font-size: 13px; }
-  .upgrade-cost { color: #ffe066; font-size: 13px; }
+  .upgrade-val { color: #cde; font-size: 16px; }
+  .upgrade-cost { color: #ffe066; font-size: 16px; }
   .upgrade-btn {
     font-family: 'Share Tech Mono', monospace; font-size: 13px;
     background: rgba(20,50,100,0.6); border: 1px solid #2a5090; color: #8cf;
@@ -501,6 +586,37 @@
     position: absolute; bottom: 8px; right: 8px;
     display: flex; flex-direction: column; align-items: flex-end; gap: 4px; z-index: 5;
   }
+
+  #ship-upgrade-drawer {
+    position: absolute;
+    top: 14px;
+    right: 12px;
+    width: 340px;
+    max-height: calc(100% - 28px);
+    overflow-y: auto;
+    background: linear-gradient(180deg, rgba(6,14,40,0.96) 0%, rgba(8,20,55,0.96) 100%);
+    border: 1px solid #2a5090;
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    padding: 10px;
+    z-index: 25;
+    transform: translateX(108%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.22s ease, opacity 0.2s ease;
+  }
+  #ship-upgrade-drawer.open {
+    transform: translateX(0);
+    opacity: 1;
+    pointer-events: all;
+  }
+  #ship-upgrade-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #4af;
+    margin-bottom: 8px;
+  }
   #zoom-hint {
     background: rgba(5,10,25,0.75); border: 1px solid #1a3a6e;
     border-radius: 4px; padding: 5px 12px; font-size: 13px; color: #567;
@@ -597,13 +713,13 @@
   }
   #base-panel-overlay.open { display: flex; pointer-events: none; }
   #base-panel {
-    width: 380px; max-height: 75vh;
+    width: 420px; max-height: 75vh;
     background: linear-gradient(160deg, rgba(4,10,30,0.97) 0%, rgba(6,16,48,0.97) 100%);
     border: 1px solid #2a5090;
     border-radius: 7px;
     z-index: 201;
     box-shadow: 0 8px 40px rgba(0,0,0,0.8);
-    font-size: 13px;
+    font-size: 15px;
     flex-direction: column;
     overflow: hidden;
     display: none;
@@ -614,7 +730,7 @@
     display: flex; border-bottom: 1px solid #1a3a6e; flex-shrink: 0;
   }
   .bp-tab {
-    flex: 1; padding: 8px 4px; text-align: center; font-size: 11px;
+    flex: 1; padding: 8px 4px; text-align: center; font-size: 13px;
     letter-spacing: 1.5px; color: #456; cursor: pointer;
     font-family: 'Orbitron', monospace; border-right: 1px solid #1a3a6e;
     transition: all 0.15s; border: none; border-right: 1px solid #1a3a6e;
@@ -626,12 +742,36 @@
   .bp-tab.active { color: #4af; background: rgba(20,60,130,0.4); border-bottom-color: #4af; }
   #bp-body { padding: 14px; overflow-y: auto; flex: 1; }
   #base-panel .bp-title {
-    font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 700;
+    font-family: 'Orbitron', sans-serif; font-size: 14px; font-weight: 700;
     color: #4af; letter-spacing: 2px; margin-bottom: 4px;
     display: flex; align-items: center; justify-content: space-between;
   }
+  #base-panel .bp-title.bp-title-sign {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 4px;
+    padding: 10px 10px 9px;
+    border: 1px solid #2a5090;
+    border-radius: 6px;
+    background: linear-gradient(180deg, rgba(10,30,70,0.55) 0%, rgba(6,16,48,0.5) 100%);
+    box-shadow: inset 0 0 16px rgba(60,150,255,0.1);
+  }
+  #base-panel .bp-title-main {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 19px;
+    font-weight: 900;
+    letter-spacing: 2.5px;
+    color: #8fd2ff;
+    text-shadow: 0 0 10px rgba(90,190,255,0.25);
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
   #base-panel .bp-level {
-    font-size: 11px; color: #ffe066; font-family: 'Share Tech Mono', monospace;
+    font-size: 13px; color: #ffe066; font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 1.5px;
   }
   #base-panel .bp-divider {
     height: 1px; background: linear-gradient(90deg, transparent, #2a5090, transparent);
@@ -639,13 +779,33 @@
   }
   #base-panel .bp-row {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 3px 0; font-size: 12px; color: #5a8ab0;
+    padding: 3px 0; font-size: 14px; color: #5a8ab0;
   }
   #base-panel .bp-row .bp-val { color: #cde; font-weight: bold; }
   #base-panel .bp-row .bp-val.green { color: #4d8; }
   #base-panel .bp-row .bp-val.gold  { color: #ffe066; }
+  #base-panel .bp-stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+    border: 1px solid #1a3a6e;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  #base-panel .bp-stats-table td {
+    font-size: 14px;
+    padding: 7px 8px;
+    border-bottom: 1px solid rgba(26,58,110,0.5);
+    color: #7fa2c8;
+  }
+  #base-panel .bp-stats-table tr:last-child td { border-bottom: none; }
+  #base-panel .bp-stats-table td:last-child {
+    color: #cde;
+    font-weight: 700;
+    text-align: right;
+  }
   #base-panel .bp-section-title {
-    font-size: 10px; color: #4af; letter-spacing: 2px; text-transform: uppercase;
+    font-size: 12px; color: #4af; letter-spacing: 2px; text-transform: uppercase;
     font-family: 'Orbitron', monospace; margin: 8px 0 4px;
   }
   #base-panel .bp-health-bar {
@@ -656,12 +816,26 @@
     border-radius: 3px; transition: width 0.4s;
   }
   #base-panel .bp-upgrade-row {
-    display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px;
-    border-top: 1px solid #0d1f40;
+    display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 12px;
+    border: 1px solid #1b3f7a;
+    border-radius: 7px;
+    background: linear-gradient(180deg, rgba(2,8,24,0.98) 0%, rgba(1,5,16,0.99) 100%);
+    box-shadow: inset 0 0 20px rgba(35,90,190,0.14), 0 0 12px rgba(8,24,60,0.35);
   }
   #base-panel .bp-upgrade-info { flex: 1; }
-  #base-panel .bp-upgrade-info .bp-upgrade-label { font-size: 12px; color: #8ab; }
-  #base-panel .bp-upgrade-info .bp-upgrade-cost  { font-size: 12px; color: #ffe066; }
+  #base-panel .bp-upgrade-info .bp-upgrade-label {
+    font-size: 15px;
+    color: #8fb6e0;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+  }
+  #base-panel .bp-upgrade-info .bp-upgrade-cost  {
+    font-size: 22px;
+    color: #ffe066;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow: 0 0 10px rgba(255,224,102,0.2);
+  }
 
   .bp-craft-grid { display: flex; flex-direction: column; gap: 10px; }
   .bp-craft-item {
@@ -673,7 +847,9 @@
   }
   .bp-craft-item:hover { border-color: #3a6aaa; }
   .bp-craft-reqs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-  .bp-craft-req { font-size: 10px; padding: 2px 6px; border-radius: 3px; border: 1px solid; }
+  .bp-craft-req { font-size: 12px; padding: 2px 6px; border-radius: 3px; border: 1px solid; }
+
+  #base-panel .btn { font-size: 15px; }
   .bp-craft-req.met   { color: #4d8; border-color: #2a6040; background: rgba(20,60,30,0.4); }
   .bp-craft-req.unmet { color: #f88; border-color: #602020; background: rgba(60,10,10,0.4); }
 

@@ -2,22 +2,43 @@
 // GAME STATE + SAVE / LOAD
 // ============================================================
 import { SAVE_KEY } from './constants.js';
+import { BASE_COL, BASE_ROW } from './constants.js';
 import { gridToWorld } from './render/camera.js';
 
 export let state = {
-  coins: 200, trips: 0,
-  resources: { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0 },
-  ships: [], nodes: [],
-  selectedShip: null, activeTab: 'log', log: [],
+  // Economy
+  coins: 200,
+  trips: 0,
+  resources: { iron: 0, copper: 0, oxygen: 0, silicon: 0, titanium: 0, gold: 0 },
+
+  // World + entities
+  ships: [],
+  nodes: [],
+
+  // UI state
+  selectedShip: null,
+  activeTab: 'log',
+  log: [],
   renamingShip: null,
+  renamingBase: false,
   pendingAssign: null,
-  basePanelOpen: false, bpTab: 'overview',
+  basePanelOpen: false,
+  bpTab: 'overview',
   fleetFilter: { type: null, node: null, idleOnly: false, sort: null, sortDir: 1 },
+
+  // Time + progression
   sol: 1,
   solTimer: 0,
   solStarted: false,
   rp: 0,
   marketBoost: null,
+
+  // Player settings
+  settings: {
+    showGridCoords: false,
+  },
+
+  // Tutorial + messaging
   tutStep: 0,
   firstDeposit: false,
   firstCraftable: false,
@@ -26,6 +47,8 @@ export let state = {
   upgradesTutActive: false,
   seenMsgs: {},
   eventCounts: {},
+
+  // Unlocks + defenses
   researchUnlocks: {},
   turrets: [],
   placingTurret: false,
@@ -33,9 +56,14 @@ export let state = {
   movingTurret: null,
   unplacedTurrets: 0,
   hpBoostCount: 0,
+
+  // Random event runtime
   nextEventTimer: null,
   activeWarning: null,
+
+  // Base
   base: {
+    name: 'Base Station',
     level: 1,
     health: 10000,
     maxHealth: 10000,
@@ -53,6 +81,7 @@ export function saveGame() {
       resources: state.resources, shipIdCounter,
       base: state.base,
       sol: state.sol, rp: state.rp, marketBoost: state.marketBoost,
+      settings: state.settings,
       solStarted: state.solStarted, tutStep: state.tutStep,
       firstDeposit: state.firstDeposit, firstCraftable: state.firstCraftable,
       firstNodeSwitch: state.firstNodeSwitch, seenMsgs: state.seenMsgs,
@@ -77,10 +106,13 @@ export function loadGame() {
     state.coins = d.coins ?? 200;
     state.trips = d.trips ?? 0;
     state.resources = { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0, ...(d.resources||{}) };
-    state.base = { level:1, health:10000, maxHealth:10000, ...(d.base||{}) };
+    state.base = { name:'Base Station', level:1, health:10000, maxHealth:10000, ...(d.base||{}) };
     state.sol  = d.sol ?? 1;
     state.rp   = d.rp  ?? 0;
     state.marketBoost = d.marketBoost ?? null;
+    state.settings = {
+      showGridCoords: d.settings?.showGridCoords ?? d.showGridCoords ?? false,
+    };
     state.solStarted = d.solStarted ?? false;
     state.tutStep = d.tutStep ?? 0;
     state.firstDeposit = d.firstDeposit ?? false;
@@ -100,7 +132,7 @@ export function loadGame() {
     state.solTimer = 0;
     shipIdCounter = d.shipIdCounter ?? 1;
     state.ships = (d.ships||[]).map(sd => {
-      const base = gridToWorld(12, 12);
+      const base = gridToWorld(BASE_COL, BASE_ROW);
       return {
         id:sd.id, name:sd.name, type:sd.type,
         capacity:sd.capacity ?? 10,

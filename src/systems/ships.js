@@ -1,7 +1,7 @@
 // ============================================================
 // SHIP SYSTEMS — tick, assign, recall, spawn, craft, upgrade
 // ============================================================
-import { TILE_H } from '../constants.js';
+import { TILE_H, BASE_COL, BASE_ROW } from '../constants.js';
 import { state, bumpShipIdCounter } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
@@ -23,7 +23,7 @@ export function spawnShip(type = 'scout') {
   if (state.ships.length >= maxShips) { addLog('⚠ Ship capacity full! Upgrade the Base.'); return; }
   const recipe = CRAFT_RECIPES.find(r => r.id === type);
   const stats  = SHIP_DEFS[type] || SHIP_DEFS.scout;
-  const base = gridToWorld(12, 12);
+  const base = gridToWorld(BASE_COL, BASE_ROW);
   const id = bumpShipIdCounter();
   const ship = {
     id,
@@ -81,6 +81,7 @@ export function assignShip(ship, node) {
   ship.status = 'flying';
   const pos = nodeWorldPos(node);
   ship.destX = pos.x; ship.destY = pos.y-20;
+  ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
   addLog(`🚀 ${ship.name} → ${RESOURCE_DEFS[node.type].label} node`);
   if (refresh.ui) refresh.ui();
 }
@@ -91,14 +92,18 @@ export let tickEvents = [];
 export function tickShip(ship, dt) {
   const FLY_SPEED = 80 * ship.flySpeed;
   if (ship.status==='flying'||ship.status==='returning') {
+    // Trail: record world position every frame, keep last 28 points
+    if (!ship.trail) ship.trail = [];
+    ship.trail.push({ x: ship.x, y: ship.y });
+    if (ship.trail.length > 80) ship.trail.shift();
+
     const dx = ship.destX-ship.x, dy = ship.destY-ship.y;
     const dist = Math.sqrt(dx*dx+dy*dy);
-    if (dist < 4) {
+    if (dist < 3) {
       ship.x = ship.destX; ship.y = ship.destY;
       if (ship.status==='flying') {
         ship.status='mining'; ship.mineTimer=0;
         if (state.tutStep === 2) state.tutStep = 3;
-        if (refresh.ui) refresh.ui();
       } else {
         // Arrived at base
         console.log(`[return] ${ship.name} arrived at base | cargo=${ship.cargo} cargoResource=${ship.cargoResource}`);
@@ -116,14 +121,47 @@ export function tickShip(ship, dt) {
         }
       }
     } else {
-      ship.x += (dx/dist)*FLY_SPEED*dt; ship.y += (dy/dist)*FLY_SPEED*dt;
-      const targetAngle = Math.atan2(dy,dx)+Math.PI/2;
-      let da = targetAngle-(ship.heading||0);
-      while (da >  Math.PI) da -= Math.PI*2;
-      while (da < -Math.PI) da += Math.PI*2;
-      ship.heading = (ship.heading||0) + da * Math.min(1, 10*dt);
+      // Turn rate from ship def — lower turnRadius = tighter circle
+      const turnRadius = SHIP_DEFS[ship.type]?.turnRadius ?? 1.0;
+      const TURN_RATE = (Math.PI * 2) / turnRadius;
+      const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
+      let da = targetAngle - ship.heading;
+      while (da >  Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      ship.heading += Math.sign(da) * Math.min(Math.abs(da), TURN_RATE * dt);
+
+      // Move in the direction the ship is actually facing.
+      // Easing profile:
+      // 0%-5% progress: speed up from slow -> full speed
+      // 5%-95% progress: full speed
+      // 95%-100% progress: slow down slightly before arrival
+      const totalDist = Math.max(1, ship.flightTotalDist || dist);
+      const progress = Math.max(0, Math.min(1, 1 - (dist / totalDist)));
+      const START_ZONE = 0.05;
+      const END_ZONE = 0.95;
+      const START_MIN = 0.6;
+      const END_MIN = 0.55;
+      let easedFactor = 1;
+      if (progress < START_ZONE) {
+        const t = progress / START_ZONE;
+        easedFactor = START_MIN + (1 - START_MIN) * t;
+      } else if (progress > END_ZONE) {
+        const t = (progress - END_ZONE) / (1 - END_ZONE);
+        easedFactor = 1 - (1 - END_MIN) * t;
+      }
+
+      // Clamp to remaining distance so it can't overshoot.
+      const moveAngle = ship.heading - Math.PI / 2;
+      const step = Math.min(FLY_SPEED * easedFactor * dt, dist);
+      ship.x += Math.cos(moveAngle) * step;
+      ship.y += Math.sin(moveAngle) * step;
     }
-  } else if (ship.status==='pausing') {
+  } else {
+    // Not flying — drain trail one point per frame so it fades out naturally
+    if (ship.trail?.length) ship.trail.shift();
+  }
+
+  if (ship.status==='pausing') {
     ship.pauseTimer -= dt;
     if (ship.pauseTimer <= 0) {
       const node = state.nodes.find(n => n.id === ship.targetNode);
@@ -131,6 +169,7 @@ export function tickShip(ship, dt) {
         ship.status='flying';
         const pos = nodeWorldPos(node);
         ship.destX=pos.x; ship.destY=pos.y-20;
+        ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
       } else {
         ship.targetNode=null; ship.status='idle';
         tickEvents.push({ type:'idle', ship });
@@ -138,7 +177,7 @@ export function tickShip(ship, dt) {
     }
   } else if (ship.status==='mining') {
     ship.mineTimer += dt;
-    const MINE_INTERVAL = 1.5 / ship.mineSpeed;
+    const MINE_INTERVAL = 1.0 / ship.mineSpeed;
     const node = state.nodes.find(n => n.id === ship.targetNode);
     if (!node) { ship.targetNode=null; ship.status='idle'; tickEvents.push({ type:'idle', ship }); return; }
     if (ship.mineTimer >= MINE_INTERVAL) {
@@ -152,6 +191,7 @@ export function tickShip(ship, dt) {
       if (ship.cargo >= ship.capacity) {
         ship.status='returning';
         const bp = BASE_POS(); ship.destX=bp.x; ship.destY=bp.y+TILE_H/2-20;
+        ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
       }
     }
   }
@@ -171,6 +211,7 @@ window.recallShip = function(shipId) {
   } else {
     const bp = BASE_POS(); ship.destX=bp.x; ship.destY=bp.y+TILE_H/2-20;
     ship.status='returning';
+    ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
     addLog(`⟵ ${ship.name} returning to base`);
   }
   if (refresh.ui) refresh.ui();
@@ -310,7 +351,8 @@ export function flushTickEvents(canvas) {
           setTimeout(() => showOnce('first_craftable', NPCS.rigs.transmissionLines.first_craftable, 15, 'rigs'), 1200);
         }
       }
-      if (state.activeTab === 'craft' && refresh.ui) refresh.ui();
+      if (refresh.resources) refresh.resources();
+      if (refresh.header) refresh.header();
     } else if (ev.type === 'idle') {
       if (state.selectedShip === ev.ship.id) {
         state.pendingAssign = ev.ship.id;

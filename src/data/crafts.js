@@ -38,7 +38,7 @@ export const CRAFTS = {
       id:   'hauler',
       name: 'Hauler',
       desc: 'Slow but big cargo',
-      reqs: { iron: 50, titanium: 30, silicon: 25, oxygen: 10 },
+      reqs: { iron: 50, copper: 50, oxygen: 20, silicon: 35 },
     },
     {
       id:   'freighter',

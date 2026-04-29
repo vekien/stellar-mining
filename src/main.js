@@ -5,7 +5,7 @@ import { state, loadGame, saveGame } from './state.js';
 import { ALL_NODES } from './data/nodes.js';
 import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
-import { SOL_DURATION } from './constants.js';
+import { SOL_DURATION, BASE_COL, BASE_ROW } from './constants.js';
 import { setStateRef } from './helpers.js';
 import { hideTooltip } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos } from './render/camera.js';
@@ -21,7 +21,7 @@ import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ship
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
 import { renderBasePanel } from './ui/basePanel.js';
-import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick } from './ui/panels.js';
+import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
 import { initInput } from './input.js';
 
@@ -53,7 +53,9 @@ initInput(canvas);
 
 // ── Node init ─────────────────────────────────────────────────
 function initNodes() {
-  state.nodes = ALL_NODES.map(n => ({ ...n }));
+  const colOffset = BASE_COL - 12;
+  const rowOffset = BASE_ROW - 12;
+  state.nodes = ALL_NODES.map(n => ({ ...n, gr: [n.gr[0] + colOffset, n.gr[1] + rowOffset] }));
 }
 
 // ── Boot sequence ─────────────────────────────────────────────
@@ -69,7 +71,10 @@ if (state.nextEventTimer === null) scheduleNextEvent();
 // Ensure a market boost exists from the very first SOL
 if (!state.marketBoost) {
   const types = Object.keys(RESOURCE_DEFS);
-  state.marketBoost = { type: types[Math.floor(Math.random() * types.length)] };
+  const multiplier = Number((1.2 + Math.random() * 0.8).toFixed(2));
+  state.marketBoost = { type: types[Math.floor(Math.random() * types.length)], multiplier };
+} else if (!state.marketBoost.multiplier) {
+  state.marketBoost.multiplier = 1.5;
 }
 
 // Normalise ships missing mineTier (e.g. from old saves)
@@ -112,7 +117,7 @@ document.getElementById('hdr-modal-overlay').addEventListener('mouseenter', () =
 document.getElementById('hdr-modal-overlay').addEventListener('mouseleave', () => overlayHovered = false);
 
 document.getElementById('sidebar').addEventListener('mousedown', e => {
-  const interactive = e.target.closest('.ship-card, button, input, select, .tab, .sell-btn-s, .filter-btn, .upgrade-row, #tab-content, label');
+  const interactive = e.target.closest('.ship-card, button, input, select, .tab, .sell-btn-s, .filter-btn, .upgrade-row, #tab-content, #action-panel, label');
   if (interactive) {
     dismissHdrModal();
     window.dismissBasePanel && window.dismissBasePanel();
@@ -137,6 +142,20 @@ window.closeModal     = () => document.getElementById('modal-overlay').classList
 window.confirmNewGame = () => { try { localStorage.removeItem('stellarMiningCo_v1'); } catch(e) {} location.reload(); };
 window.openAbout      = () => document.getElementById('about-overlay').classList.add('show');
 window.closeAbout     = () => document.getElementById('about-overlay').classList.remove('show');
+window.openSettings   = () => {
+  const overlay = document.getElementById('settings-overlay');
+  const chk = document.getElementById('setting-grid-coords');
+  if (chk) chk.checked = !!state.settings?.showGridCoords;
+  if (overlay) overlay.classList.add('show');
+};
+window.closeSettings  = () => {
+  const overlay = document.getElementById('settings-overlay');
+  if (overlay) overlay.classList.remove('show');
+};
+window.toggleGridCoords = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showGridCoords = !!enabled;
+};
 window.switchTab      = function(tab) {
   dismissHdrModal();
   state.activeTab = tab;
@@ -176,19 +195,43 @@ function gameLoop(ts) {
   requestAnimationFrame(gameLoop);
 }
 
-// ── Fast rAF patch loop — cargo bars only ─────────────────────
+// ── Fast rAF patch loop — cargo bars + status badges ──────────
+const _STATUS_LABELS = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING' };
+const _STATUS_MSGS   = { flying:'▶ En Route', mining:'⛏ Mining', returning:'↩ Returning', pausing:'↩ Returning', idle:'● Idle' };
+const _STATUS_COLORS = { flying:'#48f', mining:'#c6f', returning:'#fa6', pausing:'#fa6', idle:'#4d8' };
+
 function patchShipCards() {
   for (const ship of state.ships) {
+    // Cargo bar
     const fill = document.getElementById(`cargo-fill-${ship.id}`);
     if (fill) fill.style.width = `${ship.cargo / ship.capacity * 100}%`;
     const txt = document.getElementById(`cargo-text-${ship.id}`);
     if (txt) txt.textContent = `▲ ${ship.cargo}/${ship.capacity}`;
+    // Status badge (no-op if text unchanged — avoids flicker)
+    const badge = document.getElementById(`ship-status-${ship.id}`);
+    if (badge) {
+      const label = _STATUS_LABELS[ship.status] || ship.status;
+      if (badge.textContent !== label) {
+        badge.textContent = label;
+        badge.className = `ship-status ${ship.status}`;
+      }
+    }
   }
-  // Keep action panel cargo stat live for the selected ship
+  // Action panel live updates for selected ship
   if (state.selectedShip !== null) {
     const ship = state.ships.find(s => s.id === state.selectedShip);
-    const el = document.getElementById('action-panel-cargo');
-    if (ship && el) el.textContent = `${ship.cargo} / ${ship.capacity}`;
+    if (ship) {
+      const cargoEl = document.getElementById('action-panel-cargo');
+      if (cargoEl) cargoEl.textContent = `${ship.cargo} / ${ship.capacity}`;
+      const statusEl = document.getElementById('action-panel-status');
+      if (statusEl) {
+        const msg = _STATUS_MSGS[ship.status] || '● Idle';
+        if (statusEl.textContent !== msg) {
+          statusEl.textContent = msg;
+          statusEl.style.color = _STATUS_COLORS[ship.status] || '#4d8';
+        }
+      }
+    }
   }
   requestAnimationFrame(patchShipCards);
 }
@@ -223,8 +266,11 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// ── Slow interval — full UI rebuild ──────────────────────────
-setInterval(() => { if (!sidebarHovered && !overlayHovered && refresh.ui) refresh.ui(); }, 800);
+// ── Slow interval — header numbers only (no DOM rebuild) ─────
+setInterval(() => {
+  if (refresh.header) refresh.header();
+  refreshHdrPanelIfOpen();
+}, 800);
 
 // ── Autosave ─────────────────────────────────────────────────
 setInterval(saveGame, 5000);

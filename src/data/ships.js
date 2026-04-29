@@ -5,28 +5,32 @@
 // Base stats for each ship type (used at spawn + display)
 export const SHIP_DEFS = {
   scout: {
-    capacity:  15,
-    flySpeed:  1.4,
-    mineSpeed: 1.0,
-    mineTier:  1,
+    capacity:   15,
+    flySpeed:   1.4,
+    mineSpeed:  1.0,
+    mineTier:   1,
+    turnRadius: 1.0,
   },
   swift: {
-    capacity:  12,
-    flySpeed:  2.2,
-    mineSpeed: 1.5,
-    mineTier:  1,
+    capacity:   12,
+    flySpeed:   2.2,
+    mineSpeed:  1.5,
+    mineTier:   1,
+    turnRadius: 0.8,  // tighter circle
   },
   hauler: {
-    capacity:  30,
-    flySpeed:  0.8,
-    mineSpeed: 0.8,
-    mineTier:  2,
+    capacity:   30,
+    flySpeed:   0.8,
+    mineSpeed:  0.8,
+    mineTier:   2,
+    turnRadius: 1.2,  // wider arc
   },
   freighter: {
-    capacity:  60,
-    flySpeed:  0.6,
-    mineSpeed: 0.6,
-    mineTier:  3,
+    capacity:   60,
+    flySpeed:   0.6,
+    mineSpeed:  0.6,
+    mineTier:   3,
+    turnRadius: 1.8,  // very wide, lazy sweep
   },
 };
 
@@ -46,15 +50,15 @@ export const SHIP_TIER_COSTS = {
 // Max upgrade level per tier for each stat
 export const TIER_UPGRADE_CAP = { 
   1:10, 
-  2:25, 
-  3:50, 
-  4:80, 
-  5:120, 
-  6:180, 
-  7:250, 
-  8:300, 
-  9:400, 
-  10:500 
+  2:20, 
+  3:30, 
+  4:40, 
+  5:50, 
+  6:60, 
+  7:70, 
+  8:80, 
+  9:90, 
+  10:100 
 };
 
 // Tier rarity colours for display
@@ -74,9 +78,9 @@ export const UPGRADE_MINE_COST = s => Math.floor(60  * Math.pow(1.10, s.mineSpee
 
 // How many levels to buy at once based on current level
 export function upgradeChunk(level) {
-  if (level >= 100) return 10;
-  if (level >= 50)  return 5;
-  if (level >= 20)  return 2;
+  if (level >= 50)  return 10;
+  if (level >= 30)  return 5;
+  if (level >= 10)  return 2;
   return 1;
 }
 

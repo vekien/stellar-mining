@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from './state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
-import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS } from './constants.js';
+import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, BASE_COL, BASE_ROW } from './constants.js';
 import { cam, gridToWorld, screenToWorld, focusOnBase, adjustZoom } from './render/camera.js';
 import { W, H } from './render/renderer.js';
 import { canvasState } from './render/canvasState.js';
@@ -89,9 +89,9 @@ export function initInput(canvas) {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-    const wb = screenToWorld(mx, my);
+    const wb = screenToWorld(mx, my, W, H);
     cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.zoom + (e.deltaY < 0 ? 0.1 : -0.1)));
-    const wa = screenToWorld(mx, my);
+    const wa = screenToWorld(mx, my, W, H);
     cam.x += wb.x - wa.x;
     cam.y += wb.y - wa.y;
   }, { passive: false });
@@ -111,7 +111,7 @@ export function initInput(canvas) {
     }
 
     // Base hover
-    const bw = gridToWorld(12, 12);
+    const bw = gridToWorld(BASE_COL, BASE_ROW);
     const bdx = wx - bw.x, bdy = wy - (bw.y + TILE_H/2);
     const onBase = bdx*bdx + bdy*bdy < 38*38;
     if (onBase !== canvasState.baseHovered) canvasState.baseHovered = onBase;
@@ -173,7 +173,12 @@ export function initInput(canvas) {
   // ── KEYBOARD ────────────────────────────────────────────────
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (state.renamingShip) { closeRenameOverlay(); return; }
+      if (state.renamingShip || state.renamingBase) { closeRenameOverlay(); return; }
+      const sellOverlay = document.getElementById('sell-overlay');
+      if (sellOverlay && sellOverlay.classList.contains('show')) {
+        if (window.closeSellOverlay) window.closeSellOverlay();
+        return;
+      }
       if (state.placingTurret) { cancelTurretPlacement(); return; }
       if (state.basePanelOpen) { state.basePanelOpen = false; renderBasePanel(); return; }
       if (state.selectedShip) {
@@ -195,7 +200,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
   const wy = (sy - H/2) / cam.zoom + cam.y;
 
   // Check base click
-  const bw  = gridToWorld(12, 12);
+  const bw  = gridToWorld(BASE_COL, BASE_ROW);
   const bdx = wx - bw.x, bdy = wy - (bw.y + TILE_H/2);
   if (bdx*bdx + bdy*bdy < 32*32) {
     state.basePanelOpen = !state.basePanelOpen;
@@ -219,7 +224,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
     const col = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
     const row = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
     if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) return;
-    if (col === 12 && row === 12) { addLog('⚠ Cannot place turret on the base.'); return; }
+    if (col === BASE_COL && row === BASE_ROW) { addLog('⚠ Cannot place turret on the base.'); return; }
     const onNode   = state.nodes.some(n => n.gr[0] === col && n.gr[1] === row && n.minLevel <= state.base.level);
     if (onNode)    { addLog('⚠ Cannot place turret on a resource node.'); return; }
     const onTurret = state.turrets.some(t => t.col === col && t.row === row && t.id !== state.movingTurret);
@@ -279,5 +284,14 @@ function handleCanvasClick(canvas, clientX, clientY) {
       assignShip(ship, node);
       return;
     }
+  }
+
+  // Clicked map but not a resource node: clear current ship selection
+  if (state.selectedShip !== null || state.pendingAssign !== null) {
+    state.selectedShip = null;
+    state.pendingAssign = null;
+    canvas.style.cursor = '';
+    removeReassignTooltip();
+    if (refresh.ui) refresh.ui();
   }
 }

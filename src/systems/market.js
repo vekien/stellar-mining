@@ -10,7 +10,10 @@ import { NPCS } from '../data/npcs.js';
 
 export function getSellPrice(type) {
   const base = RESOURCE_DEFS[type].sellPrice;
-  if (state.marketBoost && state.marketBoost.type === type) return Math.round(base * 1.5);
+  if (state.marketBoost && state.marketBoost.type === type) {
+    const mult = state.marketBoost.multiplier ?? 1.5;
+    return Math.round(base * mult);
+  }
   return base;
 }
 

@@ -7,6 +7,7 @@ import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { addLog, fmt } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { spawnRangePulse, spawnNodeUnlock } from '../render/animations.js';
+import { focusOnBase, cam } from '../render/camera.js';
 import { showOnce } from '../ui/transmissions.js';
 import { NPCS } from '../data/npcs.js';
 
@@ -36,6 +37,8 @@ window.upgradeBase = function() {
   state.base.level++;
   state.base.maxHealth = 10000 + (state.base.level - 1) * 5000;
   state.base.health = state.base.maxHealth;
+  const rpCap = 2 + (state.base.level - 1);
+  state.rp = Math.min(state.rp + 1, rpCap);
   spawnRangePulse(BASE_RANGE[state.base.level-1]);
   const newNodes = state.nodes.filter(n => n.minLevel === state.base.level);
   newNodes.forEach((node, i) => {
@@ -43,11 +46,28 @@ window.upgradeBase = function() {
     setTimeout(() => spawnNodeUnlock(node), 300 + i * 200);
   });
   addLog(`⬆ Base upgraded to Level ${state.base.level}!`);
+
+  if (state.base.level === 2) {
+    setTimeout(() => showOnce('juno_base_lv2_upgrade', NPCS.juno.transmissionLines.base_lv2_upgrade, 28, 'juno'), 900);
+    setTimeout(() => showOnce('rigs_base_lv2_hauler', NPCS.rigs.transmissionLines.base_lv2_hauler, 14, 'rigs'), 3200);
+    setTimeout(() => showOnce('vane_rp_upgrade', NPCS.vane.transmissionLines.vane_rp_upgrade, 14, 'vane'), 5200);
+  }
+  if (state.base.level === 3) {
+    setTimeout(() => showOnce('dax_lv3_intro', NPCS.dax.transmissionLines.dax_lv3_intro, 18, 'dax'), 900);
+    setTimeout(() => showOnce('kai_lv3_intro', NPCS.kai.transmissionLines.kai_lv3_intro, 18, 'kai'), 3200);
+  }
+
   const newShips = CRAFT_RECIPES.filter(r => r.mineTier === state.base.level);
   if (newShips.length > 0) {
     const names = newShips.map(r => `<strong>${r.name}</strong>`).join(' and ');
     setTimeout(() => showOnce('base_unlock_' + state.base.level, NPCS.rigs.transmissionLines.base_unlock(names), 25, 'rigs'), 1000);
   }
+
+  // UX: center camera on base and close base panel after upgrade
+  focusOnBase(cam.zoom);
+  state.basePanelOpen = false;
+
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
+  if (refresh.basePanel) refresh.basePanel();
 };

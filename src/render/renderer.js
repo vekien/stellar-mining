@@ -1,7 +1,7 @@
 // ============================================================
 // MAIN RENDERER — canvas drawing
 // ============================================================
-import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION } from '../constants.js';
+import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
 import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS } from './camera.js';
 import { BASE_RANGE } from '../data/nodes.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
@@ -37,8 +37,12 @@ export function drawTile(col, row, fill, stroke) {
 }
 
 export function drawGrid() {
-  const BASE_C = 12, BASE_R = 12;
+  const BASE_C = BASE_COL, BASE_R = BASE_ROW;
   const halfR = BASE_RANGE[(state.base.level-1)] || 6;
+  ctx.save();
+  ctx.font = '7px Share Tech Mono, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   for (let c = 0; c < GRID_COLS; c++) for (let r = 0; r < GRID_ROWS; r++) {
     const dist = Math.sqrt((c-BASE_C)*(c-BASE_C)+(r-BASE_R)*(r-BASE_R));
     const gridDist = Math.max(Math.abs(c-BASE_C), Math.abs(r-BASE_R));
@@ -46,11 +50,18 @@ export function drawGrid() {
     const a = Math.max(0, 0.15 - dist*0.006);
     if (inRange) drawTile(c,r,`rgba(10,25,70,${a})`,`rgba(30,80,160,${a*1.5})`);
     else         drawTile(c,r,`rgba(14,14,20,0.08)`,`rgba(50,50,68,0.1)`);
+
+    if (inRange && state.settings?.showGridCoords) {
+      const wp = gridToWorld(c, r);
+      ctx.fillStyle = 'rgba(235,245,255,0.2)';
+      ctx.fillText(`${c},${r}`, wp.x, wp.y + TILE_H / 2);
+    }
   }
+  ctx.restore();
 }
 
 export function drawRangeBorder() {
-  const BASE_C = 12, BASE_R = 12;
+  const BASE_C = BASE_COL, BASE_R = BASE_ROW;
   const halfR  = BASE_RANGE[(state.base.level-1)] || 6;
   const wTL = gridToWorld(BASE_C-halfR, BASE_R-halfR);
   const wTR = gridToWorld(BASE_C+halfR, BASE_R-halfR);
@@ -101,7 +112,8 @@ export function drawBase(col, row) {
   ctx.fillStyle='#4af'; ctx.font='bold 9px Orbitron,monospace'; ctx.textAlign='center'; ctx.fillText('BASE',cx,cy-th-20);
 
   if (baseHovered) {
-    const label = `⬡ BASE STATION  LV ${state.base.level}`;
+    const baseName = state.base.name || 'Base Station';
+    const label = `${baseName} - LV ${state.base.level}`;
     const labelY = cy-th-36;
     ctx.font = 'bold 11px Orbitron,monospace';
     const tw2 = ctx.measureText(label).width;
@@ -121,7 +133,7 @@ export function drawNode(node) {
   const cx = x, cy = y+TILE_H/2;
   const def = RESOURCE_DEFS[node.type];
   if (node.minLevel > state.base.level) return;
-  const BASE_C2 = 12, BASE_R2 = 12;
+  const BASE_C2 = BASE_COL, BASE_R2 = BASE_ROW;
   const halfR2 = BASE_RANGE[state.base.level-1] || 6;
   const nodeDist = Math.max(Math.abs(col-BASE_C2), Math.abs(row-BASE_R2));
   if (nodeDist > halfR2) return;
@@ -177,6 +189,32 @@ export function drawShipWorld(ship) {
   const col  = ship.type==='freighter'?'#ffaa30':ship.type==='hauler'?'#80d0ff':ship.type==='swift'?'#ff80c0':'#60d090';
   const isSelected = state.selectedShip === ship.id;
 
+  // ── Curved trail (world space, drawn before ship body) ──────
+  const trail = ship.trail;
+  if (trail?.length > 1) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const n = trail.length;
+    for (let i = 1; i < n; i++) {
+      const t = i / n;  // 0 = oldest/tail, 1 = newest/head
+      ctx.beginPath();
+      // Use midpoints for smooth quadratic curve segments
+      const ax = (trail[i-1].x + trail[i].x) / 2;
+      const ay = (trail[i-1].y + trail[i].y) / 2;
+      const bx = i < n-1 ? (trail[i].x + trail[i+1].x) / 2 : trail[i].x;
+      const by = i < n-1 ? (trail[i].y + trail[i+1].y) / 2 : trail[i].y;
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(trail[i].x, trail[i].y, bx, by);
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = t * 0.65;
+      ctx.lineWidth = t * 6;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
   ctx.save();
   ctx.translate(ship.x, ship.y);
 
@@ -198,10 +236,11 @@ export function drawShipWorld(ship) {
   ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle='#fff6'; ctx.lineWidth=0.7; ctx.stroke();
 
   if (ship.status==='flying'||ship.status==='returning') {
-    ctx.beginPath(); ctx.moveTo(0,size*.5); ctx.lineTo(0,size*1.8);
-    const tg = ctx.createLinearGradient(0,size*.5,0,size*1.8);
-    tg.addColorStop(0,col+'cc'); tg.addColorStop(1,col+'00');
-    ctx.strokeStyle = tg; ctx.lineWidth = 3; ctx.stroke();
+    // Short nozzle glow at engine mouth — trail handles the rest
+    const ng = ctx.createLinearGradient(0,size*.5,0,size*2.4);
+    ng.addColorStop(0,col+'ee'); ng.addColorStop(0.5,col+'66'); ng.addColorStop(1,col+'00');
+    ctx.beginPath(); ctx.moveTo(0,size*.5); ctx.lineTo(0,size*2.4);
+    ctx.strokeStyle = ng; ctx.lineWidth = 4; ctx.lineCap='round'; ctx.stroke();
   }
 
   if (ship.status==='mining') {
@@ -228,15 +267,15 @@ export function drawShipWorld(ship) {
       const halo = ctx.createLinearGradient(0,0,bx*beamLen,by*beamLen);
       halo.addColorStop(0,def.color+'aa'); halo.addColorStop(1,def.color+'00');
       ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bx*beamLen,by*beamLen);
-      ctx.strokeStyle = halo; ctx.lineWidth = 10*beamPulse; ctx.globalAlpha = 0.18; ctx.stroke();
+      ctx.strokeStyle = halo; ctx.lineWidth = 18*beamPulse; ctx.globalAlpha = 0.22; ctx.stroke();
       const bg = ctx.createLinearGradient(0,0,bx*beamLen,by*beamLen);
-      bg.addColorStop(0,def.color+'ee'); bg.addColorStop(1,def.color+'00');
+      bg.addColorStop(0,'#ffffff'); bg.addColorStop(0.3,def.color+'ee'); bg.addColorStop(1,def.color+'00');
       ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bx*beamLen,by*beamLen);
-      ctx.strokeStyle = bg; ctx.lineWidth = 5*beamPulse; ctx.globalAlpha = 0.55; ctx.stroke();
-      const ig = ctx.createLinearGradient(0,0,bx*beamLen*0.7,by*beamLen*0.7);
-      ig.addColorStop(0,'#ffffff'); ig.addColorStop(0.4,def.color); ig.addColorStop(1,def.color+'00');
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bx*beamLen*0.7,by*beamLen*0.7);
-      ctx.strokeStyle = ig; ctx.lineWidth = 2*beamPulse; ctx.globalAlpha = 0.9*beamPulse; ctx.stroke();
+      ctx.strokeStyle = bg; ctx.lineWidth = 8*beamPulse; ctx.globalAlpha = 0.65; ctx.stroke();
+      const ig = ctx.createLinearGradient(0,0,bx*beamLen*0.85,by*beamLen*0.85);
+      ig.addColorStop(0,'#ffffff'); ig.addColorStop(0.5,'#ffffffcc'); ig.addColorStop(1,'#ffffff00');
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bx*beamLen*0.85,by*beamLen*0.85);
+      ctx.strokeStyle = ig; ctx.lineWidth = 3.5*beamPulse; ctx.globalAlpha = 0.95*beamPulse; ctx.stroke();
       ctx.globalAlpha = 1;
     }
     ctx.restore();
@@ -257,7 +296,7 @@ export function render(ts) {
   drawRangePulses();
   const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
   for (const n of sn) drawNode(n);
-  drawBase(12, 12);
+  drawBase(BASE_COL, BASE_ROW);
   const ss = [...state.ships].sort((a,b)=>a.y-b.y);
   for (const s of ss) drawShipWorld(s);
   drawTurrets();

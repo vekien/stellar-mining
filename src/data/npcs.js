@@ -13,6 +13,10 @@ export const NPCS = {
         `Hey Commander — Admiral Juno aboard the <strong>ISV Hyperion</strong>!<br><br>` +
         `You've just collected your first batch of resources. Sell them back to Star Command for coins, or use them to <strong>craft more ships</strong>.<br><br>` +
         `Tip: select a ship and click a <strong>different node</strong> to redirect it — you'll need a variety of materials to build new hulls!`,
+      base_lv2_upgrade:
+        `Commander, Admiral Juno here. Excellent work — your <strong>Base Station upgrade</strong> has expanded operational radius and increased local fleet availability.<br><br>` +
+        `New deposits have appeared in range, including <strong>Oxygen</strong> and <strong>Silicon</strong>. Prioritize survey assignments and secure extraction lanes.<br><br>` +
+        `Stay alert: this expansion edges us closer to <strong>pirate territory</strong>. Expect resistance as we push outward.`,
     },
   },
   sera: {
@@ -58,6 +62,11 @@ export const NPCS = {
       base_unlock: (names) =>
         `Commander, it's Rigs down at the yard. Just got word your base hit a new tier — that means I can now build you a ${names}.<br><br>` +
         `Head to the <strong>Base Station → Craft</strong> tab and let's get to work!`,
+      base_lv2_hauler:
+        `Rigs here — with that base upgrade I can now build you a <strong>Hauler</strong>.<br><br>` +
+        `It's slower than your light runners, but it's built to move serious volume. Perfect for steady iron and copper routes.<br><br>` +
+        `Also, your current ships can now be upgraded to <strong>Tier II</strong> mining rigs. Check each ship's upgrades and push your fleet harder.<br><br>` +
+        `Head to the <strong>Base Station → Ships</strong> tab when you're ready and I'll prep the frame.`,
       sol_idle: ({ names, count }) =>
         `Hey! ${count > 1 ? `${count} ships are` : `${names} is`} sitting idle and doing absolutely nothing!<br><br>` +
         `${count > 1 ? `That includes: ${names}.<br><br>` : ''}` +
@@ -95,6 +104,9 @@ export const NPCS = {
         `Commander, Dr. Vane here. That solar flare you just experienced is a Class-M electromagnetic surge — fairly common this far out in the belt.<br><br>` +
         `They selectively damage exposed resource depots. Oxygen is shielded by its containment units, but metals and silicates take the hit.<br><br>` +
         `I'm working on a shielding upgrade. Until then — expect more of these.`,
+      vane_rp_upgrade:
+        `Dr. Vane here. Quick systems note: each <strong>Base Upgrade</strong> now grants <strong>+1 Research Point</strong>.<br><br>` +
+        `If you're planning expansion, time your upgrades around research unlocks to keep your progression efficient.`,
       vane_comet_explain: (hpPct) =>
         `Commander, Vane. That comet was a stray fragment from the outer debris field — they hit harder the longer you've been out here.<br><br>` +
         `Base integrity is now at <strong>${hpPct}%</strong>. ${hpPct < 30
@@ -130,6 +142,12 @@ export const NPCS = {
     ship: 'Security Officer · Sector Enforcement Division',
     portrait: 'assets/images/npcs/dax.jpg',
     bio: "Marshal Dax is the sector's chief enforcement officer. A veteran of countless belt skirmishes, he takes a dim view of pirates, smugglers, and anyone operating outside Star Command's jurisdiction. When Dax shows up, the situation has already gone past the point of warnings.",
+    transmissionLines: {
+      dax_lv3_intro:
+        `Marshal Dax here, <strong>Sector Enforcement</strong>. You're pushing into <strong>contested lanes</strong> now.<br><br>` +
+        `<strong>Pirate scouts</strong> have been sighted near the outer rocks, and they won't ignore a growing operation for long.<br><br>` +
+        `Keep your fleet moving, keep your base hardened, and <strong>expect contact</strong>.`
+    },
   },
   kai: {
     id: 'kai',
@@ -137,5 +155,18 @@ export const NPCS = {
     ship: 'Weapons Smith · Sector Defense Division',
     portrait: 'assets/images/npcs/kai.jpg',
     bio: "Kai is the sector's go-to weapons smith, responsible for building, maintaining and upgrading all defensive installations including turrets and base armaments. Quiet and precise, she lets her work do the talking — and her work is very, very good.",
+    transmissionLines: {
+      kai_lv3_intro:
+        `Kai here. With your base at this tier, <strong>turret platforms</strong> are now on the table.<br><br>` +
+        `Place turrets around your approach lanes and they'll automatically <strong>engage incoming invaders</strong>.<br><br>` +
+        `Set <strong>overlapping fields of fire</strong> and you'll survive the first wave.`
+    },
+  },
+  zoe: {
+    id: 'zoe',
+    name: 'Dr. Zoe Halden',
+    ship: 'Scientist / Cosmologist · Deep Field Observatory',
+    portrait: 'assets/images/npcs/zoe.png',
+    bio: 'Dr. Zoe Halden is a cosmologist assigned to the Deep Field Observatory network. She studies stellar drift, anomaly signatures, and long-range sector expansion models to predict where the richest deposits and highest-risk zones will emerge next.',
   },
 };

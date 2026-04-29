@@ -4,7 +4,7 @@
 import { state } from '../state.js';
 import { cam, gridToWorld } from '../render/camera.js';
 import { W, H } from '../render/renderer.js';
-import { TILE_H, SOL_DURATION } from '../constants.js';
+import { TILE_H, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
 import { showOnce } from './transmissions.js';
 import { NPCS } from '../data/npcs.js';
 
@@ -82,7 +82,7 @@ const TUTORIAL_DEFS = [
     text: '⬡ SELECT YOUR BASE',
     placement: 'above',
     getPos: () => {
-      const bw = gridToWorld(12, 12);
+      const bw = gridToWorld(BASE_COL, BASE_ROW);
       return canvasPos(bw.x, bw.y + TILE_H / 2);
     },
   },
@@ -122,6 +122,17 @@ const TUTORIAL_DEFS = [
     placement: 'below',
     getEl: () => Array.from(document.querySelectorAll('.hdr-btn'))
       .find(el => el.querySelector('.label')?.textContent === 'TRADE') || null,
+  },
+
+  {
+    id: 'tut-ptr-research-lv3',
+    condition: s => !!s.seenMsgs['dax_lv3_intro']
+      && !!s.seenMsgs['kai_lv3_intro']
+      && !s.seenMsgs['lv3_research_pointer_done'],
+    text: 'OPEN RESEARCH',
+    placement: 'below',
+    getEl: () => Array.from(document.querySelectorAll('.hdr-btn'))
+      .find(el => el.querySelector('.label')?.textContent === 'RESEARCH') || null,
   },
 
   // ── Redirect tutorial (fires after "solid stockpile" message) ──

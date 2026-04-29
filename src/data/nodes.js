@@ -1,9 +1,9 @@
 // ============================================================
 // NODE & BASE DATA
 // ============================================================
-export const BASE_UPGRADE_COSTS = [0, 50000, 200000, 500000, 1000000, 2000000, 4000000, 8000000, 16000000, 32000000];
+export const BASE_UPGRADE_COSTS = [0, 10000, 14000, 19600, 27440, 38416, 53782, 75295, 105413, 147578];
 export const BASE_MAX_SHIPS     = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
-export const BASE_RANGE         = [6, 8, 10, 12, 14, 17, 20, 23, 27, 31]; // tiles each direction from base
+export const BASE_RANGE         = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]; // tiles each direction from base
 
 // All nodes in the world — base at (12,12), range expands outward per base level
 export const ALL_NODES = [
@@ -16,6 +16,7 @@ export const ALL_NODES = [
   {id:5,  type:'silicon',  gr:[13,16], minLevel:1},
   {id:6,  type:'titanium', gr:[16,12], minLevel:1},
   {id:7,  type:'gold',     gr:[12,17], minLevel:1},
+  {id:46, type:'copper',   gr:[10,7],  minLevel:1},
 
   // === LEVEL 2 — dist exactly 7 =======================
   {id:8,  type:'iron',     gr:[5,12],  minLevel:2},

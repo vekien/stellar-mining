@@ -17,6 +17,9 @@ import { getSellPrice } from '../systems/market.js';
 import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial } from './tutorial.js';
 import { cancelTurretPlacement } from './turretUI.js';
 
+let _sellOverlayShipId = null;
+let _sellOverlayValue = 0;
+
 export function renderFleetFilters() {
   const container = document.getElementById('fleet-filters');
   if (!container) return;
@@ -32,78 +35,98 @@ export function renderFleetFilters() {
     return n ? RESOURCE_DEFS[n.type].label : null;
   }).filter(Boolean))];
 
-  function makeRow(labelText, pills) {
+  function makeRow(labelText, control) {
     const row = document.createElement('div');
     row.className = 'ff-row';
     const label = document.createElement('span');
     label.className = 'ff-label';
     label.textContent = labelText;
-    const pillWrap = document.createElement('div');
-    pillWrap.className = 'ff-pills';
-    pills.forEach(p => pillWrap.appendChild(p));
+    const controlWrap = document.createElement('div');
+    controlWrap.className = 'ff-control';
+    controlWrap.appendChild(control);
     row.appendChild(label);
-    row.appendChild(pillWrap);
+    row.appendChild(controlWrap);
     return row;
   }
 
-  function pill(text, active, color, onClick) {
-    const btn = document.createElement('button');
-    btn.className = 'fleet-filter' + (active ? ' active' : '');
-    btn.textContent = text;
-    if (active && color)        { btn.style.borderColor = color; btn.style.color = color; }
-    else if (!active && color)  { btn.style.color = color; btn.style.borderColor = color + '60'; }
-    btn.onclick = onClick;
-    return btn;
+  function makeSelect(options, value, onChange) {
+    const sel = document.createElement('select');
+    sel.className = 'fleet-select';
+    options.forEach(opt => {
+      const el = document.createElement('option');
+      el.value = opt.value;
+      el.textContent = opt.label;
+      sel.appendChild(el);
+    });
+    sel.value = value ?? '';
+    sel.addEventListener('change', () => onChange(sel.value));
+    return sel;
   }
 
   container.innerHTML = '';
 
-  if (types.length > 0) {
-    const pills = types.map(t => pill(
-      t.replace(' Ship','').replace(' Runner',''),
-      ff.type === t, null,
-      () => { ff.type = ff.type === t ? null : t; renderFleetFilters(); renderShipsList(); }
-    ));
-    container.appendChild(makeRow('Type', pills));
-  }
+  const typeSelect = makeSelect(
+    [{ value: '', label: 'All Types' }, ...types.map(t => ({ value: t, label: t.replace(' Ship', '').replace(' Runner', '') }))],
+    ff.type,
+    (v) => { ff.type = v || null; renderShipsList(); }
+  );
+  container.appendChild(makeRow('Type', typeSelect));
 
-  if (nodeTypes.length > 0) {
-    const pills = nodeTypes.map(nt => {
-      const def = Object.values(RESOURCE_DEFS).find(d => d.label === nt);
-      return pill(nt, ff.node === nt, def?.color,
-        () => { ff.node = ff.node === nt ? null : nt; renderFleetFilters(); renderShipsList(); }
-      );
-    });
-    container.appendChild(makeRow('Node', pills));
-  }
+  const nodeSelect = makeSelect(
+    [{ value: '', label: 'All Nodes' }, ...nodeTypes.map(nt => ({ value: nt, label: nt }))],
+    ff.node,
+    (v) => { ff.node = v || null; renderShipsList(); }
+  );
+  container.appendChild(makeRow('Node', nodeSelect));
 
-  const statusPills = [
-    pill('Idle', ff.idleOnly, null, () => { ff.idleOnly = !ff.idleOnly; renderFleetFilters(); renderShipsList(); }),
-  ];
-  const sortActive = ff.sort === 'level';
-  const sortBtn = document.createElement('button');
-  sortBtn.className = 'fleet-filter' + (sortActive ? ` active sort-${ff.sortDir === 1 ? 'asc' : 'desc'}` : '');
-  sortBtn.textContent = 'Lvl';
-  sortBtn.onclick = () => {
-    if (ff.sort === 'level') ff.sortDir *= -1;
-    else { ff.sort = 'level'; ff.sortDir = -1; }
-    renderFleetFilters(); renderShipsList();
+  const sortSelect = makeSelect(
+    [
+      { value: 'none', label: 'No Sort' },
+      { value: 'fly_desc', label: 'Fly Speed - High' },
+      { value: 'fly_asc', label: 'Fly Speed - Low' },
+      { value: 'mine_desc', label: 'Mine Speed - High' },
+      { value: 'mine_asc', label: 'Mine Speed - Low' },
+      { value: 'capacity_desc', label: 'Storage Cap - High' },
+      { value: 'capacity_asc', label: 'Storage Cap - Low' },
+      { value: 'level_desc', label: 'Level - High' },
+      { value: 'level_asc', label: 'Level - Low' },
+    ],
+    ff.sort ? `${ff.sort}_${ff.sortDir === -1 ? 'desc' : 'asc'}` : 'none',
+    (v) => {
+      if (v === 'none') {
+        ff.sort = null;
+        ff.sortDir = 1;
+      } else {
+        const [sortKey, sortOrder] = v.split('_');
+        ff.sort = sortKey;
+        ff.sortDir = sortOrder === 'desc' ? -1 : 1;
+      }
+      renderShipsList();
+    }
+  );
+  container.appendChild(makeRow('Sort', sortSelect));
+
+  const clearRow = document.createElement('div');
+  clearRow.className = 'ff-row ff-row-clear';
+
+  const idleToggle = document.createElement('button');
+  idleToggle.className = 'fleet-filter' + (ff.idleOnly ? ' active' : '');
+  idleToggle.textContent = 'Idle';
+  idleToggle.onclick = () => {
+    ff.idleOnly = !ff.idleOnly;
+    renderShipsList();
   };
-  statusPills.push(sortBtn);
 
-  if (ff.type || ff.node || ff.idleOnly || ff.sort) {
-    const clr = document.createElement('button');
-    clr.className = 'fleet-filter';
-    clr.textContent = '✕ clear';
-    clr.style.color = '#f88'; clr.style.borderColor = '#6a2a2a';
-    clr.onclick = () => {
-      Object.assign(state.fleetFilter, { type:null, node:null, idleOnly:false, sort:null, sortDir:1 });
-      renderFleetFilters(); renderShipsList();
-    };
-    statusPills.push(clr);
-  }
-
-  container.appendChild(makeRow('Filter', statusPills));
+  const clr = document.createElement('button');
+  clr.className = 'fleet-filter fleet-filter-clear';
+  clr.textContent = '✕ Clear Filters';
+  clr.onclick = () => {
+    Object.assign(state.fleetFilter, { type:null, node:null, idleOnly:false, sort:null, sortDir:1 });
+    renderShipsList();
+  };
+  clearRow.appendChild(idleToggle);
+  clearRow.appendChild(clr);
+  container.appendChild(clearRow);
 }
 
 export function renderShipsList() {
@@ -132,6 +155,12 @@ export function renderShipsList() {
       const lb = b.capacityLevel + b.flySpeedLevel + b.mineSpeedLevel;
       return (lb - la) * ff.sortDir * -1;
     });
+  } else if (ff.sort === 'capacity') {
+    ships = [...ships].sort((a, b) => (a.capacity - b.capacity) * ff.sortDir);
+  } else if (ff.sort === 'fly') {
+    ships = [...ships].sort((a, b) => (a.flySpeed - b.flySpeed) * ff.sortDir);
+  } else if (ff.sort === 'mine') {
+    ships = [...ships].sort((a, b) => (a.mineSpeed - b.mineSpeed) * ff.sortDir);
   }
 
   if (ships.length === 0) {
@@ -159,16 +188,16 @@ export function renderShipsList() {
     row1.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:5px;';
 
     const tierPill = document.createElement('span');
-    tierPill.style.cssText = `font-family:'Orbitron',monospace;font-size:10px;font-weight:700;color:${tierRarityColor};background:rgba(0,0,0,0.35);border:1px solid ${tierRarityColor}55;border-radius:3px;padding:1px 5px;flex-shrink:0;`;
+    tierPill.style.cssText = `font-family:'Orbitron',monospace;font-size:12px;font-weight:700;color:${tierRarityColor};background:rgba(0,0,0,0.35);border:1px solid ${tierRarityColor}55;border-radius:3px;padding:1px 5px;flex-shrink:0;`;
     tierPill.textContent = toRoman(safeTierNum);
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'ship-name';
-    nameSpan.style.cssText = `color:${tierRarityColor};font-size:13px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
+    nameSpan.style.cssText = `color:${tierRarityColor};font-size:15px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
     nameSpan.textContent = ship.name;
 
     const typePill = document.createElement('span');
-    typePill.style.cssText = 'font-size:10px;color:#5a8ab0;background:rgba(0,0,0,0.3);border:1px solid #5a8ab044;border-radius:3px;padding:1px 6px;flex-shrink:0;letter-spacing:0.5px;text-transform:uppercase;';
+    typePill.style.cssText = 'font-size:12px;color:#5a8ab0;background:rgba(0,0,0,0.3);border:1px solid #5a8ab044;border-radius:3px;padding:1px 6px;flex-shrink:0;letter-spacing:0.5px;text-transform:uppercase;';
     typePill.textContent = typeLabel;
 
     row1.appendChild(tierPill);
@@ -180,6 +209,7 @@ export function renderShipsList() {
     row2.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:5px;';
 
     const statusBadge = document.createElement('span');
+    statusBadge.id = `ship-status-${ship.id}`;
     statusBadge.className = `ship-status ${ship.status}`;
     statusBadge.textContent = statusLabels[ship.status];
     row2.appendChild(statusBadge);
@@ -188,14 +218,14 @@ export function renderShipsList() {
       const dot = document.createElement('span');
       dot.style.cssText = `display:inline-block;width:7px;height:7px;border-radius:50%;background:${resDef.color};flex-shrink:0;`;
       const resLabel = document.createElement('span');
-      resLabel.style.cssText = `font-size:11px;color:${resDef.color};`;
+      resLabel.style.cssText = `font-size:13px;color:${resDef.color};`;
       resLabel.textContent = resDef.label;
       const dash = document.createElement('span');
-      dash.style.cssText = 'font-size:11px;color:#3a5a7a;margin:0 2px;';
+      dash.style.cssText = 'font-size:13px;color:#3a5a7a;margin:0 2px;';
       dash.textContent = '—';
       const cargoText = document.createElement('span');
       cargoText.id = `cargo-text-${ship.id}`;
-      cargoText.style.cssText = 'font-size:11px;color:#8ab;margin-left:auto;';
+      cargoText.style.cssText = 'font-size:13px;color:#8ab;margin-left:auto;';
       cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
       row2.appendChild(dot);
       row2.appendChild(resLabel);
@@ -204,7 +234,7 @@ export function renderShipsList() {
     } else {
       const cargoText = document.createElement('span');
       cargoText.id = `cargo-text-${ship.id}`;
-      cargoText.style.cssText = 'font-size:11px;color:#8ab;margin-left:auto;';
+      cargoText.style.cssText = 'font-size:13px;color:#8ab;margin-left:auto;';
       cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
       row2.appendChild(cargoText);
     }
@@ -250,16 +280,30 @@ export function renderShipsList() {
 }
 
 export function renderActionPanel() {
+  const actionPanel = document.getElementById('action-panel');
   const titleEl = document.getElementById('action-panel-title');
   const panel   = document.getElementById('action-content');
+  const upgradeDrawer = document.getElementById('ship-upgrade-drawer');
+  const upgradeTitle = document.getElementById('ship-upgrade-title');
+  const upgradeContent = document.getElementById('ship-upgrade-content');
 
   if (!state.selectedShip) {
+    if (actionPanel) actionPanel.style.display = 'none';
+    if (upgradeDrawer) upgradeDrawer.classList.remove('open');
+    if (upgradeContent) upgradeContent.innerHTML = '';
     titleEl.textContent = '◉ COMMAND';
     panel.innerHTML = '<div style="color:#456;font-size:13px;">Select a ship to view its data.</div>';
     return;
   }
+  if (actionPanel) actionPanel.style.display = 'none';
   const ship = state.ships.find(s => s.id === state.selectedShip);
-  if (!ship) { titleEl.textContent = '◉ COMMAND'; panel.innerHTML = ''; return; }
+  if (!ship) {
+    titleEl.textContent = '◉ COMMAND';
+    panel.innerHTML = '';
+    if (upgradeDrawer) upgradeDrawer.classList.remove('open');
+    if (upgradeContent) upgradeContent.innerHTML = '';
+    return;
+  }
 
   titleEl.textContent = `◈ ${ship.name}`;
 
@@ -290,11 +334,21 @@ export function renderActionPanel() {
   const isIdle    = ship.status === 'idle';
   const typeLabel = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
 
-  panel.innerHTML = `
+  panel.innerHTML = '';
+
+  if (upgradeDrawer && upgradeTitle && upgradeContent) {
+    upgradeTitle.textContent = `◈ ${ship.name} UPGRADES`;
+    upgradeContent.innerHTML = buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal });
+    upgradeDrawer.classList.add('open');
+  }
+}
+
+function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal }) {
+  const statsHtml = `
     <div class="ship-data-section">
       <div class="ship-data-row">
         <span class="ship-data-label">Status</span>
-        <span class="ship-data-value" style="color:${statusColor}">${statusMsg}</span>
+        <span class="ship-data-value" id="action-panel-status" style="color:${statusColor}">${statusMsg}</span>
       </div>
       <div class="ship-data-row">
         <span class="ship-data-label">Assigned Node</span>
@@ -304,8 +358,6 @@ export function renderActionPanel() {
         <span class="ship-data-label">Cargo</span>
         <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
       </div>
-    </div>
-    <div class="ship-data-section">
       <div class="ship-data-row">
         <span class="ship-data-label">Ship Type</span>
         <span class="ship-data-value" style="color:#5a8ab0">${typeLabel}</span>
@@ -322,62 +374,99 @@ export function renderActionPanel() {
         <span class="ship-data-label">Mining Speed</span>
         <span class="ship-data-value">${ship.mineSpeed.toFixed(2)}x</span>
       </div>
-    </div>
-    <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
-      <div id="upgrades-section-header" style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ UPGRADES</div>
-      ${(() => {
-        const s2 = state.ships.find(s => s.id === ship.id); if (!s2) return '';
-        const st = Math.min(10, Math.max(1, s2.mineTier || 1));
-        const tc = TIER_COLORS[st];
-        const td = MINE_TIERS[st];
-        const nt = st < 10 ? st + 1 : null;
-        const tCost = nt ? SHIP_TIER_COSTS[nt] : null;
-        const cap2 = TIER_UPGRADE_CAP[st];
-        const capAtM  = s2.capacityLevel  >= cap2;
-        const flyAtM  = s2.flySpeedLevel  >= cap2;
-        const mineAtM = s2.mineSpeedLevel >= cap2;
-        const capChk  = capAtM  ? 0 : Math.min(upgradeChunk(s2.capacityLevel),  cap2 - s2.capacityLevel);
-        const flyChk  = flyAtM  ? 0 : Math.min(upgradeChunk(s2.flySpeedLevel),  cap2 - s2.flySpeedLevel);
-        const mineChk = mineAtM ? 0 : Math.min(upgradeChunk(s2.mineSpeedLevel), cap2 - s2.mineSpeedLevel);
-        const capCost2  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  capChk)  : 0;
-        const flyCost2  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  flyChk)  : 0;
-        const mineCost2 = mineChk > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', mineChk) : 0;
-        const tierBlock = nt
-          ? '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:8px;margin-bottom:6px;">'
-            + '<div style="font-size:9px;letter-spacing:2px;color:#4a7aaa;margin-bottom:4px;font-family:Orbitron,sans-serif;">SHIP TIER</div>'
-            + '<div style="margin-bottom:6px;"><span style="font-size:14px;font-weight:bold;color:'+tc+'">'+td.label+'</span>'
-            + ' <span style="color:#4a6a8a;margin:0 4px;">→</span>'
-            + '<span style="font-size:14px;font-weight:bold;color:'+TIER_COLORS[nt]+'">'+MINE_TIERS[nt].label+'</span></div>'
-            + '<div style="font-size:11px;color:#ffe066;margin-bottom:6px;">'+fmt(tCost)+'¢</div>'
-            + '<button class="btn primary" style="width:100%;font-size:11px;" onclick="upgradeShip('+s2.id+',\'mineTier\',1)" '+(state.coins < tCost ? 'disabled' : '')+'">⬆ UPGRADE TIER</button>'
-            + '</div>'
-          : '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:6px;margin-bottom:6px;font-size:11px;color:#ffe066;">★ MAX TIER</div>';
-        const row = (label, lv, val, cost, chunk, stat) =>
-          '<div class="upgrade-row">'
-          + '<span class="upgrade-label">'+label+'</span>'
-          + '<span class="upgrade-val">Lv'+lv+' · '+val+'</span>'
-          + '<span class="upgrade-cost">'+(chunk > 0 ? fmt(cost)+'¢' : '—')+'</span>'
-          + '<button class="upgrade-btn" onclick="upgradeShip('+s2.id+',\''+stat+'\','+chunk+')" '+(chunk <= 0 || state.coins < cost ? 'disabled' : '')+'>'+(chunk <= 0 ? 'MAX' : chunk > 1 ? '×'+chunk : '↑')+'</button>'
-          + '</div>';
-        return tierBlock
-          + row('Cargo Cap',  s2.capacityLevel,  s2.capacity,                capCost2,  capChk,  'capacity')
-          + row('Fly Speed',  s2.flySpeedLevel,  s2.flySpeed.toFixed(2)+'x', flyCost2,  flyChk,  'flySpeed')
-          + row('Mine Speed', s2.mineSpeedLevel, s2.mineSpeed.toFixed(2)+'x', mineCost2, mineChk, 'mineSpeed');
-      })()}
-    </div>
-    ${isIdle ? `
-    <div class="cmd-status-text" style="color:#ffe066;font-size:12px;margin-bottom:6px;">⬡ Click a node on the map to assign.</div>
-    <div style="font-size:11px;color:#456;margin-bottom:8px;">Dimmed nodes need a higher tier.<br>Press <span style="color:#8ab">Esc</span> to deselect.</div>
-    ` : `
-    <div class="ship-action-row">
-      <button class="btn danger" style="flex:1;font-size:12px" onclick="recallShip(${ship.id})">⟵ RECALL</button>
-    </div>
-    `}
-    <div class="ship-action-row">
+    </div>`;
+
+  const actionsHtml = isIdle
+    ? `<div class="cmd-status-text" style="color:#ffe066;font-size:12px;margin:8px 0 6px;">⬡ Click a node on the map to assign.</div>
+       <div style="font-size:11px;color:#456;margin-bottom:8px;">Dimmed nodes need a higher tier.<br>Press <span style="color:#8ab">Esc</span> to deselect.</div>`
+    : `<div class="ship-action-row" style="margin-top:8px;">
+         <button class="btn danger" style="flex:1;font-size:12px" onclick="recallShip(${ship.id})">⟵ RECALL</button>
+       </div>`;
+
+  const bottomActions = `<div class="ship-action-row">
       <button class="btn" style="flex:1;font-size:12px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab" onclick="openRenameOverlay(${ship.id})">✎ RENAME</button>
-      <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="confirmSellShip(${ship.id},${sellVal})">⊘ SELL</button>
-    </div>
-  `;
+      <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id},${sellVal})">⊘ SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
+    </div>`;
+
+  return statsHtml
+    + '<div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;"><div id="upgrades-section-header" style="font-family:\'Orbitron\',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ UPGRADES</div>'
+    + buildUpgradesSection(ship.id)
+    + '</div>'
+    + actionsHtml
+    + bottomActions;
+}
+
+window.openSellOverlay = function(shipId, sellVal) {
+  if (state.ships.length <= 1) return;
+  const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
+  _sellOverlayShipId = shipId;
+  _sellOverlayValue = sellVal;
+  const nameEl = document.getElementById('sell-ship-name');
+  const valueEl = document.getElementById('sell-ship-value');
+  if (nameEl) nameEl.textContent = ship.name;
+  if (valueEl) valueEl.textContent = `$${fmt(sellVal)}`;
+  const overlay = document.getElementById('sell-overlay');
+  if (overlay) overlay.classList.add('show');
+};
+
+window.closeSellOverlay = function() {
+  _sellOverlayShipId = null;
+  _sellOverlayValue = 0;
+  const overlay = document.getElementById('sell-overlay');
+  if (overlay) overlay.classList.remove('show');
+};
+
+window.confirmSellOverlay = function() {
+  if (_sellOverlayShipId !== null) {
+    window.sellShip(_sellOverlayShipId, _sellOverlayValue);
+  }
+  window.closeSellOverlay();
+};
+
+function buildUpgradesSection(shipId) {
+  const s2 = state.ships.find(s => s.id === shipId); if (!s2) return '';
+  const st = Math.min(10, Math.max(1, s2.mineTier || 1));
+  const tc = TIER_COLORS[st];
+  const td = MINE_TIERS[st];
+  const nt = st < 10 ? st + 1 : null;
+  const tCost = nt ? SHIP_TIER_COSTS[nt] : null;
+  const blockedByBase = nt && nt > state.base.level;
+  const canAffordTier = nt && state.coins >= tCost;
+  const cap2 = TIER_UPGRADE_CAP[st];
+  const capAtM  = s2.capacityLevel  >= cap2;
+  const flyAtM  = s2.flySpeedLevel  >= cap2;
+  const mineAtM = s2.mineSpeedLevel >= cap2;
+  const capChk  = capAtM  ? 0 : Math.min(upgradeChunk(s2.capacityLevel),  cap2 - s2.capacityLevel);
+  const flyChk  = flyAtM  ? 0 : Math.min(upgradeChunk(s2.flySpeedLevel),  cap2 - s2.flySpeedLevel);
+  const mineChk = mineAtM ? 0 : Math.min(upgradeChunk(s2.mineSpeedLevel), cap2 - s2.mineSpeedLevel);
+  const capCost2  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  capChk)  : 0;
+  const flyCost2  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  flyChk)  : 0;
+  const mineCost2 = mineChk > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', mineChk) : 0;
+
+  const tierBlock = nt
+    ? '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:8px;margin-bottom:6px;">'
+      + '<div style="font-size:9px;letter-spacing:2px;color:#4a7aaa;margin-bottom:4px;font-family:Orbitron,sans-serif;">SHIP TIER</div>'
+      + '<div style="margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:8px;">'
+      + '<span style="font-size:14px;font-weight:bold;color:'+tc+'">'+td.label+'</span>'
+      + '<span style="color:#7aa7d8;font-size:13px;line-height:1;">➜</span>'
+      + '<span style="font-size:14px;font-weight:bold;color:'+TIER_COLORS[nt]+'">'+MINE_TIERS[nt].label+'</span></div>'
+      + (blockedByBase ? '<div style="font-size:13px;color:#fa8;margin-bottom:6px;">MAX BASE LV' + state.base.level + '</div>' : '')
+      + (blockedByBase ? '' : '<button class="btn '+(canAffordTier ? 'primary' : 'danger')+'" style="width:100%;font-size:13px;" onclick="upgradeShip('+s2.id+',\'mineTier\',1)" '+(canAffordTier ? '' : 'disabled')+'>⬆ UPGRADE T'+nt+' - $'+fmt(tCost)+'</button>')
+      + '</div>'
+    : '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:6px;margin-bottom:6px;font-size:11px;color:#ffe066;">★ MAX TIER</div>';
+
+  const row = (label, lv, val, cost, chunk, stat) =>
+    '<div class="upgrade-row">'
+    + '<span class="upgrade-label">'+label+'</span>'
+    + '<span class="upgrade-val">Lv'+lv+' · '+val+'</span>'
+    + '<span class="upgrade-cost">'+(chunk > 0 ? fmt(cost)+'¢' : '—')+'</span>'
+    + '<button class="upgrade-btn" onclick="upgradeShip('+s2.id+',\''+stat+'\','+chunk+')" '+(chunk <= 0 || state.coins < cost ? 'disabled' : '')+'>'+(chunk <= 0 ? 'MAX' : chunk > 1 ? '×'+chunk : '↑')+'</button>'
+    + '</div>';
+
+  return tierBlock
+    + row('Cargo Cap',  s2.capacityLevel,  s2.capacity,                capCost2,  capChk,  'capacity')
+    + row('Fly Speed',  s2.flySpeedLevel,  s2.flySpeed.toFixed(2)+'x', flyCost2,  flyChk,  'flySpeed')
+    + row('Mine Speed', s2.mineSpeedLevel, s2.mineSpeed.toFixed(2)+'x', mineCost2, mineChk, 'mineSpeed');
 }
 
 export function renderTab() {
@@ -391,9 +480,10 @@ export function renderTab() {
     let html = '';
     if (state.marketBoost) {
       const bd = RESOURCE_DEFS[state.marketBoost.type];
+      const boostMult = state.marketBoost.multiplier ?? 1.5;
       html += `<div style="font-size:14px;background:rgba(20,60,10,0.6);border:1px solid #4a8020;border-radius:4px;padding:8px 10px;margin-bottom:8px;text-align:center;line-height:1.25">
         <span style="font-weight:bold;color:${bd.color}">${bd.label}</span> <span style="color:#cde">in demand!</span>
-        <span style="color:#ffe066;font-weight:bold"> · 1.5× this SOL</span>
+        <span style="color:#ffe066;font-weight:bold"> · ${boostMult}× this SOL</span>
       </div>`;
     }
     html += '<div class="sell-grid">';

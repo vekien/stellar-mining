@@ -4,6 +4,7 @@
 // ============================================================
 import { gridToWorld, BASE_POS } from './camera.js';
 import { TILE_W, TILE_H } from '../constants.js';
+import { BASE_COL, BASE_ROW } from '../constants.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
 
 let _ctx = null;
@@ -177,7 +178,7 @@ export function tickRangePulses(dt) {
 }
 
 export function drawRangePulses() {
-  const BASE_C = 12, BASE_R = 12;
+  const BASE_C = BASE_COL, BASE_R = BASE_ROW;
   for (const p of rangePulses) {
     const t = p.age / p.duration;
     const animHalfR = p.halfR * t;
@@ -250,7 +251,7 @@ export function drawNodeParticles() {
 export const floaties = [];
 
 export function spawnFloatie(resourceType, amount) {
-  const base = gridToWorld(12, 12);
+  const base = gridToWorld(BASE_COL, BASE_ROW);
   const def  = RESOURCE_DEFS[resourceType];
   floaties.push({
     wx: base.x + (Math.random()-0.5)*20,
@@ -277,10 +278,10 @@ export function drawFloaties() {
     _ctx.save();
     _ctx.globalAlpha = Math.max(0, alpha);
     _ctx.beginPath();
-    _ctx.arc(f.wx-14, rise+3, 3, 0, Math.PI*2);
+    _ctx.arc(f.wx-16, rise+4, 4, 0, Math.PI*2);
     _ctx.fillStyle = f.color;
     _ctx.fill();
-    _ctx.font = 'bold 7px Share Tech Mono, monospace';
+    _ctx.font = 'bold 9px Share Tech Mono, monospace';
     _ctx.fillStyle = '#ddeeff';
     _ctx.textAlign = 'left';
     _ctx.fillText(f.label, f.wx-9, rise+6);
