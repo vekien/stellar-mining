@@ -82,29 +82,41 @@ export function renderFleetFilters() {
   const sortSelect = makeSelect(
     [
       { value: 'none', label: 'No Sort' },
-      { value: 'fly_desc', label: 'Fly Speed - High' },
-      { value: 'fly_asc', label: 'Fly Speed - Low' },
-      { value: 'mine_desc', label: 'Mine Speed - High' },
-      { value: 'mine_asc', label: 'Mine Speed - Low' },
-      { value: 'capacity_desc', label: 'Storage Cap - High' },
-      { value: 'capacity_asc', label: 'Storage Cap - Low' },
-      { value: 'level_desc', label: 'Level - High' },
-      { value: 'level_asc', label: 'Level - Low' },
+      { value: 'fly', label: 'Flying Speed' },
+      { value: 'mine', label: 'Mining Speed' },
+      { value: 'capacity', label: 'Cargo Size' },
+      { value: 'level', label: 'Level' },
     ],
-    ff.sort ? `${ff.sort}_${ff.sortDir === -1 ? 'desc' : 'asc'}` : 'none',
+    ff.sort || 'none',
     (v) => {
       if (v === 'none') {
         ff.sort = null;
         ff.sortDir = 1;
       } else {
-        const [sortKey, sortOrder] = v.split('_');
-        ff.sort = sortKey;
-        ff.sortDir = sortOrder === 'desc' ? -1 : 1;
+        ff.sort = v;
       }
       renderShipsList();
     }
   );
-  container.appendChild(makeRow('Sort', sortSelect));
+
+  const sortWrap = document.createElement('div');
+  sortWrap.className = 'ff-sort-wrap';
+  sortWrap.appendChild(sortSelect);
+
+  const sortDirBtn = document.createElement('button');
+  sortDirBtn.className = 'fleet-sort-dir';
+  sortDirBtn.type = 'button';
+  sortDirBtn.textContent = ff.sortDir === -1 ? '↓' : '↑';
+  sortDirBtn.title = ff.sortDir === -1 ? 'Descending' : 'Ascending';
+  sortDirBtn.disabled = !ff.sort;
+  sortDirBtn.onclick = () => {
+    if (!ff.sort) return;
+    ff.sortDir *= -1;
+    renderShipsList();
+  };
+  sortWrap.appendChild(sortDirBtn);
+
+  container.appendChild(makeRow('Sort', sortWrap));
 
   const clearRow = document.createElement('div');
   clearRow.className = 'ff-row ff-row-clear';

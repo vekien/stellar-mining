@@ -144,7 +144,7 @@ export function loadGame() {
         mineSpeedLevel:sd.mineSpeedLevel ?? 0,
         cargo:0, cargoResource:null,
         status:'idle', targetNode: sd.targetNode ?? null,
-        heading: -Math.PI/2,
+        heading: Math.random() * Math.PI * 2,
         x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0, pauseTimer:0,
       };
     });

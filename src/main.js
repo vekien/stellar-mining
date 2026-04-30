@@ -84,14 +84,25 @@ for (const s of state.ships) {
 
 focusOnBase(2.0);
 
-// Re-dispatch ships that had a target node when the game was saved
+// Re-dispatch ships that had a target node when the game was saved.
+// Stagger launch so they do not all fire at once on load.
+let _redispatchAccumDelay = 0;
 for (const ship of state.ships) {
   if (ship.targetNode !== null) {
     const node = state.nodes.find(n => n.id === ship.targetNode);
     if (node) {
-      ship.status = 'flying';
-      const pos = nodeWorldPos(node);
-      ship.destX = pos.x; ship.destY = pos.y - 20;
+      ship.status = 'idle';
+      _redispatchAccumDelay += 50 + Math.random() * 50;
+      const delay = Math.round(_redispatchAccumDelay);
+      setTimeout(() => {
+        if (ship.targetNode === null) return;
+        const latestNode = state.nodes.find(n => n.id === ship.targetNode);
+        if (!latestNode) { ship.targetNode = null; return; }
+        ship.status = 'flying';
+        const pos = nodeWorldPos(latestNode);
+        ship.destX = pos.x;
+        ship.destY = pos.y - 20;
+      }, delay);
     } else {
       ship.targetNode = null;
     }

@@ -36,7 +36,7 @@ export function spawnShip(type = 'scout') {
     capacityLevel:0, flySpeedLevel:0, mineSpeedLevel:0,
     cargo:0, cargoResource:null,
     status:'idle', targetNode:null,
-    heading: -Math.PI/2,
+    heading: Math.random() * Math.PI * 2,
     x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0,
   };
   state.ships.push(ship);
@@ -121,13 +121,17 @@ export function tickShip(ship, dt) {
         }
       }
     } else {
-      // Turn rate from ship def — lower turnRadius = tighter circle
-      const turnRadius = SHIP_DEFS[ship.type]?.turnRadius ?? 1.0;
-      const TURN_RATE = (Math.PI * 2) / turnRadius;
+      // Turn rate from ship def — dynamically tighten turning when close to destination.
+      const baseTurnRadius = SHIP_DEFS[ship.type]?.turnRadius ?? 1.0;
+      const CLOSE_TURN_DIST = 140;
+      const closeRatio = Math.max(0, Math.min(1, dist / CLOSE_TURN_DIST));
+      const dynamicTurnRadius = baseTurnRadius * (0.35 + 0.65 * closeRatio);
+      const TURN_RATE = (Math.PI * 2) / dynamicTurnRadius;
       const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
       let da = targetAngle - ship.heading;
       while (da >  Math.PI) da -= Math.PI * 2;
       while (da < -Math.PI) da += Math.PI * 2;
+      const absDaBeforeTurn = Math.abs(da);
       ship.heading += Math.sign(da) * Math.min(Math.abs(da), TURN_RATE * dt);
 
       // Move in the direction the ship is actually facing.
@@ -151,8 +155,9 @@ export function tickShip(ship, dt) {
       }
 
       // Clamp to remaining distance so it can't overshoot.
+      const turnSlowdown = 0.35 + 0.65 * Math.max(0, Math.cos(absDaBeforeTurn));
       const moveAngle = ship.heading - Math.PI / 2;
-      const step = Math.min(FLY_SPEED * easedFactor * dt, dist);
+      const step = Math.min(FLY_SPEED * easedFactor * turnSlowdown * dt, dist);
       ship.x += Math.cos(moveAngle) * step;
       ship.y += Math.sin(moveAngle) * step;
     }

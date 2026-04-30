@@ -71,13 +71,48 @@ export function drawRangeBorder() {
   const right  = { x:wTR.x+TILE_W/2,   y:wTR.y+TILE_H/2   };
   const bottom = { x:wBR.x,             y:wBR.y+TILE_H     };
   const left   = { x:wBL.x-TILE_W/2,   y:wBL.y+TILE_H/2   };
+  const points = [top, right, bottom, left];
+  const cx = (top.x + right.x + bottom.x + left.x) / 4;
+  const cy = (top.y + right.y + bottom.y + left.y) / 4;
+
+  function traceDiamond(pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+    ctx.lineTo(pts[2].x, pts[2].y);
+    ctx.lineTo(pts[3].x, pts[3].y);
+    ctx.closePath();
+  }
+
+  function expandedDiamond(scale) {
+    return points.map(p => ({
+      x: cx + (p.x - cx) * scale,
+      y: cy + (p.y - cy) * scale,
+    }));
+  }
+
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(top.x,top.y); ctx.lineTo(right.x,right.y);
-  ctx.lineTo(bottom.x,bottom.y); ctx.lineTo(left.x,left.y);
-  ctx.closePath();
+  const t = performance.now();
+  const cycleMs = 7000;   // one pulse every 7s
+  const burstMs = 1000;   // pulse expands in 1s
+  const elapsed = t % cycleMs;
+  const activePulse = elapsed < burstMs;
+  const phase = activePulse ? (elapsed / burstMs) : 1;
+
+  // Primary border
+  traceDiamond(points);
   ctx.strokeStyle = 'rgba(40,220,100,0.9)'; ctx.lineWidth = 2;
   ctx.setLineDash([]); ctx.stroke();
+
+  // Outward pulse ring: single border line matching the main style.
+  if (activePulse) {
+    const ring = expandedDiamond(1 + phase * 0.095);
+    const alpha = (1 - phase) * 0.9;
+    traceDiamond(ring);
+    ctx.strokeStyle = `rgba(40,220,100,${alpha.toFixed(3)})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
