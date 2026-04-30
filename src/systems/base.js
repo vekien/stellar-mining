@@ -35,7 +35,8 @@ window.upgradeBase = function() {
   if (!cost || state.coins < cost) return;
   state.coins -= cost;
   state.base.level++;
-  state.base.maxHealth = 10000 + (state.base.level - 1) * 5000;
+  const hpBoostBonus = (state.hpBoostCount || 0) * 2500;
+  state.base.maxHealth = 10000 + (state.base.level - 1) * 10000 + hpBoostBonus;
   state.base.health = state.base.maxHealth;
   const rpCap = 2 + (state.base.level - 1);
   state.rp = Math.min(state.rp + 1, rpCap);

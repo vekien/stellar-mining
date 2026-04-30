@@ -341,8 +341,8 @@ export function render(ts) {
   drawFloaties();
   drawNodeParticles();
   ctx.restore();
-  const hint = document.getElementById('zoom-hint');
-  if (hint) hint.textContent = `${Math.round(cam.zoom*100)}% · scroll to zoom · drag to pan`;
+  const zoomPct = document.getElementById('zoom-pct');
+  if (zoomPct) zoomPct.textContent = `${Math.round(cam.zoom*100)}%`;
   // Update SOL clock every frame for smooth ticking
   const _dp = state.solTimer / SOL_DURATION;
   const _sh = Math.floor(_dp*24);

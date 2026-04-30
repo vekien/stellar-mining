@@ -33,8 +33,43 @@ export function drawTurrets() {
     ctx.fillStyle = '#3a5a3a'; ctx.strokeStyle = '#5acc5a'; ctx.lineWidth = 1;
     ctx.fillRect(cx-6,cy-18,12,10); ctx.strokeRect(cx-6,cy-18,12,10);
 
-    // Rotating gun barrel
-    const angle = t*0.8 + turret.id*0.5;
+    // Periodic directional scan with long pause and short turn.
+    if (!turret.scan) {
+      const initialAngle = Math.random() * Math.PI * 2;
+      turret.scan = {
+        angle: initialAngle,
+        from: initialAngle,
+        to: initialAngle,
+        turning: false,
+        turnStart: 0,
+        turnDuration: 1.4,
+        nextTurnAt: t + 8 + Math.random() * 4,
+      };
+    }
+
+    const scan = turret.scan;
+    if (!scan.turning && t >= scan.nextTurnAt) {
+      scan.turning = true;
+      scan.turnStart = t;
+      scan.from = scan.angle;
+      scan.to = Math.random() * Math.PI * 2;
+    }
+
+    if (scan.turning) {
+      const p = Math.max(0, Math.min(1, (t - scan.turnStart) / scan.turnDuration));
+      const smooth = p * p * (3 - 2 * p);
+      let delta = scan.to - scan.from;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      scan.angle = scan.from + delta * smooth;
+      if (p >= 1) {
+        scan.turning = false;
+        scan.angle = scan.to;
+        scan.nextTurnAt = t + 8 + Math.random() * 4;
+      }
+    }
+
+    const angle = scan.angle;
     const bLen = 14, bW = 3;
     ctx.save();
     ctx.translate(cx, cy-14);
@@ -83,9 +118,47 @@ export function drawTurretPlacementHover() {
   const valid = !onNode && !onTurret && !onBase;
   const {x, y} = gridToIso(col, row);
   const cx = x, cy = y+TILE_H/2;
+
+  const movingTurret = state.movingTurret ? state.turrets.find(t => t.id === state.movingTurret) : null;
+  const previewRange = movingTurret ? movingTurret.range : 2;
+  for (let dc = -previewRange; dc <= previewRange; dc++) {
+    for (let dr = -previewRange; dr <= previewRange; dr++) {
+      const tc = col + dc;
+      const tr = row + dr;
+      if (tc < 0 || tc >= GRID_COLS || tr < 0 || tr >= GRID_ROWS) continue;
+      const p = gridToIso(tc, tr);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + TILE_W/2, p.y + TILE_H/2);
+      ctx.lineTo(p.x, p.y + TILE_H);
+      ctx.lineTo(p.x - TILE_W/2, p.y + TILE_H/2);
+      ctx.closePath();
+      ctx.fillStyle = valid ? 'rgba(80,220,80,0.08)' : 'rgba(220,80,80,0.07)';
+      ctx.fill();
+      ctx.strokeStyle = valid ? 'rgba(80,220,80,0.22)' : 'rgba(220,80,80,0.2)';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+    }
+  }
+
   ctx.beginPath();
   ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy);
   ctx.closePath();
   ctx.fillStyle = valid ? 'rgba(80,200,80,0.25)' : 'rgba(200,50,50,0.25)'; ctx.fill();
   ctx.strokeStyle = valid ? '#4d8' : '#f44'; ctx.lineWidth = 2; ctx.stroke();
+
+  // Ghost turret preview
+  ctx.fillStyle = valid ? 'rgba(122,238,122,0.9)' : 'rgba(255,120,120,0.85)';
+  ctx.strokeStyle = valid ? 'rgba(58,138,58,0.95)' : 'rgba(150,60,60,0.95)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy-2, 9, 5, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillRect(cx-6, cy-18, 12, 10);
+  ctx.strokeRect(cx-6, cy-18, 12, 10);
+  ctx.beginPath();
+  ctx.arc(cx, cy-14, 5, 0, Math.PI*2);
+  ctx.fill();
+  ctx.stroke();
 }

@@ -11,7 +11,6 @@
 <body>
 
 <div id="header">
-  <h1>★ STELLAR MINING CO.</h1>
   <button class="stat-chip hdr-btn" onclick="openHdrPanel('sol')"><span class="label">SOL</span><span class="value" id="hdr-sol">1</span></button>
   <button class="stat-chip hdr-btn" onclick="openHdrPanel('market')"><span class="label">TRADE</span><span class="value" id="hdr-coins">0¢</span></button>
   <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
@@ -37,7 +36,7 @@
         <button class="zoom-btn" onclick="resetView()">⌂</button>
         <button class="zoom-btn" onclick="adjustZoom(-0.15)">−</button>
       </div>
-      <div id="zoom-hint">scroll to zoom · drag to pan</div>
+      <div id="zoom-pct">200%</div>
     </div>
     <div id="ship-upgrade-drawer">
       <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
@@ -70,18 +69,20 @@
       <div class="adm-progress-bar"><div class="adm-progress-fill" id="admiral-progress"></div></div>
     </div>
     <div id="tutorial-banner">
-      <button class="tut-close" onclick="dismissTutorial()" title="Close">✕</button>
-      <div class="tut-eyebrow">◈ incoming transmission</div>
-      <div class="tut-title">MISSION BRIEFING</div>
-      <div class="tut-divider"></div>
-      <div class="tut-body">
-        Pilot! Manage your ships to gain resources and build up your base.<br>
-        <span>Raiders could attack at any moment's notice</span> — so keep your defences ready and your fleet operational!
+      <div class="tut-card" onclick="event.stopPropagation()">
+        <button class="tut-close" onclick="dismissTutorial()" title="Close">✕</button>
+        <div class="tut-eyebrow">◈ incoming transmission</div>
+        <div class="tut-title">MISSION BRIEFING</div>
+        <div class="tut-divider"></div>
+        <div class="tut-body">
+          Pilot! Manage your ships to gain resources and build up your base.<br>
+          <span>Raiders could attack at any moment's notice</span> — so keep your defences ready and your fleet operational!
+        </div>
+        <div class="tut-divider"></div>
+        <div class="tut-hint">Good luck out there, commander.</div>
       </div>
-      <div class="tut-divider"></div>
-      <div class="tut-hint">Good luck out there, commander.</div>
     </div>
-    <div id="log" style="display:none">
+    <div id="log" style="display:none" onclick="openLogHistory()" title="Open full log history">
       <div class="log-entry" id="log0"></div>
       <div class="log-entry" id="log1"></div>
       <div class="log-entry" id="log2"></div>
@@ -106,9 +107,6 @@
       <div class="panel-title" id="action-panel-title">◉ COMMAND</div>
       <div id="action-content"><div style="color:#456;font-size:13px;">Select a ship to view its data.</div></div>
     </div>
-    <div class="tabs">
-    </div>
-    <div id="tab-content"></div>
   </div>
 </div>
 
@@ -120,6 +118,16 @@
       <button class="btn danger" onclick="confirmNewGame()">START FRESH</button>
       <button class="btn" onclick="closeModal()">CANCEL</button>
     </div>
+  </div>
+</div>
+
+<div id="log-history-overlay" onclick="closeLogHistory()">
+  <div id="log-history-box" onclick="event.stopPropagation()">
+    <button class="about-close" onclick="closeLogHistory()">✕</button>
+    <h2 class="about-title">COMMAND LOG</h2>
+    <div class="about-divider"></div>
+    <div id="log-history-list"></div>
+    <button class="btn" style="margin-top:14px;width:100%" onclick="closeLogHistory()">CLOSE</button>
   </div>
 </div>
 

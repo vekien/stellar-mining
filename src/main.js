@@ -2,12 +2,11 @@
 // MAIN — boot, game loop, resize
 // ============================================================
 import { state, loadGame, saveGame } from './state.js';
-import { ALL_NODES } from './data/nodes.js';
+import { generateNodes } from './data/nodes.js';
 import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
 import { SOL_DURATION, BASE_COL, BASE_ROW } from './constants.js';
-import { setStateRef } from './helpers.js';
-import { hideTooltip } from './helpers.js';
+import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos } from './render/camera.js';
 import { initRenderer, resizeRenderer, render, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars } from './render/stars.js';
@@ -18,6 +17,7 @@ import {
 import { scheduleNextEvent, tickSOL } from './systems/sol.js';
 import { tickAdmiral } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
+import './systems/research.js';
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
 import { renderBasePanel } from './ui/basePanel.js';
@@ -53,16 +53,17 @@ initInput(canvas);
 
 // ── Node init ─────────────────────────────────────────────────
 function initNodes() {
-  const colOffset = BASE_COL - 12;
-  const rowOffset = BASE_ROW - 12;
-  state.nodes = ALL_NODES.map(n => ({ ...n, gr: [n.gr[0] + colOffset, n.gr[1] + rowOffset] }));
+  if (!Number.isFinite(state.worldSeed)) {
+    state.worldSeed = Math.floor(Math.random() * 2147483647);
+  }
+  state.nodes = generateNodes(BASE_COL, BASE_ROW, state.worldSeed);
 }
 
 // ── Boot sequence ─────────────────────────────────────────────
 resize();
-initNodes();
-
 const loaded = loadGame();
+initNodes();
+if (window.syncShipCraftTimers) window.syncShipCraftTimers();
 if (!loaded) spawnShip('scout');
 
 // Schedule first event if not already scheduled (loadGame may not if nextEventTimer was null)
@@ -114,7 +115,7 @@ if (state.ships.some(s => s.targetNode !== null)) {
   if (state.tutStep < 2) state.tutStep = 2;
 } else if (state.tutStep === 0) {
   const banner = document.getElementById('tutorial-banner');
-  if (banner) banner.style.display = 'block';
+  if (banner) banner.classList.add('show');
 }
 
 // ── Sidebar events ────────────────────────────────────────────
@@ -153,6 +154,8 @@ window.closeModal     = () => document.getElementById('modal-overlay').classList
 window.confirmNewGame = () => { try { localStorage.removeItem('stellarMiningCo_v1'); } catch(e) {} location.reload(); };
 window.openAbout      = () => document.getElementById('about-overlay').classList.add('show');
 window.closeAbout     = () => document.getElementById('about-overlay').classList.remove('show');
+window.openLogHistory = openLogHistory;
+window.closeLogHistory = closeLogHistory;
 window.openSettings   = () => {
   const overlay = document.getElementById('settings-overlay');
   const chk = document.getElementById('setting-grid-coords');
@@ -288,6 +291,7 @@ setInterval(saveGame, 5000);
 
 // ── Kick off ─────────────────────────────────────────────────
 renderUI();
+refreshLogUI();
 requestAnimationFrame(render);
 requestAnimationFrame(gameLoop);
 requestAnimationFrame(patchShipCards);

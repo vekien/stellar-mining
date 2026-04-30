@@ -5,6 +5,7 @@ import { state } from '../state.js';
 import { addLog, fmt } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { canvasState } from '../render/canvasState.js';
+import { getCraft } from '../data/crafts.js';
 
 // dismissBasePanel is in panels.js — use window reference to avoid circular dep
 function dismissBasePanel() { if (window.dismissBasePanel) window.dismissBasePanel(); }
@@ -30,10 +31,13 @@ export function renderTurretModal() {
   const hpColor    = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
   const hpBarColor = hpPct > 60 ? '#4af' : hpPct > 30 ? '#fa4' : '#f44';
 
-  const upgCost = { coins: 200 * turret.level, iron: 5 * turret.level, copper: 3 * turret.level };
-  const canUpgrade = state.coins >= upgCost.coins &&
-    (state.resources.iron || 0) >= upgCost.iron &&
-    (state.resources.copper || 0) >= upgCost.copper;
+  const upgDef = getCraft('turrets', 'turret_upgrade');
+  const upgCost = {
+    coins: (upgDef?.costPerLevel || 0) * turret.level,
+    reqs: Object.fromEntries(Object.entries(upgDef?.reqs || {}).map(([r, n]) => [r, n * turret.level])),
+  };
+  const canUpgrade = state.coins >= upgCost.coins
+    && Object.entries(upgCost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
 
   body.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
@@ -63,11 +67,10 @@ export function renderTurretModal() {
     <div class="bp-craft-reqs" style="margin-bottom:8px;">
       ${(() => {
         const c1 = state.coins >= upgCost.coins;
-        const c2 = (state.resources.iron||0) >= upgCost.iron;
-        const c3 = (state.resources.copper||0) >= upgCost.copper;
+        const reqEntries = Object.entries(upgCost.reqs);
         const pill  = (met, label) => '<span class="bp-craft-req '+(met?'met':'unmet')+'" style="font-size:12px;">'+label+'</span>';
         const cpill = (met, label) => '<span class="bp-craft-req" style="font-size:12px;border-color:'+(met?'#7a6010':'#802020')+';background:'+(met?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)')+';color:'+(met?'#ffe066':'#f88')+';">'+label+'</span>';
-        return cpill(c1, upgCost.coins+'¢') + pill(c2, 'Iron: '+upgCost.iron) + pill(c3, 'Copper: '+upgCost.copper);
+        return cpill(c1, upgCost.coins+'¢') + reqEntries.map(([r, n]) => pill((state.resources[r]||0) >= n, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
       })()}
     </div>
     <div style="font-size:11px;color:#4a6a4a;margin-bottom:8px;">Upgrade boosts: +500 HP · +20 Damage · +1 Range</div>
@@ -80,11 +83,15 @@ export function renderTurretModal() {
 window.upgradeTurret = function(id) {
   const turret = state.turrets.find(t => t.id === id);
   if (!turret) return;
-  const cost = { coins: 200 * turret.level, iron: 5 * turret.level, copper: 3 * turret.level };
-  if (state.coins < cost.coins || (state.resources.iron||0) < cost.iron || (state.resources.copper||0) < cost.copper) return;
+  const upgDef = getCraft('turrets', 'turret_upgrade');
+  const cost = {
+    coins: (upgDef?.costPerLevel || 0) * turret.level,
+    reqs: Object.fromEntries(Object.entries(upgDef?.reqs || {}).map(([r, n]) => [r, n * turret.level])),
+  };
+  if (state.coins < cost.coins) return;
+  for (const [r, n] of Object.entries(cost.reqs)) if ((state.resources[r] || 0) < n) return;
   state.coins -= cost.coins;
-  state.resources.iron   -= cost.iron;
-  state.resources.copper -= cost.copper;
+  for (const [r, n] of Object.entries(cost.reqs)) state.resources[r] -= n;
   turret.level++;
   turret.maxHealth += 500; turret.health = Math.min(turret.health + 500, turret.maxHealth);
   turret.damage += 20;
@@ -141,10 +148,12 @@ window.startMoveTurret = function(id) {
 };
 
 window.startPlaceTurret = function() {
-  if (state.coins < 500 || (state.resources.iron||0) < 10 || (state.resources.copper||0) < 5) return;
-  state.coins -= 500;
-  state.resources.iron   -= 10;
-  state.resources.copper -= 5;
+  const turretDef = getCraft('turrets', 'turret');
+  if (!turretDef) return;
+  if (state.coins < turretDef.cost) return;
+  for (const [r, n] of Object.entries(turretDef.reqs)) if ((state.resources[r] || 0) < n) return;
+  state.coins -= turretDef.cost;
+  for (const [r, n] of Object.entries(turretDef.reqs)) state.resources[r] -= n;
   state.unplacedTurrets++;
   state.placingTurret = true;
   dismissBasePanel();

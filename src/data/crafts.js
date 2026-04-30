@@ -24,13 +24,13 @@ export const CRAFTS = {
   ships: [
     {
       id:   'scout',
-      name: 'Scout Ship',
+      name: 'Scout',
       desc: 'Fast, light cargo',
       reqs: { iron: 15, copper: 10 },
     },
     {
       id:   'swift',
-      name: 'Swift Runner',
+      name: 'Sprinter',
       desc: 'Extreme speed, low capacity',
       reqs: { iron: 30, copper: 30 },
     },
@@ -53,16 +53,16 @@ export const CRAFTS = {
       id: 'turret',
       name: 'Defense Turret',
       desc: '5,000 HP · 100 dmg · 6-tile range',
-      cost: 500,
-      reqs: { iron: 10, copper: 5 },
+      cost: 6000,
+      reqs: { iron: 180, copper: 140, oxygen: 90, silicon: 90, titanium: 50 },
     },
     {
       // Costs scale per turret level — multiply base values by turret.level at call site
       id: 'turret_upgrade',
       name: 'Turret Upgrade',
-      desc: 'Increases turret level, damage and HP',
-      costPerLevel:  200,
-      reqs: { iron: 5, copper: 3 },   // each value × turret.level
+      desc: 'Increases turret level, damage and HP (cost scales with level)',
+      costPerLevel: 3600,
+      reqs: { iron: 108, copper: 84, oxygen: 54, silicon: 54, titanium: 30 },
     },
   ],
 

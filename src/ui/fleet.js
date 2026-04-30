@@ -191,6 +191,7 @@ export function renderShipsList() {
 
     const safeTierNum = Math.min(10, Math.max(1, ship.mineTier || 1));
     const tierRarityColor = TIER_COLORS[safeTierNum] || '#e8eaf0';
+    const overallLevel = (ship.capacityLevel || 0) + (ship.flySpeedLevel || 0) + (ship.mineSpeedLevel || 0);
     const typeLabel = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
     const targetNode = ship.targetNode ? state.nodes.find(n => n.id === ship.targetNode) : null;
     const resDef = targetNode ? RESOURCE_DEFS[targetNode.type] : null;
@@ -200,16 +201,16 @@ export function renderShipsList() {
     row1.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:5px;';
 
     const tierPill = document.createElement('span');
-    tierPill.style.cssText = `font-family:'Orbitron',monospace;font-size:12px;font-weight:700;color:${tierRarityColor};background:rgba(0,0,0,0.35);border:1px solid ${tierRarityColor}55;border-radius:3px;padding:1px 5px;flex-shrink:0;`;
+    tierPill.style.cssText = `font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:${tierRarityColor};background:rgba(0,0,0,0.35);border:1px solid ${tierRarityColor}55;border-radius:3px;padding:1px 5px;flex-shrink:0;`;
     tierPill.textContent = toRoman(safeTierNum);
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'ship-name';
-    nameSpan.style.cssText = `color:${tierRarityColor};font-size:15px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
-    nameSpan.textContent = ship.name;
+    nameSpan.style.cssText = `color:${tierRarityColor};font-size:15px;font-weight:400;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
+    nameSpan.textContent = `Lv${overallLevel}: ${ship.name}`;
 
     const typePill = document.createElement('span');
-    typePill.style.cssText = 'font-size:12px;color:#5a8ab0;background:rgba(0,0,0,0.3);border:1px solid #5a8ab044;border-radius:3px;padding:1px 6px;flex-shrink:0;letter-spacing:0.5px;text-transform:uppercase;';
+    typePill.style.cssText = 'font-size:12px;color:#9bd6ff;font-style:italic;background:none;border:none;padding:0;flex-shrink:0;letter-spacing:0.4px;text-transform:uppercase;';
     typePill.textContent = typeLabel;
 
     row1.appendChild(tierPill);
@@ -230,23 +231,19 @@ export function renderShipsList() {
       const dot = document.createElement('span');
       dot.style.cssText = `display:inline-block;width:7px;height:7px;border-radius:50%;background:${resDef.color};flex-shrink:0;`;
       const resLabel = document.createElement('span');
-      resLabel.style.cssText = `font-size:13px;color:${resDef.color};`;
+      resLabel.style.cssText = `font-size:15px;color:${resDef.color};`;
       resLabel.textContent = resDef.label;
-      const dash = document.createElement('span');
-      dash.style.cssText = 'font-size:13px;color:#3a5a7a;margin:0 2px;';
-      dash.textContent = '—';
       const cargoText = document.createElement('span');
       cargoText.id = `cargo-text-${ship.id}`;
-      cargoText.style.cssText = 'font-size:13px;color:#8ab;margin-left:auto;';
+      cargoText.style.cssText = 'font-size:14px;color:#8ab;margin-left:auto;';
       cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
       row2.appendChild(dot);
       row2.appendChild(resLabel);
-      row2.appendChild(dash);
       row2.appendChild(cargoText);
     } else {
       const cargoText = document.createElement('span');
       cargoText.id = `cargo-text-${ship.id}`;
-      cargoText.style.cssText = 'font-size:13px;color:#8ab;margin-left:auto;';
+      cargoText.style.cssText = 'font-size:14px;color:#8ab;margin-left:auto;';
       cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
       row2.appendChild(cargoText);
     }

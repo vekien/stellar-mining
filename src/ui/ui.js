@@ -7,7 +7,7 @@ import { BASE_MAX_SHIPS } from '../data/nodes.js';
 import { SOL_DURATION } from '../constants.js';
 import { fmt, showTooltip, hideTooltip } from '../helpers.js';
 import { refresh } from './refresh.js';
-import { renderShipsList, renderFleetFilters, renderActionPanel, renderTab } from './fleet.js';
+import { renderShipsList, renderFleetFilters, renderActionPanel } from './fleet.js';
 import { renderBasePanel } from './basePanel.js';
 import { renderTutPointers } from './tutorial.js';
 
@@ -55,7 +55,6 @@ export function renderUI() {
   if (!state.renamingShip) renderShipsList();
   else renderFleetFilters();
   renderActionPanel();
-  renderTab();
   updateHeader();
   renderBasePanel();
   renderTutPointers();

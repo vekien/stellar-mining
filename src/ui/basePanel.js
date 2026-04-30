@@ -6,8 +6,15 @@ import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFTS, CRAFT_SHIPS as CRAFT_RECIPES, getCraft } from '../data/crafts.js';
 import { SHIP_DEFS } from '../data/ships.js';
 import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE } from '../data/nodes.js';
-import { fmt } from '../helpers.js';
+import { fmt, showHintTooltip, hideTooltip } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
+import { renderTutPointers } from './tutorial.js';
+
+setInterval(() => {
+  if (!state.basePanelOpen || state.bpTab !== 'craft') return;
+  if (!state.shipCraftTimers || !Object.keys(state.shipCraftTimers).length) return;
+  renderBasePanel();
+}, 50);
 
 export function renderBasePanel() {
   const panel   = document.getElementById('base-panel');
@@ -27,30 +34,6 @@ export function renderBasePanel() {
   const canUpgrade = nextCost && state.coins >= nextCost;
   const hpPct    = (state.base.health / state.base.maxHealth * 100).toFixed(0);
   const bt       = state.bpTab || 'overview';
-  const typeCounts = {};
-  for (const s of state.ships) {
-    const label = CRAFT_RECIPES.find(r => r.id === s.type)?.name || 'Starter';
-    typeCounts[label] = (typeCounts[label] || 0) + 1;
-  }
-  const nodeAssign = {};
-  for (const s of state.ships) {
-    if (!s.targetNode) continue;
-    const node = state.nodes.find(n => n.id === s.targetNode);
-    if (!node) continue;
-    const label = RESOURCE_DEFS[node.type].label;
-    nodeAssign[label] = (nodeAssign[label] || 0) + 1;
-  }
-  const mpm = {};
-  for (const s of state.ships) {
-    if (!s.targetNode || s.status === 'idle') continue;
-    const node = state.nodes.find(n => n.id === s.targetNode);
-    if (!node) continue;
-    const label = RESOURCE_DEFS[node.type].label;
-    mpm[label] = (mpm[label] || 0) + (60 / (1.5 / s.mineSpeed));
-  }
-  const typeHtml   = Object.entries(typeCounts).map(([t,n]) => `<div class="bp-row"><span>${t}</span><span class="bp-val">${n}x</span></div>`).join('') || '<div class="bp-row" style="color:#3a5a7a">No ships</div>';
-  const assignHtml = Object.entries(nodeAssign).map(([t,n]) => `<div class="bp-row"><span>${t} node</span><span class="bp-val green">${n} ship${n>1?'s':''}</span></div>`).join('') || '<div class="bp-row" style="color:#3a5a7a">None assigned</div>';
-  const mpmHtml    = Object.entries(mpm).map(([t,n]) => `<div class="bp-row"><span>${t}</span><span class="bp-val gold">${Math.round(n)}/m</span></div>`).join('') || '<div class="bp-row" style="color:#3a5a7a">Not mining</div>';
 
   // Build tab bar once — reuse DOM if already present
   if (!document.getElementById('bp-tabs')) {
@@ -76,6 +59,26 @@ export function renderBasePanel() {
   let body = '';
 
   if (bt === 'overview') {
+    const defenseUnlocked = state.researchUnlocks['defense'];
+    const hpBoostCount = state.hpBoostCount || 0;
+    const installedUpgrades = [];
+    if (defenseUnlocked) {
+      installedUpgrades.push({
+        icon: '🛡',
+        name: 'Armor Plating',
+        detail: 'Base incoming damage reduced by 10%',
+        qty: null,
+      });
+    }
+    if (hpBoostCount > 0) {
+      installedUpgrades.push({
+        icon: '💪',
+        name: 'HP Boost',
+        detail: `+${fmt(hpBoostCount * 2500)} max base HP total`,
+        qty: hpBoostCount,
+      });
+    }
+
     const upgradeBtn = nextCost
       ? `<button class="btn${canUpgrade?' primary':''}" style="font-size:14px;padding:5px 10px" onclick="upgradeBase()" ${canUpgrade?'':'disabled'}>UPGRADE → Lv${bl+1}</button>`
       : `<span style="font-size:13px;color:#ffe066">★ MAX LEVEL</span>`;
@@ -86,8 +89,10 @@ export function renderBasePanel() {
         <div class="bp-level">LV ${bl}</div>
       </div>
       <div class="bp-section-title">◈ Base Stats</div>
-      <div class="bp-row"><span>Health</span><span class="bp-val" style="color:${hpPct<30?'#f88':hpPct<60?'#fa8':'#4d8'}">${fmt(state.base.health)} / ${fmt(state.base.maxHealth)}</span></div>
-      <div class="bp-health-bar"><div class="bp-health-fill" style="width:${hpPct}%;background:${hpPct<30?'#f44':hpPct<60?'#fa4':'#4af'}"></div></div>
+      <div style="padding:8px 10px;border:1px solid ${hpPct<30?'#803030':hpPct<60?'#806030':'#2a6040'};border-radius:6px;background:${hpPct<30?'rgba(60,12,12,0.2)':hpPct<60?'rgba(60,42,8,0.18)':'rgba(12,45,26,0.16)'};margin-bottom:6px;">
+        <div class="bp-row" style="margin-bottom:6px;"><span style="font-size:18px;">HEALTH</span><span class="bp-val" style="color:${hpPct<30?'#f88':hpPct<60?'#fa8':'#4d8'};font-size:17px;padding:2px 8px;line-height:1.2;">${fmt(state.base.health)} / ${fmt(state.base.maxHealth)}</span></div>
+        <div class="bp-health-bar"><div class="bp-health-fill" style="width:${hpPct}%;background:${hpPct<30?'#f44':hpPct<60?'#fa4':'#4af'}"></div></div>
+      </div>
       ${(() => {
         if (state.base.health >= state.base.maxHealth) return '';
         const missing = state.base.maxHealth - state.base.health;
@@ -103,12 +108,25 @@ export function renderBasePanel() {
       })()}
       <table class="bp-stats-table">
         <tr><td>Ship Capacity</td><td>${state.ships.length} / ${maxShips}</td></tr>
-        <tr><td>Tile Range</td><td>${BASE_RANGE[bl-1]} tiles each direction</td></tr>
+        <tr><td>Tile Range</td><td>◎ ${BASE_RANGE[bl-1]} tiles</td></tr>
         <tr><td>Research Points</td><td style="color:#a0f0a0">${state.rp} / ${2+(bl-1)}</td></tr>
       </table>
+      <div style="background:rgba(8,22,46,0.55);border:1px solid #23426f;border-radius:5px;padding:10px;margin-top:8px;">
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#8fc3ff;letter-spacing:1.4px;margin-bottom:7px;">◈ INSTALLED UPGRADES</div>
+        ${installedUpgrades.length
+          ? installedUpgrades.map(upg => `<div style="display:flex;align-items:center;gap:8px;padding:7px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;margin-bottom:6px;">
+              <span style="font-size:16px;line-height:1;">${upg.icon}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span style="font-family:'Orbitron',sans-serif;font-size:12px;color:#cde;letter-spacing:1px;">${upg.name}</span>
+                  ${upg.qty ? `<span style="font-size:10px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${upg.qty}</span>` : ''}
+                </div>
+                <div style="font-size:12px;color:#6f97bc;margin-top:1px;">${upg.detail}</div>
+              </div>
+            </div>`).join('')
+          : '<div style="font-size:13px;color:#4a6a8a;">No tower upgrades installed yet.</div>'}
+      </div>
       <div class="bp-divider"></div>
-      <div class="bp-section-title">◈ Fleet Composition</div>
-      ${typeHtml}
       <div class="bp-upgrade-row">
         <div class="bp-upgrade-info">
           <div class="bp-upgrade-label">${nextCost ? `Upgrade to Lv${bl+1}` : 'Base Fully Upgraded'}</div>
@@ -118,7 +136,8 @@ export function renderBasePanel() {
       </div>`;
 
   } else if (bt === 'craft') {
-    const atCap = state.ships.length >= maxShips;
+    const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
+    const atCap = (state.ships.length + activeCraftCount) >= maxShips;
     let items = '';
     for (const recipe of CRAFT_RECIPES) {
       const stats     = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
@@ -140,8 +159,23 @@ export function renderBasePanel() {
       const lockBanner = tierLocked
         ? `<div style="background:rgba(80,10,10,0.5);border:1px solid #803030;border-radius:3px;padding:5px 8px;margin-bottom:7px;font-size:13px;color:#f88;letter-spacing:0.5px;">⚠ REQUIRES BASE STATION LEVEL ${stats.mineTier}</div>`
         : '';
-      const buildBtn = tierLocked ? '' :
-        `<button class="btn ${atCap ? 'danger' : 'primary'}" style="width:100%;margin-top:6px;" ${!canCraft?'disabled':''} onclick="craftShip('${recipe.id}')">BUILD SHIP</button>`;
+      const craftTimer = state.shipCraftTimers?.[recipe.id];
+      const timerActive = !!(craftTimer && Date.now() < craftTimer.endsAt);
+      const remainMs = timerActive ? Math.max(0, craftTimer.endsAt - Date.now()) : 0;
+      const remainSec = Math.ceil(remainMs / 1000);
+      const pct = timerActive ? Math.max(0, Math.min(100, ((craftTimer.durationMs - remainMs) / craftTimer.durationMs) * 100)) : 0;
+      const builtNoticeUntil = state.shipCraftNotices?.[recipe.id] || 0;
+      const builtNoticeActive = Date.now() < builtNoticeUntil;
+      const buildBtn = tierLocked ? '' : builtNoticeActive
+        ? `<button class="btn bp-craft-btn bp-craft-btn-ready" style="width:100%;margin-top:6px;" disabled>
+            <span class="bp-craft-btn-label">SHIP BUILT AND DEPLOYED!</span>
+          </button>`
+        : timerActive
+        ? `<button class="btn primary bp-craft-btn" style="width:100%;margin-top:6px;" disabled>
+            <span class="bp-craft-btn-fill" style="width:${pct}%;"></span>
+            <span class="bp-craft-btn-label">CRAFTING ${remainSec}s</span>
+          </button>`
+        : `<button class="btn ${atCap ? 'danger' : 'primary'}" style="width:100%;margin-top:6px;" ${!canCraft?'disabled':''} onclick="startCraftShip('${recipe.id}')">BUILD SHIP</button>`;
       items += `<div class="bp-craft-item" style="${tierLocked?'opacity:0.45;':''}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="color:${shipColor};font-size:15px;filter:drop-shadow(0 0 5px ${shipColor}66);">▲</span>
@@ -149,11 +183,11 @@ export function renderBasePanel() {
           <span style="font-size:12px;padding:2px 7px;border-radius:3px;border:1px solid ${tierColor}40;background:${tierColor}18;color:${tierColor};font-family:'Orbitron',sans-serif;letter-spacing:1px;">TIER ${stats.mineTier}</span>
         </div>
         <div style="font-size:14px;color:#4a6a8a;margin-bottom:8px;">${recipe.desc}</div>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:15px;">
-          <tr><td style="color:#4a7aaa;padding:3px 0;width:50%;">▲ Cargo Cap</td><td style="color:#cde;font-weight:bold;">${stats.capacity} units</td></tr>
-          <tr><td style="color:#4a7aaa;padding:3px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${stats.flySpeed}x</td></tr>
-          <tr><td style="color:#4a7aaa;padding:3px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${stats.mineSpeed}x</td></tr>
-        </table>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;font-size:15px;">
+          <span onmousemove="showHintTooltip(event,'Cargo Capacity')" onmouseleave="hideTooltip()" style="color:#cde;font-weight:bold;cursor:help;"><span style="color:#4a7aaa;">▲</span> ${stats.capacity}u</span>
+          <span onmousemove="showHintTooltip(event,'Fly Speed')" onmouseleave="hideTooltip()" style="color:#cde;font-weight:bold;cursor:help;"><span style="color:#4a7aaa;">✈</span> ${stats.flySpeed}x</span>
+          <span onmousemove="showHintTooltip(event,'Mine Speed')" onmouseleave="hideTooltip()" style="color:#cde;font-weight:bold;cursor:help;"><span style="color:#4a7aaa;">⛏</span> ${stats.mineSpeed}x</span>
+        </div>
         ${lockBanner}
         <div class="bp-craft-reqs">${reqsHtml}</div>
         ${buildBtn}
@@ -228,9 +262,20 @@ window.setBpTab = function(tab) {
   state.bpTab = tab;
   if (tab === 'craft' && state.tutStep === 6) state.tutStep = 7;
   renderBasePanel();
+  renderTutPointers();
+  if (tab === 'craft' && state.tutStep === 7) {
+    requestAnimationFrame(() => {
+      const btn = document.querySelector('.bp-craft-item .btn');
+      if (btn?.scrollIntoView) btn.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      requestAnimationFrame(() => renderTutPointers());
+    });
+  }
 };
 
 window.dismissBasePanel = function() {
   state.basePanelOpen = false;
   renderBasePanel();
 };
+
+window.showHintTooltip = showHintTooltip;
+window.hideTooltip = hideTooltip;

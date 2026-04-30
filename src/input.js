@@ -162,7 +162,7 @@ export function initInput(canvas) {
       if (canvasState.lastHoveredNode !== null) { canvasState.lastHoveredNode = null; hideTooltip(); }
     } else {
       if (canvasState.lastHoveredNode !== null) { canvasState.lastHoveredNode = null; hideTooltip(); }
-      if (!hoveredTurret) { canvasState.turretHoverCol = -1; canvasState.turretHoverRow = -1; }
+      if (!hoveredTurret && !state.placingTurret) { canvasState.turretHoverCol = -1; canvasState.turretHoverRow = -1; }
     }
   });
 
@@ -177,6 +177,11 @@ export function initInput(canvas) {
       const sellOverlay = document.getElementById('sell-overlay');
       if (sellOverlay && sellOverlay.classList.contains('show')) {
         if (window.closeSellOverlay) window.closeSellOverlay();
+        return;
+      }
+      const hdrOverlay = document.getElementById('hdr-modal-overlay');
+      if (hdrOverlay && hdrOverlay.classList.contains('open')) {
+        if (window.dismissHdrModal) window.dismissHdrModal();
         return;
       }
       if (state.placingTurret) { cancelTurretPlacement(); return; }

@@ -14,17 +14,21 @@ export let state = {
   // World + entities
   ships: [],
   nodes: [],
+  worldSeed: null,
 
   // UI state
   selectedShip: null,
   activeTab: 'log',
   log: [],
+  logHistory: [],
   renamingShip: null,
   renamingBase: false,
   pendingAssign: null,
   basePanelOpen: false,
   bpTab: 'overview',
   fleetFilter: { type: null, node: null, idleOnly: false, sort: null, sortDir: 1 },
+  shipCraftTimers: {},
+  shipCraftNotices: {},
 
   // Time + progression
   sol: 1,
@@ -50,6 +54,7 @@ export let state = {
 
   // Unlocks + defenses
   researchUnlocks: {},
+  researchUnlocksList: [],
   turrets: [],
   placingTurret: false,
   selectedTurret: null,
@@ -79,6 +84,7 @@ export function saveGame() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       coins: state.coins, trips: state.trips,
       resources: state.resources, shipIdCounter,
+      worldSeed: state.worldSeed,
       base: state.base,
       sol: state.sol, rp: state.rp, marketBoost: state.marketBoost,
       settings: state.settings,
@@ -87,7 +93,10 @@ export function saveGame() {
       firstNodeSwitch: state.firstNodeSwitch, seenMsgs: state.seenMsgs,
       nextEventTimer: state.nextEventTimer, eventCounts: state.eventCounts,
       researchUnlocks: state.researchUnlocks, hpBoostCount: state.hpBoostCount,
+      researchUnlocksList: state.researchUnlocksList,
       turrets: state.turrets, unplacedTurrets: state.unplacedTurrets,
+      logHistory: state.logHistory,
+      shipCraftTimers: state.shipCraftTimers,
       ships: state.ships.map(s => ({
         id:s.id, name:s.name, type:s.type,
         capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
@@ -106,6 +115,7 @@ export function loadGame() {
     state.coins = d.coins ?? 200;
     state.trips = d.trips ?? 0;
     state.resources = { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0, ...(d.resources||{}) };
+    state.worldSeed = Number.isFinite(d.worldSeed) ? d.worldSeed : null;
     state.base = { name:'Base Station', level:1, health:10000, maxHealth:10000, ...(d.base||{}) };
     state.sol  = d.sol ?? 1;
     state.rp   = d.rp  ?? 0;
@@ -122,11 +132,24 @@ export function loadGame() {
     state.nextEventTimer = d.nextEventTimer ?? null;
     state.eventCounts = d.eventCounts ?? {};
     state.researchUnlocks = d.researchUnlocks ?? {};
+    state.researchUnlocksList = Array.isArray(d.researchUnlocksList) ? d.researchUnlocksList : [];
     state.turrets = d.turrets ?? [];
     // Migrate old turrets
     state.turrets.forEach(t => { if (t.range > 2 && t.level === 1) t.range = 2; });
     state.unplacedTurrets = d.unplacedTurrets ?? 0;
+    state.logHistory = Array.isArray(d.logHistory) ? d.logHistory.slice(-100) : [];
+    state.log = state.logHistory.slice(0, 3).map(entry => entry.msg);
+    state.shipCraftTimers = d.shipCraftTimers && typeof d.shipCraftTimers === 'object' ? d.shipCraftTimers : {};
     state.hpBoostCount = d.hpBoostCount ?? 0;
+    if (!state.researchUnlocksList.length && state.hpBoostCount > 0) {
+      state.researchUnlocksList = [{ id: 'hp_boost', name: 'HP Boost', qty: state.hpBoostCount }];
+    }
+    const hpBoostEntry = state.researchUnlocksList.find(r => r.id === 'hp_boost');
+    if (hpBoostEntry && Number.isFinite(hpBoostEntry.qty)) state.hpBoostCount = Math.max(state.hpBoostCount, hpBoostEntry.qty);
+
+    const expectedMaxHealth = 10000 + (state.base.level - 1) * 10000 + (state.hpBoostCount * 2500);
+    state.base.maxHealth = Math.max(state.base.maxHealth || 0, expectedMaxHealth);
+    state.base.health = Math.min(state.base.health ?? state.base.maxHealth, state.base.maxHealth);
     // scheduleNextEvent() called by main.js after loadGame() if nextEventTimer === null
     state.activeWarning = null;
     state.solTimer = 0;

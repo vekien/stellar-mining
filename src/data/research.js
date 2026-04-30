@@ -5,7 +5,7 @@ export const RESEARCH_TREE = [
   {
     tier: 1, label: 'Base Level 1',
     unlocks: [
-      { id: 'hp_boost', name: 'HP Boost',        cost: 1, desc: 'Increases base station max health by 5,000 HP. Can be purchased multiple times.', icon: '💪', repeatable: true },
+      { id: 'hp_boost', name: 'HP Boost',        cost: 1, desc: 'Increases base station max health by 2,500 HP. Can be purchased up to 10 times.', icon: '💪', repeatable: true },
     ]
   },
   {

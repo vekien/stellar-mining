@@ -4,6 +4,7 @@
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
+import { SHIP_DEFS } from '../data/ships.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/nodes.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE } from '../data/research.js';
@@ -15,6 +16,9 @@ import { removeReassignTooltip } from './tutorial.js';
 
 let _hdrPanelOpen = null;
 let _codexTab = 'crew';
+let _fleetCompSig = '';
+let _fleetSortKey = 'name';
+let _fleetSortDir = 1;
 
 // Expose for research.js (re-opens after purchase)
 window.openHdrPanel  = openHdrPanel;
@@ -42,11 +46,152 @@ export function refreshHdrPanelIfOpen() {
 
   // Avoid re-rendering codex on interval so its scroll position stays stable.
   if (_hdrPanelOpen === 'codex') return;
+  if (_hdrPanelOpen === 'fleet') {
+    refreshFleetPanelPartial();
+    return;
+  }
 
   const current = _hdrPanelOpen;
   _hdrPanelOpen = null;
   openHdrPanel(current);
 }
+
+function getFleetTypeCounts() {
+  const typeCounts = {};
+  for (const s of state.ships) {
+    const typeName = CRAFT_RECIPES.find(r => r.id === s.type)?.name || 'Starter';
+    typeCounts[typeName] = (typeCounts[typeName] || 0) + 1;
+  }
+  return typeCounts;
+}
+
+function getShipTypeName(ship) {
+  return CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
+}
+
+function getShipStatusLabel(ship) {
+  return ship.status === 'flying' ? '▶ Flying'
+    : ship.status === 'mining' ? '⛏ Mining'
+    : ship.status === 'returning' ? '◀ Returning'
+    : '— Idle';
+}
+
+function getShipNodeLabel(ship) {
+  const node = state.nodes.find(n => n.id === ship.targetNode);
+  return node ? RESOURCE_DEFS[node.type].label : '—';
+}
+
+function getShipTierValue(ship) {
+  return ship.tier || ship.mineTier || 1;
+}
+
+function getFleetSortValue(ship, key) {
+  if (key === 'name') return ship.name || '';
+  if (key === 'type') return getShipTypeName(ship);
+  if (key === 'tier') return getShipTierValue(ship);
+  if (key === 'node') return getShipNodeLabel(ship);
+  if (key === 'status') return getShipStatusLabel(ship);
+  if (key === 'cargo') return ship.cargo || 0;
+  return ship.name || '';
+}
+
+function getSortedFleetShips() {
+  const list = [...state.ships];
+  list.sort((a, b) => {
+    const av = getFleetSortValue(a, _fleetSortKey);
+    const bv = getFleetSortValue(b, _fleetSortKey);
+    let cmp = 0;
+    if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+    else cmp = String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' });
+    if (cmp === 0) cmp = (a.id || 0) - (b.id || 0);
+    return cmp * _fleetSortDir;
+  });
+  return list;
+}
+
+function sortArrowFor(key) {
+  if (_fleetSortKey !== key) return '↕';
+  return _fleetSortDir === 1 ? '▲' : '▼';
+}
+
+function fleetHeaderCell(label, key) {
+  return `<th onclick="sortFleetManifest('${key}')" style="cursor:pointer;user-select:none;white-space:nowrap;">${label} <span style="color:${_fleetSortKey===key?'#8fc3ff':'#4a6a8a'};font-size:11px;">${sortArrowFor(key)}</span></th>`;
+}
+
+function buildFleetCompositionHtml(typeCounts) {
+  const compositionHeaders = Object.keys(typeCounts);
+  const compositionValues = compositionHeaders.map((key) => typeCounts[key]);
+  if (!compositionHeaders.length) return '<div style="font-size:13px;color:#3a5a7a;margin-bottom:12px;">No ships in fleet yet.</div>';
+  return `<div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ FLEET COMPOSITION</div>
+    <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #3a6aa8;border-radius:4px;overflow:hidden;margin-bottom:12px;box-shadow:0 0 0 1px rgba(110,170,255,0.18) inset;">
+      <tr>${compositionHeaders.map(name => `<td style="padding:8px 10px;color:#8ab;font-size:13px;border-bottom:1px solid #2a4f80;">${name}</td>`).join('')}</tr>
+      <tr>${compositionValues.map(value => `<td style="padding:8px 10px;color:#cde;font-size:18px;font-weight:bold;">${value}</td>`).join('')}</tr>
+    </table>`;
+}
+
+function refreshFleetPanelPartial() {
+  const body = document.getElementById('hdr-modal-body');
+  if (!body) return;
+  const maxShips = BASE_MAX_SHIPS[(state.base.level - 1)] || 5;
+  const countEl = body.querySelector('#fleet-count');
+  if (countEl) countEl.textContent = `Fleet ${state.ships.length}/${maxShips}`;
+
+  const sig = JSON.stringify(getFleetTypeCounts());
+  const compWrap = body.querySelector('#fleet-composition-wrap');
+  if (compWrap && sig !== _fleetCompSig) {
+    compWrap.innerHTML = buildFleetCompositionHtml(getFleetTypeCounts());
+    _fleetCompSig = sig;
+  }
+
+  const rows = body.querySelectorAll('tr[data-ship-id]');
+  if (rows.length !== state.ships.length) {
+    const current = _hdrPanelOpen;
+    _hdrPanelOpen = null;
+    openHdrPanel(current);
+    return;
+  }
+  const sortedShips = getSortedFleetShips();
+  const tbody = body.querySelector('.fleet-table tbody');
+  if (tbody) {
+    for (const ship of sortedShips) {
+      const row = body.querySelector(`tr[data-ship-id="${ship.id}"]`);
+      if (row) tbody.appendChild(row);
+    }
+  }
+
+  for (const ship of sortedShips) {
+    const row = body.querySelector(`tr[data-ship-id="${ship.id}"]`);
+    if (!row) {
+      const current = _hdrPanelOpen;
+      _hdrPanelOpen = null;
+      openHdrPanel(current);
+      return;
+    }
+    const status = getShipStatusLabel(ship);
+    const nodeLabel = getShipNodeLabel(ship);
+    const tier = `T${getShipTierValue(ship)}`;
+    const cargo = `${ship.cargo}/${ship.capacity}`;
+
+    const nodeEl = row.querySelector('[data-cell="node"]');
+    const statusEl = row.querySelector('[data-cell="status"]');
+    const cargoEl = row.querySelector('[data-cell="cargo"]');
+    const tierEl = row.querySelector('[data-cell="tier"]');
+    if (nodeEl && nodeEl.textContent !== nodeLabel) nodeEl.textContent = nodeLabel;
+    if (statusEl && statusEl.textContent !== status) statusEl.textContent = status;
+    if (cargoEl && cargoEl.textContent !== cargo) cargoEl.textContent = cargo;
+    if (tierEl && tierEl.textContent !== tier) tierEl.textContent = tier;
+  }
+}
+
+window.sortFleetManifest = function(key) {
+  if (_fleetSortKey === key) _fleetSortDir *= -1;
+  else { _fleetSortKey = key; _fleetSortDir = 1; }
+  if (_hdrPanelOpen === 'fleet') {
+    const current = _hdrPanelOpen;
+    _hdrPanelOpen = null;
+    openHdrPanel(current);
+  }
+};
 
 export function handleBasePanelOverlayClick(e) {
   if (e.target === document.getElementById('base-panel-overlay')) {
@@ -132,6 +277,7 @@ export function openHdrPanel(type) {
   // ── RESEARCH ───────────────────────────────────────────────
   else if (type === 'research') {
     const rpCap = 2 + (state.base.level - 1);
+    const formatResearchDesc = (desc) => desc.replace(/(\d[\d,]*(?:\.\d+)?(?:\s*HP|%)?)/g, '<span style="color:#ffe066;">$1</span>');
     heading.textContent = 'RESEARCH';
     let treeHtml = '';
     for (const tier of RESEARCH_TREE) {
@@ -144,25 +290,26 @@ export function openHdrPanel(type) {
         const isUnlocked = state.researchUnlocks[u.id];
         const canAfford  = state.rp >= u.cost;
         const tierReqMet = !tier.minBaseLevel || state.base.level >= tier.minBaseLevel;
-        const purchasable = tierReqMet && canAfford && (!isUnlocked || u.repeatable);
         const count = u.id === 'hp_boost' ? state.hpBoostCount : (isUnlocked ? 1 : 0);
+        const capReached = u.id === 'hp_boost' && count >= 10;
+        const purchasable = tierReqMet && canAfford && (!isUnlocked || u.repeatable) && !capReached;
         treeHtml += `<div style="background:rgba(10,20,50,0.5);border:1px solid ${isUnlocked?'#2a5090':'#1a2a4a'};border-radius:5px;padding:10px;margin-bottom:6px;${tierLocked?'opacity:0.4;':''}">
-          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px;">
+          <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:5px;">
             <span style="font-size:18px;flex-shrink:0;">${u.icon}</span>
             <div style="flex:1;">
               <div style="display:flex;align-items:center;justify-content:space-between;">
-                <div style="font-family:'Orbitron',sans-serif;font-size:14px;color:${isUnlocked?'#ffe066':'#cde'};letter-spacing:1px;">${u.name}</div>
+                <div style="font-family:'Orbitron',sans-serif;font-size:16px;color:${isUnlocked?'#ffe066':'#cde'};letter-spacing:1px;">${u.name}</div>
                 ${u.repeatable && count > 0 ? `<span style="font-size:10px;color:#ffe066;background:rgba(60,45,0,0.4);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${count}</span>` : ''}
                 ${isUnlocked && !u.repeatable ? `<span style="font-size:10px;color:#4d8;background:rgba(20,60,30,0.4);border:1px solid #2a6040;border-radius:3px;padding:1px 5px;">✓ UNLOCKED</span>` : ''}
               </div>
-              <div style="font-size:14px;color:#5a7a9a;margin-top:2px;line-height:1.25;">${u.desc}</div>
+              <div style="font-size:14px;color:#5a7a9a;margin-top:2px;line-height:1.25;">${formatResearchDesc(u.desc)}</div>
             </div>
+            ${(!isUnlocked || u.repeatable) && tierReqMet ? `
+            <div style="min-width:132px;background:linear-gradient(180deg, rgba(10,40,70,0.92) 0%, rgba(8,28,52,0.92) 100%);border:1px solid #4aa8ff;border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;box-shadow:0 0 14px rgba(80,170,255,0.2), inset 0 0 12px rgba(70,170,255,0.12);">
+              <div style="font-size:15px;font-family:'Orbitron',sans-serif;font-weight:700;color:${capReached?'#4d8':(canAfford?'#ffe066':'#f88')};letter-spacing:1px;">${capReached?'MAX':(u.cost + ' RP')}</div>
+              <button class="btn${purchasable?' primary':''}" style="font-size:12px;padding:4px 14px;min-width:92px;" ${purchasable?'':'disabled'} onclick="purchaseResearch('${u.id}')">${capReached?'MAXED':'UNLOCK'}</button>
+            </div>` : ''}
           </div>
-          ${(!isUnlocked || u.repeatable) && tierReqMet ? `
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
-            <span style="font-size:14px;font-family:'Orbitron',sans-serif;font-weight:700;color:${canAfford?'#ffe066':'#f88'};background:${canAfford?'rgba(60,45,0,0.5)':'rgba(60,10,10,0.5)'};border:1px solid ${canAfford?'#7a6010':'#802020'};border-radius:20px;padding:3px 12px;letter-spacing:1px;">${u.cost} RP</span>
-            <button class="btn${purchasable?' primary':''}" style="font-size:11px;padding:4px 12px;" ${purchasable?'':'disabled'} onclick="purchaseResearch('${u.id}')">UNLOCK</button>
-          </div>` : ''}
         </div>`;
       }
       treeHtml += '</div>';
@@ -172,7 +319,7 @@ export function openHdrPanel(type) {
         <div>
           <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:3px;">RESEARCH POINTS</div>
           <div style="font-size:24px;color:#ffe066;font-weight:bold;">🔬 ${state.rp} <span style="font-size:14px;color:#4a6a8a;">/ ${rpCap}</span></div>
-          <div style="font-size:11px;color:#4a6a8a;margin-top:2px;">+1 per SOL · cap increases with base level</div>
+          <div style="font-size:13px;color:#6f97bc;margin-top:2px;">+1 per SOL · cap increases with base level</div>
         </div>
       </div>
       ${treeHtml}`;
@@ -180,7 +327,7 @@ export function openHdrPanel(type) {
 
   // ── MARKET ─────────────────────────────────────────────────
   else if (type === 'market') {
-    heading.textContent = 'MARKET';
+    heading.textContent = 'TRADE';
     const hasAny = Object.values(state.resources).some(v => v > 0);
     let tradeHtml = '';
     if (state.marketBoost) {
@@ -190,7 +337,7 @@ export function openHdrPanel(type) {
         <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:1.5px;color:#9be89b;margin-bottom:4px;">SOL ${state.sol} - DEMAND</div>
         <div style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:${bd.color};text-shadow:0 0 10px ${bd.color}55;display:flex;align-items:center;justify-content:center;gap:8px;">
           <span style="width:10px;height:10px;border-radius:50%;background:${bd.color};display:inline-block;box-shadow:0 0 8px ${bd.color}aa;"></span>
-          <span>${bd.label} <span style="color:#ffe066;">@ ${boostMult}x!</span></span>
+          <span>${bd.label}<span style="display:inline-block;width:22px;"></span><span style="color:#ffe066;">${boostMult}x!</span></span>
         </div>
       </div>`;
     }
@@ -244,27 +391,34 @@ export function openHdrPanel(type) {
   else if (type === 'fleet') {
     const maxShips = BASE_MAX_SHIPS[(state.base.level - 1)] || 5;
     heading.textContent = 'FLEET MANIFEST';
-    const rows = state.ships.map(s => {
-      const recipe   = CRAFT_RECIPES.find(r => r.id === s.type);
-      const typeName = recipe ? recipe.name : 'Starter';
-      const node   = state.nodes.find(n => n.id === s.targetNode);
-      const status = s.status === 'flying'    ? '▶ Flying'
-                   : s.status === 'mining'    ? '⛏ Mining'
-                   : s.status === 'returning' ? '◀ Returning'
-                   : '— Idle';
-      return `<tr>
+    const typeCounts = getFleetTypeCounts();
+    const compositionHtml = buildFleetCompositionHtml(typeCounts);
+    _fleetCompSig = JSON.stringify(typeCounts);
+    const rows = getSortedFleetShips().map(s => {
+      const typeName = getShipTypeName(s);
+      const status = getShipStatusLabel(s);
+      return `<tr data-ship-id="${s.id}">
         <td>${s.name}</td>
         <td>${typeName}</td>
-        <td>T${s.tier||1}</td>
-        <td>${node ? RESOURCE_DEFS[node.type].label : '—'}</td>
-        <td>${status}</td>
-        <td style="color:#ffe066;">${s.cargo}/${s.capacity}</td>
+        <td data-cell="tier">T${getShipTierValue(s)}</td>
+        <td data-cell="node">${getShipNodeLabel(s)}</td>
+        <td data-cell="status">${status}</td>
+        <td data-cell="cargo" style="color:#ffe066;">${s.cargo}/${s.capacity}</td>
       </tr>`;
     }).join('');
     body.innerHTML = `
-      <div style="margin-bottom:8px;font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:1px;color:#4af;">Fleet ${state.ships.length}/${maxShips}</div>
-      <table class="fleet-table">
-        <thead><tr><th>NAME</th><th>TYPE</th><th>TIER</th><th>NODE</th><th>STATUS</th><th>CARGO</th></tr></thead>
+      <div id="fleet-count" style="margin-bottom:8px;font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:1px;color:#4af;">Fleet ${state.ships.length}/${maxShips}</div>
+      <div id="fleet-composition-wrap">${compositionHtml}</div>
+      <table class="fleet-table" style="table-layout:fixed;width:100%;">
+        <colgroup>
+          <col style="width:22%;">
+          <col style="width:18%;">
+          <col style="width:10%;">
+          <col style="width:16%;">
+          <col style="width:18%;">
+          <col style="width:16%;">
+        </colgroup>
+        <thead><tr>${fleetHeaderCell('NAME', 'name')}${fleetHeaderCell('TYPE', 'type')}${fleetHeaderCell('TIER', 'tier')}${fleetHeaderCell('NODE', 'node')}${fleetHeaderCell('STATUS', 'status')}${fleetHeaderCell('CARGO', 'cargo')}</tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
   }
@@ -381,7 +535,27 @@ export function openHdrPanel(type) {
       }).join('');
 
     } else if (_codexTab === 'upgrades') {
-      tabContent = `<div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ BASE UPGRADE COSTS</div>
+      const shipStatsHtml = CRAFT_RECIPES.map((recipe) => {
+        const stats = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
+        const tierColor = MINE_TIERS[stats.mineTier]?.color || '#8ab';
+        return `<div style="background:rgba(10,20,50,0.5);border:1px solid #1e3a6e;border-radius:5px;padding:10px 12px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="color:${tierColor};font-size:14px;">▲</span>
+            <div style="font-family:'Orbitron',sans-serif;font-size:14px;color:#e8eef8;letter-spacing:1px;flex:1;">${recipe.name.toUpperCase()}</div>
+            <span style="font-size:10px;padding:2px 7px;border-radius:3px;border:1px solid ${tierColor}44;background:${tierColor}18;color:${tierColor};font-family:'Orbitron',sans-serif;letter-spacing:1px;">${MINE_TIERS[stats.mineTier]?.label || 'Tier ' + stats.mineTier}</span>
+          </div>
+          <div style="font-size:13px;color:#5f84ad;margin-bottom:8px;">${recipe.desc}</div>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;">
+            <tr><td style="color:#4a7aaa;padding:2px 0;width:50%;">▲ Cargo Cap</td><td style="color:#cde;font-weight:bold;">${stats.capacity} units</td></tr>
+            <tr><td style="color:#4a7aaa;padding:2px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${stats.flySpeed}x</td></tr>
+            <tr><td style="color:#4a7aaa;padding:2px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${stats.mineSpeed}x</td></tr>
+          </table>
+        </div>`;
+      }).join('');
+
+      tabContent = `<div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ SHIP BASE STATS</div>
+        ${shipStatsHtml}
+        <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin:12px 0 8px;">◈ BASE UPGRADE COSTS</div>
         <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;overflow:hidden;">
           <thead>
             <tr>

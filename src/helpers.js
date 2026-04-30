@@ -3,6 +3,7 @@
 // ============================================================
 import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
 import { TIER_COLORS } from './data/ships.js';
+import { SOL_DURATION } from './constants.js';
 
 /** Convert a CSS hex colour to "r,g,b" string */
 export function hexToRgb(hex) {
@@ -17,17 +18,64 @@ export function fmt(n) { return Math.floor(n).toLocaleString(); }
 let _stateRef = null;
 export function setStateRef(s) { _stateRef = s; }
 
-export function addLog(msg) {
-  const state = _stateRef;
-  if (!state) return;
-  state.log.unshift(msg);
-  if (state.log.length > 3) state.log = state.log.slice(0, 3);
+function renderLogPreview(state) {
   ['log0','log1','log2'].forEach((id, i) => {
     const el = document.getElementById(id);
     if (el) el.textContent = state.log[i] || '';
   });
   const logEl = document.getElementById('log');
   if (logEl) logEl.style.display = state.log.some(l => l) ? '' : 'none';
+}
+
+function renderLogHistoryPanel(state) {
+  const list = document.getElementById('log-history-list');
+  if (!list) return;
+  const rows = (state.logHistory || []).slice(0, 100);
+  if (!rows.length) {
+    list.innerHTML = '<div class="log-history-empty">No log entries yet.</div>';
+    return;
+  }
+  list.innerHTML = rows.map(entry => (
+    `<div class="log-history-row"><span class="log-history-sol">SOL ${entry.sol} · ${entry.solTime || '--:--'}</span><span class="log-history-msg">${entry.msg}</span></div>`
+  )).join('');
+}
+
+export function openLogHistory() {
+  const state = _stateRef;
+  if (!state) return;
+  renderLogHistoryPanel(state);
+  document.getElementById('log-history-overlay')?.classList.add('show');
+}
+
+export function closeLogHistory() {
+  document.getElementById('log-history-overlay')?.classList.remove('show');
+}
+
+export function refreshLogUI() {
+  const state = _stateRef;
+  if (!state) return;
+  renderLogPreview(state);
+  if (document.getElementById('log-history-overlay')?.classList.contains('show')) renderLogHistoryPanel(state);
+}
+
+export function addLog(msg) {
+  const state = _stateRef;
+  if (!state) return;
+
+  const dayProgress = (state.solTimer || 0) / SOL_DURATION;
+  const solHours = Math.floor(dayProgress * 24);
+  const solMins = Math.floor((dayProgress * 24 * 60) % 60);
+  const solTime = `${String(solHours).padStart(2,'0')}:${String(solMins).padStart(2,'0')}`;
+
+  const entry = { sol: state.sol ?? 1, solTime, msg };
+  state.logHistory.unshift(entry);
+  if (state.logHistory.length > 100) state.logHistory = state.logHistory.slice(0, 100);
+
+  state.log.unshift(entry.msg);
+  if (state.log.length > 3) state.log = state.log.slice(0, 3);
+  renderLogPreview(state);
+  if (document.getElementById('log-history-overlay')?.classList.contains('show')) renderLogHistoryPanel(state);
+
   const l0 = document.getElementById('log0');
   if (l0) { l0.className = 'log-entry new'; setTimeout(() => { if (l0) l0.className = 'log-entry'; }, 2000); }
 }
@@ -65,4 +113,13 @@ export function moveTooltip(e) {
 
 export function hideTooltip() {
   tooltipEl().style.display = 'none';
+  tooltipEl().classList.remove('tt-compact');
+}
+
+export function showHintTooltip(e, text) {
+  const tt = tooltipEl();
+  tt.classList.add('tt-compact');
+  tt.innerHTML = `<div class="tt-name">${text}</div>`;
+  tt.style.display = 'block';
+  moveTooltip(e);
 }

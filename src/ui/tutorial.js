@@ -2,6 +2,7 @@
 // TUTORIAL SYSTEM — modular pointer defs, rendering, helpers
 // ============================================================
 import { state } from '../state.js';
+import { MINE_TIERS } from '../data/resources.js';
 import { cam, gridToWorld } from '../render/camera.js';
 import { W, H } from '../render/renderer.js';
 import { TILE_H, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
@@ -101,7 +102,7 @@ const TUTORIAL_DEFS = [
     condition: s => s.tutStep === 7,
     text: '🚀 BUILD SCOUT SHIP',
     placement: 'below',
-    getEl: () => document.querySelector('.bp-craft-item'),
+    getEl: () => document.querySelector('.bp-craft-item .btn'),
   },
 
   {
@@ -153,17 +154,50 @@ const TUTORIAL_DEFS = [
     text: 'REDIRECT TO NEW NODE',
     placement: 'above',
     getPos: s => {
-      // Find types already assigned to ships
-      const assignedTypes = new Set(
+      const ship = s.ships.find(sh => sh.id === s.pendingAssign);
+      if (!ship) return null;
+
+      const currentNode = s.nodes.find(n => n.id === ship.targetNode);
+      const currentType = currentNode?.type || null;
+
+      const accessibleTypes = new Set();
+      for (let t = 1; t <= ship.mineTier; t++) {
+        for (const type of (MINE_TIERS[t]?.resources || [])) accessibleTypes.add(type);
+      }
+
+      const occupiedByOthers = new Set(
         s.ships
-          .filter(sh => sh.targetNode !== null)
-          .map(sh => s.nodes.find(n => n.id === sh.targetNode)?.type)
-          .filter(Boolean)
+          .filter(sh => sh.id !== ship.id && sh.targetNode !== null)
+          .map(sh => sh.targetNode)
       );
-      // Point to the nearest accessible node of a different type
-      const node = s.nodes.find(n => n.minLevel <= s.base.level && !assignedTypes.has(n.type));
-      if (!node) return null;
-      const w = gridToWorld(node.gr[0], node.gr[1]);
+
+      const preferredType = currentType === 'iron'
+        ? 'copper'
+        : currentType === 'copper'
+          ? 'iron'
+          : null;
+
+      const baseFilter = (n) => (
+        n.minLevel <= s.base.level
+        && accessibleTypes.has(n.type)
+        && !occupiedByOthers.has(n.id)
+        && n.id !== ship.targetNode
+      );
+
+      let candidates = s.nodes.filter(n => baseFilter(n) && (!preferredType || n.type === preferredType));
+      if (!candidates.length) candidates = s.nodes.filter(n => baseFilter(n) && n.type !== currentType);
+      if (!candidates.length) candidates = s.nodes.filter(baseFilter);
+      if (!candidates.length) return null;
+
+      candidates.sort((a, b) => {
+        const aw = gridToWorld(a.gr[0], a.gr[1]);
+        const bw = gridToWorld(b.gr[0], b.gr[1]);
+        const ad = (aw.x - ship.x) * (aw.x - ship.x) + (aw.y - ship.y) * (aw.y - ship.y);
+        const bd = (bw.x - ship.x) * (bw.x - ship.x) + (bw.y - ship.y) * (bw.y - ship.y);
+        return ad - bd;
+      });
+
+      const w = gridToWorld(candidates[0].gr[0], candidates[0].gr[1]);
       return canvasPos(w.x, w.y + TILE_H / 2);
     },
   },
@@ -250,11 +284,7 @@ export function checkTradeTutorial() {
 // ── Dismiss mission briefing banner ──────────────────────────
 export function dismissTutorial() {
   const banner = document.getElementById('tutorial-banner');
-  if (banner) {
-    banner.style.transition = 'opacity 0.4s';
-    banner.style.opacity = '0';
-    setTimeout(() => banner.remove(), 400);
-  }
+  if (banner) banner.classList.remove('show');
 }
 
 // ── Reassign tooltip (shown while pendingAssign is active) ───

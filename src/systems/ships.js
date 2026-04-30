@@ -17,6 +17,50 @@ import { spawnFloatie } from '../render/animations.js';
 import { showOnce, showTransmissionMessage, dismissTransmission } from '../ui/transmissions.js';
 import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 
+const SHIP_CRAFT_TIME_MS = {
+  scout: 10000,
+  swift: 10000,
+  hauler: 14000,
+  freighter: 18000,
+};
+
+const craftTimeouts = {};
+
+function getShipCraftTimeMs(recipeId) {
+  return SHIP_CRAFT_TIME_MS[recipeId] || 10000;
+}
+
+function completeCraftShip(recipeId) {
+  const timer = state.shipCraftTimers?.[recipeId];
+  if (!timer) return;
+  if (Date.now() < timer.endsAt - 20) return;
+  delete state.shipCraftTimers[recipeId];
+  if (craftTimeouts[recipeId]) {
+    clearTimeout(craftTimeouts[recipeId]);
+    delete craftTimeouts[recipeId];
+  }
+  spawnShip(recipeId);
+  if (!state.shipCraftNotices) state.shipCraftNotices = {};
+  state.shipCraftNotices[recipeId] = Date.now() + 3000;
+  setTimeout(() => {
+    if (state.shipCraftNotices?.[recipeId] && Date.now() >= state.shipCraftNotices[recipeId]) {
+      delete state.shipCraftNotices[recipeId];
+      if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+    }
+  }, 3050);
+  if (refresh.header) refresh.header();
+  if (refresh.ui) refresh.ui();
+  if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+}
+
+function scheduleCraftCompletion(recipeId, endsAt) {
+  if (craftTimeouts[recipeId]) clearTimeout(craftTimeouts[recipeId]);
+  const wait = Math.max(0, endsAt - Date.now());
+  craftTimeouts[recipeId] = setTimeout(() => {
+    completeCraftShip(recipeId);
+  }, wait);
+}
+
 // ── Spawn ──
 export function spawnShip(type = 'scout') {
   const maxShips = BASE_MAX_SHIPS[(state.base.level-1)] || 20;
@@ -58,7 +102,6 @@ export function assignShip(ship, node) {
   console.log(`[assign] ${ship.name} → node ${node.id} (${node.type}) | was status=${ship.status} cargo=${ship.cargo} cargoResource=${ship.cargoResource}`);
   ship.cargo = 0;
   ship.cargoResource = null;
-  import('../ui/tutorial.js').then(({ dismissTutorial }) => dismissTutorial());
   if (state.tutStep < 2) state.tutStep = 2;
   state.redirectTutActive = false;
 
@@ -274,6 +317,42 @@ window.craftShip = function(recipeId) {
     5, 'rigs'
   ), 600);
 };
+
+window.startCraftShip = function(recipeId) {
+  const recipe = CRAFT_RECIPES.find(r => r.id === recipeId); if (!recipe) return;
+  const maxShips = BASE_MAX_SHIPS[(state.base.level-1)] || 20;
+  const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
+  if ((state.ships.length + activeCraftCount) >= maxShips) { addLog('⚠ Ship capacity full! Upgrade the Base.'); return; }
+  if (state.shipCraftTimers?.[recipeId]) return;
+  for (const [r, n] of Object.entries(recipe.reqs)) if ((state.resources[r] || 0) < n) return;
+  for (const [r, n] of Object.entries(recipe.reqs)) state.resources[r] -= n;
+
+  if (state.tutStep === 7) {
+    state.tutStep = 8;
+    document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
+  }
+
+  const durationMs = getShipCraftTimeMs(recipeId);
+  const now = Date.now();
+  if (!state.shipCraftTimers) state.shipCraftTimers = {};
+  state.shipCraftTimers[recipeId] = { startedAt: now, endsAt: now + durationMs, durationMs };
+  addLog(`🛠 Crafting started: ${recipe.name} (${Math.ceil(durationMs / 1000)}s)`);
+  scheduleCraftCompletion(recipeId, now + durationMs);
+  if (refresh.header) refresh.header();
+  if (refresh.ui) refresh.ui();
+  if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+};
+
+window.syncShipCraftTimers = function() {
+  if (!state.shipCraftTimers) return;
+  for (const [recipeId, timer] of Object.entries(state.shipCraftTimers)) {
+    if (!timer || !timer.endsAt) continue;
+    if (Date.now() >= timer.endsAt) completeCraftShip(recipeId);
+    else scheduleCraftCompletion(recipeId, timer.endsAt);
+  }
+};
+
+window.syncShipCraftTimers();
 
 // ── Upgrade Ship Stats ──
 window.upgradeShip = function(shipId, stat, chunk = 1) {
