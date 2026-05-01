@@ -31,7 +31,7 @@ export let state = {
   pendingAssign: null,
   basePanelOpen: false,
   bpTab: 'overview',
-  fleetFilter: { type: null, node: null, idleOnly: false, sort: null, sortDir: 1 },
+  fleetFilter: { type: null, role: null, node: null, idleOnly: false, sort: null, sortDir: 1 },
   shipCraftTimers: {},
   shipCraftNotices: {},
 
@@ -45,7 +45,10 @@ export let state = {
   // Player settings
   settings: {
     showGridCoords: false,
+    showBackgroundStars: true,
   },
+
+  highestAvailableNodeTier: 1,
 
   // Tutorial + messaging
   tutStep: 0,
@@ -67,8 +70,11 @@ export let state = {
   unplacedTurrets: 0,
   hpBoostCount: 0,
 
+  shownAboutWindow: false,
+
   // Random event runtime
   nextEventTimer: null,
+  nextEventSol: null,
   activeWarning: null,
 
   // Base
@@ -96,7 +102,8 @@ export function saveGame() {
       solStarted: state.solStarted, tutStep: state.tutStep,
       firstDeposit: state.firstDeposit, firstCraftable: state.firstCraftable,
       firstNodeSwitch: state.firstNodeSwitch, seenMsgs: state.seenMsgs,
-      nextEventTimer: state.nextEventTimer, eventCounts: state.eventCounts,
+      shownAboutWindow: state.shownAboutWindow,
+      nextEventTimer: state.nextEventTimer, nextEventSol: state.nextEventSol, eventCounts: state.eventCounts,
       researchUnlocks: state.researchUnlocks, hpBoostCount: state.hpBoostCount,
       researchUnlocksList: state.researchUnlocksList,
       turrets: state.turrets, unplacedTurrets: state.unplacedTurrets,
@@ -127,6 +134,7 @@ export function loadGame() {
     state.marketBoost = d.marketBoost ?? null;
     state.settings = {
       showGridCoords: d.settings?.showGridCoords ?? d.showGridCoords ?? false,
+      showBackgroundStars: d.settings?.showBackgroundStars ?? true,
     };
     state.solStarted = d.solStarted ?? false;
     state.tutStep = d.tutStep ?? 0;
@@ -134,7 +142,9 @@ export function loadGame() {
     state.firstCraftable = d.firstCraftable ?? false;
     state.firstNodeSwitch = d.firstNodeSwitch ?? false;
     state.seenMsgs = d.seenMsgs ?? {};
+    state.shownAboutWindow = d.shownAboutWindow ?? false;
     state.nextEventTimer = d.nextEventTimer ?? null;
+    state.nextEventSol = d.nextEventSol ?? null;
     state.eventCounts = d.eventCounts ?? {};
     state.researchUnlocks = d.researchUnlocks ?? {};
     state.researchUnlocksList = Array.isArray(d.researchUnlocksList) ? d.researchUnlocksList : [];

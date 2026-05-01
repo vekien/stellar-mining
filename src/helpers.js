@@ -13,6 +13,12 @@ export function hexToRgb(hex) {
 /** Format number with commas (floor first) */
 export function fmt(n) { return Math.floor(n).toLocaleString(); }
 
+// ── Coin helpers — mutate state.coins and push update to header ──
+let _headerCoinCb = null;
+export function setHeaderCoinCb(fn) { _headerCoinCb = fn; }
+export function addCoins(n) { _stateRef.coins += n; _headerCoinCb?.(); }
+export function spendCoins(n) { _stateRef.coins -= n; _headerCoinCb?.(); }
+
 // ── Canvas log entries ──
 // state is imported lazily via the getter to avoid circular deps at module init
 let _stateRef = null;
@@ -83,7 +89,7 @@ export function addLog(msg) {
 // ── Tooltip ──
 export const tooltipEl = () => document.getElementById('tooltip');
 
-export function showTooltip(e, resourceType) {
+export function showTooltip(e, resourceType, options = {}) {
   const def = RESOURCE_DEFS[resourceType];
   if (!def) return;
   const state = _stateRef;
@@ -94,9 +100,10 @@ export function showTooltip(e, resourceType) {
   const tt = tooltipEl();
   tt.innerHTML = `
     <div class="tt-name"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${def.color};margin-right:5px;vertical-align:middle"></span>${def.label}</div>
-    <div>Sell price: <span class="tt-price">${def.sellPrice}¢ per unit</span></div>
-    ${stock > 0 ? `<div>In depot: <span style="color:#ffe066">${fmt(stock)}</span> <span style="color:#5a8">(= ${fmt(stock * def.sellPrice)}¢)</span></div>` : ''}
+    <div>Sell price: <span class="tt-price" style="color:#6fff9a;">$${def.sellPrice} per unit</span></div>
+    ${stock > 0 ? `<div>In depot: <span style="color:#cde">${fmt(stock)}</span> <span style="color:#6fff9a;">($${fmt(stock * def.sellPrice)})</span></div>` : ''}
     <div class="tt-tier" style="color:${tierColor}">⬡ ${tierLabel}</div>
+    ${options.unmineableByFleet ? '<div style="margin-top:4px;color:#f0b080;">No ship can mine this tier yet.</div>' : ''}
   `;
   tt.style.display = 'block';
   moveTooltip(e);

@@ -5,22 +5,33 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { BASE_MAX_SHIPS } from '../data/nodes.js';
 import { SOL_DURATION } from '../constants.js';
-import { fmt, showTooltip, hideTooltip } from '../helpers.js';
+import { fmt, showTooltip, hideTooltip, setHeaderCoinCb } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { renderShipsList, renderFleetFilters, renderActionPanel } from './fleet.js';
 import { renderBasePanel } from './basePanel.js';
 import { renderTutPointers } from './tutorial.js';
 
+let _hdrCache = {};
+function setIfChanged(id, val) {
+  if (_hdrCache[id] === val) return;
+  _hdrCache[id] = val;
+  document.getElementById(id).textContent = val;
+}
+export function updateHeaderCoins() {
+  setIfChanged('hdr-coins', '$' + fmt(state.coins));
+}
+export function updateHeaderShips() {
+  const maxShips = BASE_MAX_SHIPS[(state.base.level - 1)] || 20;
+  setIfChanged('hdr-ships', `${state.ships.length}/${maxShips}`);
+}
+export function updateHeaderRP() {
+  const rpCap = 2 + (state.base.level - 1);
+  setIfChanged('hdr-rp', `${state.rp}/${rpCap}`);
+}
 export function updateHeader() {
-  const maxShips   = BASE_MAX_SHIPS[(state.base.level - 1)] || 20;
-  const rpCap      = 2 + (state.base.level - 1);
-  const dayProgress = state.solTimer / SOL_DURATION;
-  const solHours   = Math.floor(dayProgress * 24);
-  const solMins    = Math.floor((dayProgress * 24 * 60) % 60);
-  document.getElementById('hdr-sol').textContent   = `${state.sol} · ${String(solHours).padStart(2,'0')}:${String(solMins).padStart(2,'0')}`;
-  document.getElementById('hdr-rp').textContent    = `${state.rp}/${rpCap}`;
-  document.getElementById('hdr-coins').textContent = fmt(state.coins) + '¢';
-  document.getElementById('hdr-ships').textContent = `${state.ships.length}/${maxShips}`;
+  updateHeaderCoins();
+  updateHeaderShips();
+  updateHeaderRP();
 }
 
 export function renderResources() {
@@ -50,12 +61,14 @@ export function patchResources() {
   }
 }
 
+let _resourceBarBuilt = false;
+export function invalidateResourceBar() { _resourceBarBuilt = false; }
 export function renderUI() {
-  renderResources();
+  if (!_resourceBarBuilt) { renderResources(); _resourceBarBuilt = true; }
+  else patchResources();
   if (!state.renamingShip) renderShipsList();
   else renderFleetFilters();
   renderActionPanel();
-  updateHeader();
   renderBasePanel();
   renderTutPointers();
 }
@@ -66,6 +79,7 @@ export function initRefresh() {
   refresh.header    = updateHeader;
   refresh.resources = patchResources;
   refresh.basePanel = renderBasePanel;
+  setHeaderCoinCb(updateHeaderCoins);
 }
 
 // Expose for legacy window.xxx calls from dynamically-rendered HTML

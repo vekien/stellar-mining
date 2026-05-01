@@ -10,12 +10,14 @@ import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
          upgradeTotalCost, upgradeChunk } from '../data/ships.js';
 import { BASE_MAX_SHIPS } from '../data/nodes.js';
 import { NPCS } from '../data/npcs.js';
-import { addLog, fmt } from '../helpers.js';
+import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { BASE_POS, gridToWorld, nodeWorldPos } from '../render/camera.js';
 import { spawnFloatie } from '../render/animations.js';
 import { showOnce, showTransmissionMessage, dismissTransmission } from '../ui/transmissions.js';
 import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
+import { patchSolPanel } from '../ui/panels.js';
+import { updateHeaderShips } from '../ui/ui.js';
 
 const SHIP_CRAFT_TIME_MS = {
   scout: 10000,
@@ -48,7 +50,6 @@ function completeCraftShip(recipeId) {
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
     }
   }, 3050);
-  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
 }
@@ -84,11 +85,13 @@ export function spawnShip(type = 'scout') {
     x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0,
   };
   state.ships.push(ship);
+  updateHeaderShips();
   addLog(`⚡ ${ship.name} is ready for deployment.`);
 }
 
 // ── Assign ──
 export function assignShip(ship, node) {
+  if ((ship.mineSpeed || 0) <= 0) { addLog(`⚠ ${ship.name} has no mining equipment.`); return; }
   if (node.minLevel > state.base.level) return;
   const alreadyAssigned = state.ships.some(s => s.id !== ship.id && s.targetNode === node.id);
   if (alreadyAssigned) {
@@ -283,11 +286,11 @@ window.confirmSellShip = function(shipId, sellVal) {
 window.sellShip = function(shipId, sellVal) {
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
   if (state.ships.length <= 1) { addLog('⚠ Cannot sell your last ship!'); return; }
-  state.coins += sellVal;
+  addCoins(sellVal);
   state.ships = state.ships.filter(s => s.id !== shipId);
+  updateHeaderShips();
   if (state.selectedShip === shipId) { state.selectedShip=null; state.pendingAssign=null; document.getElementById('main-canvas').style.cursor=''; removeReassignTooltip(); }
   addLog(`⊘ Sold ${ship.name} for ${fmt(sellVal)} coins`);
-  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
 };
 
@@ -302,7 +305,6 @@ window.craftShip = function(recipeId) {
   }
   dismissTransmission();
   spawnShip(recipeId);
-  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
   const shipStats  = SHIP_DEFS[recipeId] || SHIP_DEFS.scout;
@@ -338,7 +340,6 @@ window.startCraftShip = function(recipeId) {
   state.shipCraftTimers[recipeId] = { startedAt: now, endsAt: now + durationMs, durationMs };
   addLog(`🛠 Crafting started: ${recipe.name} (${Math.ceil(durationMs / 1000)}s)`);
   scheduleCraftCompletion(recipeId, now + durationMs);
-  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
 };
@@ -361,38 +362,78 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
   if (stat === 'capacity') {
     const allowed = Math.min(chunk, cap-ship.capacityLevel); if (allowed<=0) return;
     const cost = upgradeTotalCost(UPGRADE_CAP_COST, ship, 'capacity', allowed); if (state.coins < cost) return;
-    state.coins -= cost;
+    spendCoins(cost);
     const capStep = ship.type==='freighter'?10:ship.type==='hauler'?5:2;
     for (let i=0;i<allowed;i++) { ship.capacityLevel++; ship.capacity+=capStep; }
     addLog(`⬆ ${ship.name} cargo Lv${ship.capacityLevel} → ${ship.capacity}${ship.capacityLevel>=cap?' (MAX)':''}`);
   } else if (stat === 'flySpeed') {
     const allowed = Math.min(chunk, cap-ship.flySpeedLevel); if (allowed<=0) return;
     const cost = upgradeTotalCost(UPGRADE_FLY_COST, ship, 'flySpeed', allowed); if (state.coins < cost) return;
-    state.coins -= cost;
+    spendCoins(cost);
     for (let i=0;i<allowed;i++) { ship.flySpeedLevel++; ship.flySpeed=parseFloat((ship.flySpeed+0.2).toFixed(2)); }
     addLog(`⬆ ${ship.name} fly Lv${ship.flySpeedLevel} → ${ship.flySpeed.toFixed(2)}x${ship.flySpeedLevel>=cap?' (MAX)':''}`);
   } else if (stat === 'mineSpeed') {
     const allowed = Math.min(chunk, cap-ship.mineSpeedLevel); if (allowed<=0) return;
     const cost = upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', allowed); if (state.coins < cost) return;
-    state.coins -= cost;
+    spendCoins(cost);
     for (let i=0;i<allowed;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+0.2).toFixed(2)); }
     addLog(`⬆ ${ship.name} mine Lv${ship.mineSpeedLevel} → ${ship.mineSpeed.toFixed(2)}x${ship.mineSpeedLevel>=cap?' (MAX)':''}`);
   } else if (stat === 'mineTier') {
     const nextTier = ship.mineTier+1; if (nextTier>10) return;
     const cost = SHIP_TIER_COSTS[nextTier]; if (!cost||state.coins<cost) return;
-    state.coins -= cost; ship.mineTier=nextTier;
+    spendCoins(cost); ship.mineTier=nextTier;
     addLog(`⬆ ${ship.name} upgraded to ${MINE_TIERS[nextTier].label}!`);
   }
   state.upgradesTutActive = false;
   document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   dismissTransmission();
   checkTradeTutorial();
-  if (refresh.header) refresh.header();
+  patchSolPanel('power');
+  if (refresh.ui) refresh.ui();
+};
+
+window.upgradeShipAll = function(shipId, levels) {
+  const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
+  const cap = TIER_UPGRADE_CAP[ship.mineTier] || 10;
+  const canMine = (ship.mineSpeed || 0) > 0;
+
+  const capChk  = levels === 'max' ? cap - ship.capacityLevel  : Math.min(levels, cap - ship.capacityLevel);
+  const flyChk  = levels === 'max' ? cap - ship.flySpeedLevel  : Math.min(levels, cap - ship.flySpeedLevel);
+  const mineChk = canMine ? (levels === 'max' ? cap - ship.mineSpeedLevel : Math.min(levels, cap - ship.mineSpeedLevel)) : 0;
+
+  const capCost  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk)  : 0;
+  const flyCost  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk)  : 0;
+  const mineCost = mineChk > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', mineChk) : 0;
+  const total = capCost + flyCost + mineCost;
+
+  if (total <= 0 || state.coins < total) return;
+  spendCoins(total);
+
+  if (capChk > 0) {
+    const capStep = ship.type==='freighter'?10:ship.type==='hauler'?5:2;
+    for (let i=0;i<capChk;i++) { ship.capacityLevel++; ship.capacity+=capStep; }
+  }
+  if (flyChk > 0) {
+    for (let i=0;i<flyChk;i++) { ship.flySpeedLevel++; ship.flySpeed=parseFloat((ship.flySpeed+0.2).toFixed(2)); }
+  }
+  if (mineChk > 0) {
+    for (let i=0;i<mineChk;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+0.2).toFixed(2)); }
+  }
+
+  const label = levels === 'max' ? 'MAX' : `+${levels}`;
+  addLog(`⬆ ${ship.name} all stats ${label} — $${fmt(total)} spent`);
+  state.upgradesTutActive = false;
+  document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
+  dismissTransmission();
+  checkTradeTutorial();
+  patchSolPanel('power');
   if (refresh.ui) refresh.ui();
 };
 
 // ── Assign window helpers ──
 window.startAssign = function(shipId) {
+  const ship = state.ships.find(s => s.id === shipId);
+  if (!ship || (ship.mineSpeed || 0) <= 0) { addLog(`⚠ This ship has no mining equipment.`); return; }
   state.pendingAssign = shipId;
   document.getElementById('main-canvas').style.cursor = 'crosshair';
   if (refresh.ui) refresh.ui();
@@ -436,7 +477,6 @@ export function flushTickEvents(canvas) {
         }
       }
       if (refresh.resources) refresh.resources();
-      if (refresh.header) refresh.header();
     } else if (ev.type === 'idle') {
       if (state.selectedShip === ev.ship.id) {
         state.pendingAssign = ev.ship.id;

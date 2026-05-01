@@ -2,7 +2,7 @@
 // TURRET UI — modal, upgrade, place, move, scrap
 // ============================================================
 import { state } from '../state.js';
-import { addLog, fmt } from '../helpers.js';
+import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { canvasState } from '../render/canvasState.js';
 import { getCraft } from '../data/crafts.js';
@@ -70,7 +70,7 @@ export function renderTurretModal() {
         const reqEntries = Object.entries(upgCost.reqs);
         const pill  = (met, label) => '<span class="bp-craft-req '+(met?'met':'unmet')+'" style="font-size:12px;">'+label+'</span>';
         const cpill = (met, label) => '<span class="bp-craft-req" style="font-size:12px;border-color:'+(met?'#7a6010':'#802020')+';background:'+(met?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)')+';color:'+(met?'#ffe066':'#f88')+';">'+label+'</span>';
-        return cpill(c1, upgCost.coins+'¢') + reqEntries.map(([r, n]) => pill((state.resources[r]||0) >= n, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
+        return cpill(c1, '$'+upgCost.coins) + reqEntries.map(([r, n]) => pill((state.resources[r]||0) >= n, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
       })()}
     </div>
     <div style="font-size:11px;color:#4a6a4a;margin-bottom:8px;">Upgrade boosts: +500 HP · +20 Damage · +1 Range</div>
@@ -90,14 +90,14 @@ window.upgradeTurret = function(id) {
   };
   if (state.coins < cost.coins) return;
   for (const [r, n] of Object.entries(cost.reqs)) if ((state.resources[r] || 0) < n) return;
-  state.coins -= cost.coins;
+  spendCoins(cost.coins);
   for (const [r, n] of Object.entries(cost.reqs)) state.resources[r] -= n;
   turret.level++;
   turret.maxHealth += 500; turret.health = Math.min(turret.health + 500, turret.maxHealth);
   turret.damage += 20;
   turret.range = Math.min(turret.range + 1, 12);
   addLog(`🔫 Turret upgraded to Level ${turret.level}!`);
-  if (refresh.header) refresh.header();
+  if (window.patchSolPanel) window.patchSolPanel('power');
   if (refresh.ui) refresh.ui();
   renderTurretModal();
 };
@@ -114,7 +114,7 @@ window.confirmScrapTurret = function(id) {
     <div style="text-align:center;padding:12px 0;">
       <div style="font-size:14px;color:#cde;margin-bottom:8px;">⊘ Sell this turret?</div>
       <div style="font-size:12px;color:#8ab;margin-bottom:16px;">You will recover:<br>
-        <span style="color:#ffe066;font-weight:bold;">${fmt(refundCoins)}¢</span> +
+        <span style="color:#6fff9a;font-weight:bold;">$${fmt(refundCoins)}</span> +
         <span style="color:#4d8;">${refundIron} Iron</span> +
         <span style="color:#4d8;">${refundCopper} Copper</span>
       </div>
@@ -126,14 +126,13 @@ window.confirmScrapTurret = function(id) {
 };
 
 window.doScrapTurret = function(id, refundCoins, refundIron, refundCopper) {
-  state.coins += refundCoins;
+  addCoins(refundCoins);
   state.resources.iron   = (state.resources.iron   || 0) + refundIron;
   state.resources.copper = (state.resources.copper || 0) + refundCopper;
   state.turrets = state.turrets.filter(t => t.id !== id);
   document.getElementById('turret-modal-overlay').style.display = 'none';
   state.selectedTurret = null;
   addLog(`🔫 Turret sold — recovered ${fmt(refundCoins)}¢ + ${refundIron} Iron + ${refundCopper} Copper.`);
-  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
 };
 
@@ -152,14 +151,13 @@ window.startPlaceTurret = function() {
   if (!turretDef) return;
   if (state.coins < turretDef.cost) return;
   for (const [r, n] of Object.entries(turretDef.reqs)) if ((state.resources[r] || 0) < n) return;
-  state.coins -= turretDef.cost;
+  spendCoins(turretDef.cost);
   for (const [r, n] of Object.entries(turretDef.reqs)) state.resources[r] -= n;
   state.unplacedTurrets++;
   state.placingTurret = true;
   dismissBasePanel();
   addLog('🔫 Click a free tile on the map to place your turret. Press Esc to cancel.');
   document.getElementById('main-canvas').style.cursor = 'crosshair';
-  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
 };
 

@@ -5,26 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>STELLAR MINING CO.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Cinzel:wght@600&display=swap">
 <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
 
-<div id="header">
-  <button class="stat-chip hdr-btn" onclick="openHdrPanel('sol')"><span class="label">SOL</span><span class="value" id="hdr-sol">1</span></button>
-  <button class="stat-chip hdr-btn" onclick="openHdrPanel('market')"><span class="label">TRADE</span><span class="value" id="hdr-coins">0¢</span></button>
-  <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
-  <button class="stat-chip hdr-btn" onclick="openHdrPanel('fleet')"><span class="label">SHIPS</span><span class="value" id="hdr-ships">0/5</span></button>
-  <button class="stat-chip hdr-btn" onclick="openHdrPanel('stats')"><span class="label">STATS</span></button>
-  <button class="stat-chip hdr-btn" onclick="openHdrPanel('codex')"><span class="label">CODEX</span></button>
-  <div id="header-right">
-    <button class="btn-about" onclick="openAbout()">? ABOUT</button>
-    <button class="btn-about" onclick="openSettings()">⚙ SETTINGS</button>
-    <button class="btn-new-game" onclick="promptNewGame()">⟳ NEW GAME</button>
+<div id="top-bars">
+  <div class="sol-block">
+    <div class="sol-block-galaxy">ANDROMDA</div>
+    <div class="sol-block-system">KEPLER-7</div>
+    <div class="sol-block-time" id="hdr-sol">SOL 1 · 03:00</div>
   </div>
-</div>
 
-<div id="resource-bar"></div>
+  <div id="header">
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('sol')"><span class="label">OVERVIEW</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('command')"><span class="label">COMMAND</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('market')"><span class="label">TRADE</span><span class="value" id="hdr-coins">0¢</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('craft')"><span class="label">CRAFT</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('fleet')"><span class="label">SHIPS</span><span class="value" id="hdr-ships">0/5</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('stats')"><span class="label">STATS</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('codex')"><span class="label">CODEX</span></button>
+    <div id="header-right">
+      <button class="btn-about" onclick="openAbout()">? ABOUT</button>
+      <button class="btn-about" onclick="openSettings()">⚙ SETTINGS</button>
+      <button class="btn-new-game" onclick="promptNewGame()">⟳ NEW GAME</button>
+    </div>
+  </div>
+
+  <div id="resource-bar"></div>
+</div>
 
 <div id="game-area">
   <div id="canvas-wrap">
@@ -37,6 +47,7 @@
         <button class="zoom-btn" onclick="adjustZoom(-0.15)">−</button>
       </div>
       <div id="zoom-pct">200%</div>
+      <div id="fps-readout">FPS 60</div>
     </div>
     <div id="ship-upgrade-drawer">
       <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
@@ -99,8 +110,11 @@
       </div>
     </div>
     <div class="panel">
-      <div class="panel-title">◈ FLEET</div>
-      <div id="fleet-filters"></div>
+      <div class="panel-title" style="display:flex;align-items:center;">
+        <span style="flex:1;">◈ FLEET</span>
+        <button id="fleet-filter-toggle" onclick="toggleFleetFilters()" style="font-size:10px;padding:2px 7px;letter-spacing:1px;background:rgba(10,20,50,0.6);border:1px solid #2a4a7a;color:#4a8ab0;border-radius:3px;cursor:pointer;font-family:inherit;">FILTERS</button>
+      </div>
+      <div id="fleet-filters" style="display:none;"></div>
       <div id="ships-list"></div>
     </div>
     <div id="action-panel">
@@ -131,9 +145,8 @@
   </div>
 </div>
 
-<div id="about-overlay">
-  <div id="about-box">
-    <button class="about-close" onclick="closeAbout()">✕</button>
+<div id="about-overlay" onclick="closeAbout()">
+  <div id="about-box" onclick="event.stopPropagation()">
     <div class="about-content">
       <div class="about-star">★</div>
       <h2 class="about-title">STELLAR MINING CO.</h2>
@@ -164,6 +177,13 @@
       <div style="font-size:17px;color:#8ab;">Show Grid Coordinates</div>
       <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
         <input id="setting-grid-coords" type="checkbox" onchange="toggleGridCoords(this.checked)">
+        On
+      </label>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;">
+      <div style="font-size:17px;color:#8ab;">Show Background Stars</div>
+      <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
+        <input id="setting-bg-stars" type="checkbox" onchange="toggleBackgroundStars(this.checked)">
         On
       </label>
     </div>

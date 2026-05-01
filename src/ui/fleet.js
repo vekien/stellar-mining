@@ -14,8 +14,18 @@ import { TILE_H } from '../constants.js';
 import { fmt, addLog } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { getSellPrice } from '../systems/market.js';
-import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial } from './tutorial.js';
+import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial, renderTutPointers } from './tutorial.js';
 import { cancelTurretPlacement } from './turretUI.js';
+
+let _fleetFiltersVisible = false;
+
+window.toggleFleetFilters = function() {
+  _fleetFiltersVisible = !_fleetFiltersVisible;
+  const el = document.getElementById('fleet-filters');
+  const btn = document.getElementById('fleet-filter-toggle');
+  if (el) el.style.display = _fleetFiltersVisible ? '' : 'none';
+  if (btn) btn.style.color = _fleetFiltersVisible ? '#9bd6ff' : '#4a8ab0';
+};
 
 let _sellOverlayShipId = null;
 let _sellOverlayValue = 0;
@@ -72,6 +82,15 @@ export function renderFleetFilters() {
   );
   container.appendChild(makeRow('Type', typeSelect));
 
+  const roles = [...new Set(state.ships.map(s => SHIP_DEFS[s.type]?.role).filter(Boolean))];
+  const roleLabels = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', explorer: 'Explorer', unique: 'Unique' };
+  const roleSelect = makeSelect(
+    [{ value: '', label: 'All Roles' }, ...roles.map(r => ({ value: r, label: roleLabels[r] || r }))],
+    ff.role,
+    (v) => { ff.role = v || null; renderShipsList(); }
+  );
+  container.appendChild(makeRow('Role', roleSelect));
+
   const nodeSelect = makeSelect(
     [{ value: '', label: 'All Nodes' }, ...nodeTypes.map(nt => ({ value: nt, label: nt }))],
     ff.node,
@@ -86,6 +105,7 @@ export function renderFleetFilters() {
       { value: 'mine', label: 'Mining Speed' },
       { value: 'capacity', label: 'Cargo Size' },
       { value: 'level', label: 'Level' },
+      { value: 'node', label: 'Node Type' },
     ],
     ff.sort || 'none',
     (v) => {
@@ -131,9 +151,9 @@ export function renderFleetFilters() {
 
   const clr = document.createElement('button');
   clr.className = 'fleet-filter fleet-filter-clear';
-  clr.textContent = '✕ Clear Filters';
+  clr.textContent = 'Clear';
   clr.onclick = () => {
-    Object.assign(state.fleetFilter, { type:null, node:null, idleOnly:false, sort:null, sortDir:1 });
+    Object.assign(state.fleetFilter, { type:null, role:null, node:null, idleOnly:false, sort:null, sortDir:1 });
     renderShipsList();
   };
   clearRow.appendChild(idleToggle);
@@ -152,6 +172,9 @@ export function renderShipsList() {
     if (ff.type) {
       const typeName = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
       if (typeName !== ff.type) return false;
+    }
+    if (ff.role) {
+      if ((SHIP_DEFS[ship.type]?.role || '') !== ff.role) return false;
     }
     if (ff.node) {
       const node = ship.targetNode !== null ? state.nodes.find(n => n.id === ship.targetNode) : null;
@@ -173,6 +196,12 @@ export function renderShipsList() {
     ships = [...ships].sort((a, b) => (a.flySpeed - b.flySpeed) * ff.sortDir);
   } else if (ff.sort === 'mine') {
     ships = [...ships].sort((a, b) => (a.mineSpeed - b.mineSpeed) * ff.sortDir);
+  } else if (ff.sort === 'node') {
+    ships = [...ships].sort((a, b) => {
+      const la = a.targetNode !== null ? (RESOURCE_DEFS[state.nodes.find(n => n.id === a.targetNode)?.type]?.label ?? '') : '';
+      const lb = b.targetNode !== null ? (RESOURCE_DEFS[state.nodes.find(n => n.id === b.targetNode)?.type]?.label ?? '') : '';
+      return la.localeCompare(lb) * ff.sortDir;
+    });
   }
 
   if (ships.length === 0) {
@@ -193,7 +222,7 @@ export function renderShipsList() {
     const tierRarityColor = TIER_COLORS[safeTierNum] || '#e8eaf0';
     const overallLevel = (ship.capacityLevel || 0) + (ship.flySpeedLevel || 0) + (ship.mineSpeedLevel || 0);
     const typeLabel = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
-    const targetNode = ship.targetNode ? state.nodes.find(n => n.id === ship.targetNode) : null;
+    const targetNode = ship.targetNode !== null && ship.targetNode !== undefined ? state.nodes.find(n => n.id === ship.targetNode) : null;
     const resDef = targetNode ? RESOURCE_DEFS[targetNode.type] : null;
 
     // ROW 1: tier pill, name, type pill
@@ -201,7 +230,7 @@ export function renderShipsList() {
     row1.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:5px;';
 
     const tierPill = document.createElement('span');
-    tierPill.style.cssText = `font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:${tierRarityColor};background:rgba(0,0,0,0.35);border:1px solid ${tierRarityColor}55;border-radius:3px;padding:1px 5px;flex-shrink:0;`;
+    tierPill.style.cssText = `font-family:'Cinzel',serif;font-size:13px;font-weight:600;color:${tierRarityColor};background:rgba(0,0,0,0.35);border:1px solid ${tierRarityColor}55;border-radius:3px;padding:1px 5px;flex-shrink:0;`;
     tierPill.textContent = toRoman(safeTierNum);
 
     const nameSpan = document.createElement('span');
@@ -241,6 +270,12 @@ export function renderShipsList() {
       row2.appendChild(resLabel);
       row2.appendChild(cargoText);
     } else {
+      if ((ship.mineSpeed || 0) > 0) {
+        const unassignedLabel = document.createElement('span');
+        unassignedLabel.style.cssText = 'font-size:13px;color:#f55;font-weight:600;letter-spacing:0.5px;';
+        unassignedLabel.textContent = 'UNASSIGNED';
+        row2.appendChild(unassignedLabel);
+      }
       const cargoText = document.createElement('span');
       cargoText.id = `cargo-text-${ship.id}`;
       cargoText.style.cssText = 'font-size:14px;color:#8ab;margin-left:auto;';
@@ -349,6 +384,8 @@ export function renderActionPanel() {
     upgradeTitle.textContent = `◈ ${ship.name} UPGRADES`;
     upgradeContent.innerHTML = buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal });
     upgradeDrawer.classList.add('open');
+    requestAnimationFrame(() => renderTutPointers());
+    setTimeout(() => renderTutPointers(), 240);
   }
 }
 
@@ -359,10 +396,10 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
         <span class="ship-data-label">Status</span>
         <span class="ship-data-value" id="action-panel-status" style="color:${statusColor}">${statusMsg}</span>
       </div>
-      <div class="ship-data-row">
+      ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row">
         <span class="ship-data-label">Assigned Node</span>
-        <span class="ship-data-value">${nodeLabel}</span>
-      </div>
+        <span class="ship-data-value" style="${nodeLabel !== '—' ? '' : 'color:#f55;'}">${nodeLabel !== '—' ? nodeLabel : 'UNASSIGNED'}</span>
+      </div>` : ''}
       <div class="ship-data-row">
         <span class="ship-data-label">Cargo</span>
         <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
@@ -379,13 +416,16 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
         <span class="ship-data-label">Flying Speed</span>
         <span class="ship-data-value">${ship.flySpeed.toFixed(2)}x</span>
       </div>
-      <div class="ship-data-row">
+      ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row">
         <span class="ship-data-label">Mining Speed</span>
         <span class="ship-data-value">${ship.mineSpeed.toFixed(2)}x</span>
-      </div>
+      </div>` : ''}
     </div>`;
 
-  const actionsHtml = isIdle
+  const canMine = (ship.mineSpeed || 0) > 0;
+  const actionsHtml = !canMine
+    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⊘ No mining equipment — cannot be assigned to a node.</div>`
+    : isIdle
     ? `<div class="cmd-status-text" style="color:#ffe066;font-size:12px;margin:8px 0 6px;">⬡ Click a node on the map to assign.</div>
        <div style="font-size:11px;color:#456;margin-bottom:8px;">Dimmed nodes need a higher tier.<br>Press <span style="color:#8ab">Esc</span> to deselect.</div>`
     : `<div class="ship-action-row" style="margin-top:8px;">
@@ -460,7 +500,7 @@ function buildUpgradesSection(shipId) {
       + '<span style="color:#7aa7d8;font-size:13px;line-height:1;">➜</span>'
       + '<span style="font-size:14px;font-weight:bold;color:'+TIER_COLORS[nt]+'">'+MINE_TIERS[nt].label+'</span></div>'
       + (blockedByBase ? '<div style="font-size:13px;color:#fa8;margin-bottom:6px;">MAX BASE LV' + state.base.level + '</div>' : '')
-      + (blockedByBase ? '' : '<button class="btn '+(canAffordTier ? 'primary' : 'danger')+'" style="width:100%;font-size:13px;" onclick="upgradeShip('+s2.id+',\'mineTier\',1)" '+(canAffordTier ? '' : 'disabled')+'>⬆ UPGRADE T'+nt+' - $'+fmt(tCost)+'</button>')
+      + (blockedByBase ? '' : '<button class="btn '+(canAffordTier ? 'primary' : 'danger')+'" style="width:100%;font-size:13px;" onclick="upgradeShip('+s2.id+',\'mineTier\',1)" '+(canAffordTier ? '' : 'disabled')+'>⬆ UPGRADE T'+nt+' — <span style="color:#ffe066;">$'+fmt(tCost)+'</span></button>')
       + '</div>'
     : '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:6px;margin-bottom:6px;font-size:11px;color:#ffe066;">★ MAX TIER</div>';
 
@@ -468,14 +508,41 @@ function buildUpgradesSection(shipId) {
     '<div class="upgrade-row">'
     + '<span class="upgrade-label">'+label+'</span>'
     + '<span class="upgrade-val">Lv'+lv+' · '+val+'</span>'
-    + '<span class="upgrade-cost">'+(chunk > 0 ? fmt(cost)+'¢' : '—')+'</span>'
+    + '<span class="upgrade-cost" style="color:#ffe066;">'+(chunk > 0 ? '$'+fmt(cost) : '—')+'</span>'
     + '<button class="upgrade-btn" onclick="upgradeShip('+s2.id+',\''+stat+'\','+chunk+')" '+(chunk <= 0 || state.coins < cost ? 'disabled' : '')+'>'+(chunk <= 0 ? 'MAX' : chunk > 1 ? '×'+chunk : '↑')+'</button>'
+    + '</div>';
+
+  const canMine2 = (s2.mineSpeed || 0) > 0;
+
+  function allCost(levels) {
+    const c = levels === 'max' ? cap2 - s2.capacityLevel  : Math.min(levels, cap2 - s2.capacityLevel);
+    const f = levels === 'max' ? cap2 - s2.flySpeedLevel  : Math.min(levels, cap2 - s2.flySpeedLevel);
+    const m = canMine2 ? (levels === 'max' ? cap2 - s2.mineSpeedLevel : Math.min(levels, cap2 - s2.mineSpeedLevel)) : 0;
+    const cc = c > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  c) : 0;
+    const fc = f > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  f) : 0;
+    const mc = m > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', m) : 0;
+    return cc + fc + mc;
+  }
+
+  function allBtn(levels, label) {
+    const cost = allCost(levels);
+    const disabled = cost <= 0 || state.coins < cost;
+    return '<button class="btn" style="flex:1;font-size:11px;padding:3px 0;background:rgba(10,20,50,0.6);border-color:#2a4a7a;color:' + (disabled ? '#345' : '#9bd6ff') + ';" onclick="upgradeShipAll(' + s2.id + ',\'' + levels + '\')" ' + (disabled ? 'disabled' : '') + '>'
+      + label + (cost > 0 ? '<br><span style="font-size:10px;color:#ffe066;">$' + fmt(cost) + '</span>' : '')
+      + '</button>';
+  }
+
+  const allRow = '<div style="display:flex;gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid #1a3560;">'
+    + allBtn(5,   '+5 ALL')
+    + allBtn(10,  '+10 ALL')
+    + allBtn('max', 'MAX ALL')
     + '</div>';
 
   return tierBlock
     + row('Cargo Cap',  s2.capacityLevel,  s2.capacity,                capCost2,  capChk,  'capacity')
     + row('Fly Speed',  s2.flySpeedLevel,  s2.flySpeed.toFixed(2)+'x', flyCost2,  flyChk,  'flySpeed')
-    + row('Mine Speed', s2.mineSpeedLevel, s2.mineSpeed.toFixed(2)+'x', mineCost2, mineChk, 'mineSpeed');
+    + row('Mine Speed', s2.mineSpeedLevel, s2.mineSpeed.toFixed(2)+'x', mineCost2, mineChk, 'mineSpeed')
+    + allRow;
 }
 
 export function renderTab() {
@@ -503,14 +570,15 @@ export function renderTab() {
       const price   = getSellPrice(type);
       const boosted = state.marketBoost?.type === type;
       const priceHtml = boosted
-        ? `<span style="color:#ffe066;font-size:12px;flex-shrink:0">${price}¢✦</span>`
-        : `<span style="color:#5a8;font-size:12px;flex-shrink:0">${price}¢</span>`;
+        ? `<span style="color:#6fff9a;font-size:12px;flex-shrink:0">$${price} <span title="Market boosted this SOL — ${boostMult}× sell price!" style="cursor:help;">✦</span></span>`
+        : `<span style="color:#6fff9a;font-size:12px;flex-shrink:0">$${price}</span>`;
       html += `<div class="sell-row">
         <span style="width:9px;height:9px;border-radius:50%;background:${def.color};display:inline-block;flex-shrink:0"></span>
         ${priceHtml}
         <span class="res-name-s">${def.label}</span>
         <span class="res-qty">${fmt(amt)}</span>
         <button class="sell-btn-s" onclick="sellResource('${type}',${sellAmt})">SELL ${fmt(sellAmt)}</button>
+        <button class="sell-btn-s" onclick="sellResource('${type}',100)" ${amt < 100 ? 'disabled' : ''}>SELL 100</button>
         <button class="sell-btn-s" onclick="sellResource('${type}',${amt})">ALL</button>
       </div>`;
     }

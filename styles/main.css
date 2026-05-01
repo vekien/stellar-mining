@@ -19,7 +19,7 @@
       radial-gradient(120% 140% at 100% 0%, rgba(22,56,125,0.08) 0%, rgba(22,56,125,0) 42%),
       linear-gradient(180deg, #050a18 0%, #03060f 55%, #02040a 100%);
     border-bottom: 1px solid #1a3a6e;
-    padding: 10px;
+    padding: 10px 10px 10px 160px;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -55,6 +55,49 @@
     transition: background 0.15s, border-color 0.15s;
   }
   .hdr-btn:hover { background: rgba(40,80,160,0.7); border-color: #4af; }
+  #top-bars {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .sol-block {
+    position: absolute;
+    left: 0; top: 0; bottom: -8px;
+    width: 150px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: linear-gradient(160deg, #0a1e3a 0%, #060d1e 100%);
+    border-right: 1px solid #1a3a6e;
+    border-bottom: 1px solid #1a3a6e;
+    border-radius: 0 0 5px 0;
+    z-index: 430;
+    cursor: default;
+  }
+  .sol-block-galaxy {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #a060ff;
+    text-shadow: 0 0 10px rgba(160,96,255,0.6);
+  }
+  .sol-block-system {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #4af;
+    text-shadow: 0 0 10px rgba(68,170,255,0.7);
+  }
+  .sol-block-time {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    color: #ffe066;
+  }
 
   /* ── Header Panel Modal ── */
   #hdr-modal-overlay {
@@ -70,7 +113,7 @@
     background: linear-gradient(160deg,#0a1428 0%,#060c1a 100%);
     border: 1px solid #1a4080;
     border-radius: 6px;
-    width: 820px; max-height: 75vh;
+    width: 900px; max-height: 75vh;
     display: flex; flex-direction: column;
     box-shadow: 0 8px 40px rgba(0,0,0,0.8);
     pointer-events: all;
@@ -218,7 +261,7 @@
 
   #resource-bar {
     display: flex; align-items: center; gap: 5px;
-    padding: 5px 10px;
+    padding: 5px 10px 5px 160px;
     background: rgba(4,8,22,0.95);
     border-bottom: 1px solid #1a3a6e;
     flex-shrink: 0; flex-wrap: wrap; z-index: 9;
@@ -427,7 +470,7 @@
     background: rgba(20,50,100,0.6);
     border: 1px solid #2a5090;
     color: #8cf;
-    padding: 6px 12px;
+    padding: 8px 12px 6px 12px;
     border-radius: 3px;
     cursor: pointer;
     letter-spacing: 1px;
@@ -483,8 +526,8 @@
   .sell-btn-s {
     font-family: 'Share Tech Mono', monospace; font-size: 13px;
     background: rgba(10,60,30,0.6); border: 1px solid #2a6030;
-    color: #4fa; padding: 4px 9px; border-radius: 2px; cursor: pointer;
-    white-space: nowrap;
+    color: #4fa; padding: 4px 0; border-radius: 2px; cursor: pointer;
+    white-space: nowrap; width: 140px; text-align: center; flex-shrink: 0;
   }
   .sell-btn-s:hover { background: rgba(20,100,50,0.8); }
   .sell-btn-s:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -678,6 +721,19 @@
     color: #6f8fb0;
     pointer-events: none;
     font-family: 'Share Tech Mono', monospace;
+  }
+  #fps-readout {
+    min-width: 58px;
+    text-align: center;
+    background: rgba(5,10,25,0.75);
+    border: 1px solid #1a3a6e;
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12px;
+    color: #5f7fa1;
+    pointer-events: none;
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.4px;
   }
   .zoom-btn {
     width: 26px; height: 26px; background: rgba(10,25,60,0.85);
@@ -884,7 +940,7 @@
   }
   #base-panel-overlay.open { display: flex; pointer-events: none; }
   #base-panel {
-    width: 420px; max-height: 75vh;
+    width: 780px; max-height: 85vh;
     background: linear-gradient(160deg, rgba(4,10,30,0.97) 0%, rgba(6,16,48,0.97) 100%);
     border: 1px solid #2a5090;
     border-radius: 7px;
@@ -898,7 +954,7 @@
   }
   #base-panel.open { display: flex; }
   #bp-tabs {
-    display: flex; border-bottom: 1px solid #1a3a6e; flex-shrink: 0;
+    display: flex; flex-shrink: 0;
   }
   .bp-tab {
     flex: 1; padding: 8px 4px; text-align: center; font-size: 13px;
@@ -941,7 +997,7 @@
     line-height: 1.1;
   }
   #base-panel .bp-level {
-    font-size: 13px; color: #ffe066; font-family: 'Share Tech Mono', monospace;
+    font-size: 19px; color: #ffe066; font-family: 'Share Tech Mono', monospace;
     letter-spacing: 1.5px;
   }
   #base-panel .bp-divider {
@@ -1035,6 +1091,15 @@
     position: relative;
     z-index: 2;
   }
+  .bp-craft-btn.bp-craft-btn-crafting {
+    background: #3a3a44;
+    border-color: #5a5a68;
+    color: #fff;
+    opacity: 1;
+  }
+  .bp-craft-btn.bp-craft-btn-crafting .bp-craft-btn-fill {
+    background: linear-gradient(90deg, rgba(130,130,145,0.85), rgba(175,175,190,0.85));
+  }
   .bp-craft-btn.bp-craft-btn-ready {
     background: linear-gradient(180deg, rgba(95,78,12,0.92), rgba(70,55,8,0.92));
     border-color: #c9a43a;
@@ -1070,15 +1135,32 @@
     color: #fff;
     box-shadow: 0 0 40px rgba(255,50,50,0.6);
     animation: eventFlash 0.5s ease-in-out infinite alternate;
-    max-width: 480px;
+    max-width: 560px;
   }
   .event-warning-title {
     font-size: 18px; letter-spacing: 3px; font-weight: 700; color: #fff;
   }
   .event-warning-detail {
     font-size: 12px; letter-spacing: 1px; color: #ffaaaa; line-height: 1.6;
-    font-family: 'Share Tech Mono', monospace;
+    font-family: 'Share Tech Mono', monospace; width: 100%;
   }
+  .event-loss-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 0; border-bottom: 1px solid rgba(255,80,80,0.15);
+  }
+  .event-loss-row:last-child { border-bottom: none; }
+  .event-loss-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .event-loss-name { flex: 1; color: #cde; }
+  .event-loss-amt { font-weight: bold; font-size: 13px; }
+  .event-shield-row {
+    display: flex; align-items: center; gap: 8px; margin-top: 4px;
+    color: #40c0ff; font-size: 11px; letter-spacing: 1px;
+  }
+  .event-hp-bar-wrap {
+    width: 100%; height: 10px; background: rgba(255,255,255,0.1);
+    border-radius: 4px; overflow: hidden; margin: 4px 0;
+  }
+  .event-hp-bar { height: 100%; border-radius: 4px; transition: width 0.3s; }
   @keyframes eventFlash {
     from { box-shadow: 0 0 20px rgba(255,50,50,0.4); border-color: #f44; }
     to   { box-shadow: 0 0 50px rgba(255,80,80,0.9); border-color: #f88; }
@@ -1125,7 +1207,7 @@
   /* Admiral message panel */
   #admiral-panel {
     position: absolute;
-    top: 8px; left: 8px;
+    top: 14px; left: 8px;
     width: 310px;
     background: linear-gradient(135deg, rgba(4,10,30,0.98) 0%, rgba(6,18,50,0.98) 100%);
     border: 1px solid #2a5090;
@@ -1163,18 +1245,18 @@
   }
   #admiral-panel .adm-from {
     font-family: 'Orbitron', monospace;
-    font-size: 9px; letter-spacing: 2px; color: #4af; margin-bottom: 3px;
+    font-size: 10px; letter-spacing: 2px; color: #4af; margin-bottom: 3px;
   }
   #admiral-panel .adm-name {
     font-family: 'Orbitron', monospace;
-    font-size: 14px; font-weight: 700; color: #cde; letter-spacing: 1px;
+    font-size: 16px; font-weight: 700; color: #cde; letter-spacing: 1px;
   }
   #admiral-panel .adm-ship {
     font-size: 12px; color: #4a6a8a; margin-top: 1px;
   }
   #admiral-panel .adm-body {
     padding: 12px 14px 10px;
-    font-size: 14px; color: #8ab; line-height: 1.7;
+    font-size: 14px; color: #8ab; line-height: 1.4;
   }
   #admiral-panel .adm-body strong { color: #ffe066; }
   #admiral-panel .adm-progress-bar {
