@@ -4,7 +4,7 @@
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
 import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS } from './camera.js';
 import { BASE_RANGE } from '../data/nodes.js';
-import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
+import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
 import { hexToRgb } from '../helpers.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
@@ -17,6 +17,13 @@ import { drawTurrets, drawTurretPlacementHover, setTurretCtx } from './turrets.j
 
 let ctx = null;
 export let W = 0, H = 0;
+let gridCacheCanvas = null;
+let gridCacheCtx = null;
+let gridCacheSig = '';
+let lastRenderTs = 0;
+let fpsAvg = 60;
+let lastFpsSampleTs = 0;
+const RENDER_FRAME_MS = 1000 / 60;
 
 export function initRenderer(mainCtx, w, h) {
   ctx = mainCtx;
@@ -27,37 +34,68 @@ export function initRenderer(mainCtx, w, h) {
 
 export function resizeRenderer(w, h) { W = w; H = h; }
 
-export function drawTile(col, row, fill, stroke) {
+export function drawTile(targetCtx, col, row, fill, stroke) {
   const {x,y} = gridToIso(col, row);
-  ctx.beginPath();
-  ctx.moveTo(x,y); ctx.lineTo(x+TILE_W/2,y+TILE_H/2); ctx.lineTo(x,y+TILE_H); ctx.lineTo(x-TILE_W/2,y+TILE_H/2);
-  ctx.closePath();
-  ctx.fillStyle = fill; ctx.fill();
-  ctx.strokeStyle = stroke; ctx.lineWidth = 0.5; ctx.stroke();
+  targetCtx.beginPath();
+  targetCtx.moveTo(x,y); targetCtx.lineTo(x+TILE_W/2,y+TILE_H/2); targetCtx.lineTo(x,y+TILE_H); targetCtx.lineTo(x-TILE_W/2,y+TILE_H/2);
+  targetCtx.closePath();
+  targetCtx.fillStyle = fill; targetCtx.fill();
+  targetCtx.strokeStyle = stroke; targetCtx.lineWidth = 0.5; targetCtx.stroke();
 }
 
-export function drawGrid() {
+export function drawGrid(targetCtx = ctx) {
   const BASE_C = BASE_COL, BASE_R = BASE_ROW;
   const halfR = BASE_RANGE[(state.base.level-1)] || 6;
-  ctx.save();
-  ctx.font = '7px Share Tech Mono, monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  targetCtx.save();
+  targetCtx.font = '7px Share Tech Mono, monospace';
+  targetCtx.textAlign = 'center';
+  targetCtx.textBaseline = 'middle';
   for (let c = 0; c < GRID_COLS; c++) for (let r = 0; r < GRID_ROWS; r++) {
     const dist = Math.sqrt((c-BASE_C)*(c-BASE_C)+(r-BASE_R)*(r-BASE_R));
     const gridDist = Math.max(Math.abs(c-BASE_C), Math.abs(r-BASE_R));
     const inRange  = gridDist <= halfR;
     const a = Math.max(0, 0.15 - dist*0.006);
-    if (inRange) drawTile(c,r,`rgba(10,25,70,${a})`,`rgba(30,80,160,${a*1.5})`);
-    else         drawTile(c,r,`rgba(14,14,20,0.08)`,`rgba(50,50,68,0.1)`);
+    if (inRange) drawTile(targetCtx, c, r, `rgba(10,25,70,${a})`, `rgba(30,80,160,${a*1.5})`);
+    else         drawTile(targetCtx, c, r, `rgba(14,14,20,0.08)`, `rgba(50,50,68,0.1)`);
 
     if (inRange && state.settings?.showGridCoords) {
       const wp = gridToWorld(c, r);
-      ctx.fillStyle = 'rgba(235,245,255,0.2)';
-      ctx.fillText(`${c},${r}`, wp.x, wp.y + TILE_H / 2);
+      targetCtx.fillStyle = 'rgba(235,245,255,0.2)';
+      targetCtx.fillText(`${c},${r}`, wp.x, wp.y + TILE_H / 2);
     }
   }
-  ctx.restore();
+  targetCtx.restore();
+}
+
+function ensureGridCache(shiftX, shiftY) {
+  if (!gridCacheCanvas || gridCacheCanvas.width !== W || gridCacheCanvas.height !== H) {
+    gridCacheCanvas = document.createElement('canvas');
+    gridCacheCanvas.width = W;
+    gridCacheCanvas.height = H;
+    gridCacheCtx = gridCacheCanvas.getContext('2d');
+    gridCacheSig = '';
+  }
+
+  const sig = [
+    W, H,
+    state.base.level,
+    state.settings?.showGridCoords ? 1 : 0,
+    cam.x.toFixed(2),
+    cam.y.toFixed(2),
+    cam.zoom.toFixed(3),
+    shiftX.toFixed(2),
+    shiftY.toFixed(2),
+  ].join('|');
+
+  if (sig === gridCacheSig) return;
+  gridCacheSig = sig;
+
+  gridCacheCtx.clearRect(0, 0, W, H);
+  gridCacheCtx.save();
+  gridCacheCtx.translate(W / 2 - cam.x * cam.zoom + shiftX, H / 2 - cam.y * cam.zoom + shiftY);
+  gridCacheCtx.scale(cam.zoom, cam.zoom);
+  drawGrid(gridCacheCtx);
+  gridCacheCtx.restore();
 }
 
 export function drawRangeBorder() {
@@ -167,6 +205,9 @@ export function drawNode(node) {
   const {x,y} = gridToIso(col, row);
   const cx = x, cy = y+TILE_H/2;
   const def = RESOURCE_DEFS[node.type];
+  const nodeTier = getResourceTier(node.type) || 1;
+  const fleetTier = state.highestAvailableNodeTier || 1;
+  const lockedByFleetTier = nodeTier > fleetTier;
   if (node.minLevel > state.base.level) return;
   const BASE_C2 = BASE_COL, BASE_R2 = BASE_ROW;
   const halfR2 = BASE_RANGE[state.base.level-1] || 6;
@@ -192,11 +233,17 @@ export function drawNode(node) {
     }
   }
 
+  if (lockedByFleetTier && !state.pendingAssign) {
+    opacity *= 0.42;
+  }
+
   ctx.save();
   ctx.globalAlpha = opacity;
   ctx.beginPath(); ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy); ctx.closePath();
-  ctx.fillStyle = `rgba(${hexToRgb(def.color)},0.15)`; ctx.fill();
-  ctx.strokeStyle = def.color; ctx.lineWidth = isHighlighted ? 1.5 : 0.8; ctx.stroke();
+  const nodeStrokeColor = lockedByFleetTier ? '#5d6675' : def.color;
+  const nodeFill = lockedByFleetTier ? 'rgba(90,100,120,0.12)' : `rgba(${hexToRgb(def.color)},0.15)`;
+  ctx.fillStyle = nodeFill; ctx.fill();
+  ctx.strokeStyle = nodeStrokeColor; ctx.lineWidth = isHighlighted ? 1.5 : 0.8; ctx.stroke();
 
   if (isHighlighted) {
     const pulse = 0.5+0.5*Math.sin(Date.now()/300);
@@ -211,7 +258,8 @@ export function drawNode(node) {
     ctx.beginPath();
     ctx.moveTo(cx+ox,cy-hh); ctx.lineTo(cx+ox+ww,cy-hh/2); ctx.lineTo(cx+ox+ww/2,cy); ctx.lineTo(cx+ox-ww/2,cy); ctx.lineTo(cx+ox-ww,cy-hh/2); ctx.closePath();
     const alpha = 0.55+i*.1;
-    ctx.fillStyle = def.color+Math.floor(alpha*255).toString(16).padStart(2,'0'); ctx.fill();
+    const shardColor = lockedByFleetTier ? '#6a7488' : def.color+Math.floor(alpha*255).toString(16).padStart(2,'0');
+    ctx.fillStyle = shardColor; ctx.fill();
     ctx.strokeStyle = '#fff3'; ctx.lineWidth=0.5; ctx.stroke();
   }
   const nodeLabelY = cy + 5;
@@ -222,7 +270,7 @@ export function drawNode(node) {
   ctx.shadowBlur = 2;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 1;
-  ctx.fillStyle = def.color;
+  ctx.fillStyle = lockedByFleetTier ? '#7f8da3' : def.color;
   ctx.fillText(def.label.toUpperCase(), cx, nodeLabelY);
   ctx.restore();
 }
@@ -302,11 +350,15 @@ export function drawShipWorld(ship) {
       const dist = Math.sqrt(dx*dx+dy*dy);
       if (dist < 0.001) { ctx.restore(); return; }
       const nx = dx/dist, ny = dy/dist;
-      const wobble = Math.sin(Date.now()/120)*0.05;
+      const phase = (ship.id * 1.9) % (Math.PI * 2);
+      const freqA = 180 + (ship.id * 37) % 80;
+      const freqB = 65  + (ship.id * 23) % 40;
+      const wobble = Math.sin(Date.now()/freqA + phase)*0.16 + Math.sin(Date.now()/freqB + phase*1.7)*0.05;
       const cosW = Math.cos(wobble), sinW = Math.sin(wobble);
       const bx = nx*cosW-ny*sinW, by = nx*sinW+ny*cosW;
       const beamLen = dist * 0.86;
-      const beamPulse = 0.78 + 0.22 * Math.abs(Math.sin(Date.now()/140));
+      const freqP = 120 + (ship.id * 41) % 60;
+      const beamPulse = 0.78 + 0.22 * Math.abs(Math.sin(Date.now()/freqP + phase));
       const def = RESOURCE_DEFS[node.type];
 
       const startX = bx * (size * 0.7);
@@ -367,13 +419,24 @@ export function drawShipWorld(ship) {
 
 export function render(ts) {
   if (!ctx) return;
-  drawStars(ts);
+  if (ts - lastRenderTs < RENDER_FRAME_MS) {
+    requestAnimationFrame(render);
+    return;
+  }
+  lastRenderTs = ts;
+  const rawFps = lastFpsSampleTs > 0 ? 1000 / Math.max(1, ts - lastFpsSampleTs) : 60;
+  lastFpsSampleTs = ts;
+  fpsAvg = fpsAvg * 0.9 + rawFps * 0.1;
+
+  if (state.settings?.showBackgroundStars !== false) drawStars(ts);
   ctx.clearRect(0,0,W,H);
-  ctx.save();
   const shake = getShakeOffset();
+  ensureGridCache(shake.x, shake.y);
+  ctx.drawImage(gridCacheCanvas, 0, 0);
+
+  ctx.save();
   ctx.translate(W/2-cam.x*cam.zoom+shake.x, H/2-cam.y*cam.zoom+shake.y);
   ctx.scale(cam.zoom, cam.zoom);
-  drawGrid();
   drawRangeBorder();
   drawRangePulses();
   const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
@@ -390,11 +453,14 @@ export function render(ts) {
   ctx.restore();
   const zoomPct = document.getElementById('zoom-pct');
   if (zoomPct) zoomPct.textContent = `${Math.round(cam.zoom*100)}%`;
+  const fpsReadout = document.getElementById('fps-readout');
+  if (fpsReadout) fpsReadout.textContent = `FPS ${Math.round(fpsAvg)}`;
   // Update SOL clock every frame for smooth ticking
   const _dp = state.solTimer / SOL_DURATION;
   const _sh = Math.floor(_dp*24);
   const _sm = Math.floor((_dp*24*60)%60);
   const _solEl = document.getElementById('hdr-sol');
-  if (_solEl) _solEl.textContent = `${state.sol} · ${String(_sh).padStart(2,'0')}:${String(_sm).padStart(2,'0')}`;
+  const _solText = `SOL ${state.sol} · ${String(_sh).padStart(2,'0')}:${String(_sm).padStart(2,'0')}`;
+  if (_solEl && _solEl.textContent !== _solText) _solEl.textContent = _solText;
   requestAnimationFrame(render);
 }

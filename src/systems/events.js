@@ -32,11 +32,18 @@ export const RANDOM_EVENTS = [
       }
       const summary = Object.entries(losses).map(([t,n]) => `${fmt(n)} ${RESOURCE_DEFS[t].label}`).join(' · ');
       addLog(`☀ Solar Flare! Lost: ${summary || 'nothing'}`);
-      showEventWarning(
-        '☀ SOLAR FLARE',
-        summary ? `DEPOT LOSSES: ${summary.toUpperCase()} · OXYGEN STORAGE SHIELDED` : 'MINIMAL DAMAGE DETECTED',
-        10000
-      );
+      const lossRows = Object.entries(losses).map(([t, n]) => {
+        const def = RESOURCE_DEFS[t];
+        return `<div class="event-loss-row">
+          <span class="event-loss-dot" style="background:${def.color};box-shadow:0 0 6px ${def.color}99;"></span>
+          <span class="event-loss-name">${def.label}</span>
+          <span class="event-loss-amt" style="color:#ff8080;">−${fmt(n)}</span>
+        </div>`;
+      }).join('');
+      const flareDetail = lossRows
+        ? `<div style="margin-bottom:4px;font-size:10px;letter-spacing:2px;color:#f88;">DEPOT LOSSES</div>${lossRows}<div class="event-shield-row">✦ Oxygen — SHIELDED</div>`
+        : `<div style="color:#8f8;">MINIMAL DAMAGE DETECTED</div>`;
+      showEventWarning('☀ SOLAR FLARE', flareDetail, 10000);
       spawnSolarFlare();
       setTimeout(() => showOnce('vane_solar_explain', NPCS.vane.transmissionLines.vane_solar_explain, 14, 'vane'), 15000);
       if (refresh.ui) refresh.ui();
@@ -58,11 +65,21 @@ export const RANDOM_EVENTS = [
       const hpPct = Math.round(state.base.health / state.base.maxHealth * 100);
       const critical = hpPct < 30;
       addLog(`☄ Comet impact! Base took ${fmt(actual)} damage. HP: ${fmt(state.base.health)}/${fmt(state.base.maxHealth)}`);
-      showEventWarning(
-        '☄ COMET IMPACT',
-        `BASE DAMAGE: ${fmt(actual)} HP · INTEGRITY: ${hpPct}%${critical ? ' · ⚠ CRITICAL' : ''}`,
-        10000
-      );
+      const hpColor = hpPct < 30 ? '#ff4040' : hpPct < 60 ? '#ffa040' : '#40d080';
+      const cometDetail = `
+        <div class="event-loss-row" style="border-bottom:none;padding-bottom:2px;">
+          <span style="color:#f88;font-size:11px;letter-spacing:2px;">BASE DAMAGE</span>
+          <span class="event-loss-amt" style="color:#ff6060;font-size:16px;">−${fmt(actual)} HP</span>
+        </div>
+        <div class="event-hp-bar-wrap">
+          <div class="event-hp-bar" style="width:${hpPct}%;background:${hpColor};box-shadow:0 0 8px ${hpColor}99;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#aac;">
+          <span>INTEGRITY</span><span style="color:${hpColor};font-weight:bold;">${hpPct}%</span>
+        </div>
+        ${critical ? '<div style="margin-top:6px;color:#ff4040;font-size:12px;letter-spacing:2px;animation:eventFlash 0.4s infinite alternate;">⚠ CRITICAL — REPAIR IMMEDIATELY</div>' : ''}
+      `;
+      showEventWarning('☄ COMET IMPACT', cometDetail, 10000);
       setTimeout(() => showOnce('vane_comet_explain', NPCS.vane.transmissionLines.vane_comet_explain(hpPct), 15, 'vane'), 15000);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
       if (refresh.ui) refresh.ui();
@@ -70,16 +87,11 @@ export const RANDOM_EVENTS = [
   }
 ];
 
-export function tickRandomEvents(dt) {
-  if (state.nextEventTimer === null) return;
-  state.nextEventTimer -= dt;
-  if (state.nextEventTimer <= 0) {
-    state.nextEventTimer = null;
-    const ev = RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)];
-    if (ev.id === 'comet') spawnComet();
-    state.eventCounts[ev.id] = (state.eventCounts[ev.id] || 0) + 1;
-    setTimeout(() => ev.trigger(state.sol), ev.id === 'comet' ? 3000 : 1500);
-    if (refresh.header) refresh.header();
-    if (refresh.ui) refresh.ui();
-  }
+export function fireRandomEvent() {
+  const ev = RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)];
+  if (ev.id === 'comet') spawnComet();
+  state.eventCounts[ev.id] = (state.eventCounts[ev.id] || 0) + 1;
+  setTimeout(() => ev.trigger(state.sol), ev.id === 'comet' ? 3000 : 1500);
+  if (refresh.header) refresh.header();
+  if (refresh.ui) refresh.ui();
 }

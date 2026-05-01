@@ -3,25 +3,26 @@
 // ============================================================
 import { state, loadGame, saveGame } from './state.js';
 import { generateNodes } from './data/nodes.js';
-import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
+import { MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
 import { SOL_DURATION, BASE_COL, BASE_ROW } from './constants.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos } from './render/camera.js';
 import { initRenderer, resizeRenderer, render, W, H } from './render/renderer.js';
-import { initStars, resizeStars, buildStarData, tickShootingStars } from './render/stars.js';
+import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
 import {
   tickFloaties, tickSolarFlare, tickComet,
   tickScreenShake, tickRangePulses, tickNodeParticles,
 } from './render/animations.js';
-import { scheduleNextEvent, tickSOL } from './systems/sol.js';
+import { scheduleNextEvent, tickSOL, getAvailableMarketResourceTypes } from './systems/sol.js';
+import { fireRandomEvent } from './systems/events.js';
 import { tickAdmiral } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
 import './systems/research.js';
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
 import { renderBasePanel } from './ui/basePanel.js';
-import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen } from './ui/panels.js';
+import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen, patchStatsPanel } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
 import { initInput } from './input.js';
 
@@ -62,16 +63,24 @@ function initNodes() {
 // ── Boot sequence ─────────────────────────────────────────────
 resize();
 const loaded = loadGame();
+setStarsEnabled(state.settings?.showBackgroundStars !== false);
 initNodes();
 if (window.syncShipCraftTimers) window.syncShipCraftTimers();
 if (!loaded) spawnShip('scout');
 
-// Schedule first event if not already scheduled (loadGame may not if nextEventTimer was null)
-if (state.nextEventTimer === null) scheduleNextEvent();
+// Schedule first event if not already scheduled
+if (state.nextEventSol === null) scheduleNextEvent();
+
+// Show about window for first-time players
+if (!state.shownAboutWindow) {
+  state.shownAboutWindow = true;
+  saveGame();
+  document.getElementById('about-overlay').classList.add('show');
+}
 
 // Ensure a market boost exists from the very first SOL
 if (!state.marketBoost) {
-  const types = Object.keys(RESOURCE_DEFS);
+  const types = getAvailableMarketResourceTypes();
   const multiplier = Number((1.2 + Math.random() * 0.8).toFixed(2));
   state.marketBoost = { type: types[Math.floor(Math.random() * types.length)], multiplier };
 } else if (!state.marketBoost.multiplier) {
@@ -84,6 +93,7 @@ for (const s of state.ships) {
 }
 
 focusOnBase(2.0);
+updateHeader();
 
 // Re-dispatch ships that had a target node when the game was saved.
 // Stagger launch so they do not all fire at once on load.
@@ -114,8 +124,18 @@ for (const ship of state.ships) {
 if (state.ships.some(s => s.targetNode !== null)) {
   if (state.tutStep < 2) state.tutStep = 2;
 } else if (state.tutStep === 0) {
-  const banner = document.getElementById('tutorial-banner');
-  if (banner) banner.classList.add('show');
+  const aboutOverlay = document.getElementById('about-overlay');
+  const aboutIsOpen  = aboutOverlay?.classList.contains('show');
+  if (aboutIsOpen) {
+    // Defer mission briefing until about is closed
+    aboutOverlay.addEventListener('closeAbout', () => {
+      const banner = document.getElementById('tutorial-banner');
+      if (banner && state.tutStep === 0) banner.classList.add('show');
+    }, { once: true });
+  } else {
+    const banner = document.getElementById('tutorial-banner');
+    if (banner) banner.classList.add('show');
+  }
 }
 
 // ── Sidebar events ────────────────────────────────────────────
@@ -152,14 +172,24 @@ window.handleBasePanelOverlayClick = handleBasePanelOverlayClick;
 window.promptNewGame  = () => document.getElementById('modal-overlay').classList.add('show');
 window.closeModal     = () => document.getElementById('modal-overlay').classList.remove('show');
 window.confirmNewGame = () => { try { localStorage.removeItem('stellarMiningCo_v1'); } catch(e) {} location.reload(); };
-window.openAbout      = () => document.getElementById('about-overlay').classList.add('show');
-window.closeAbout     = () => document.getElementById('about-overlay').classList.remove('show');
+window.openAbout      = () => {
+  document.getElementById('about-overlay').classList.add('show');
+  renderTutPointers();
+};
+window.closeAbout     = () => {
+  const el = document.getElementById('about-overlay');
+  el.classList.remove('show');
+  el.dispatchEvent(new Event('closeAbout'));
+  renderTutPointers();
+};
 window.openLogHistory = openLogHistory;
 window.closeLogHistory = closeLogHistory;
 window.openSettings   = () => {
   const overlay = document.getElementById('settings-overlay');
-  const chk = document.getElementById('setting-grid-coords');
-  if (chk) chk.checked = !!state.settings?.showGridCoords;
+  const chkGrid = document.getElementById('setting-grid-coords');
+  const chkStars = document.getElementById('setting-bg-stars');
+  if (chkGrid) chkGrid.checked = !!state.settings?.showGridCoords;
+  if (chkStars) chkStars.checked = state.settings?.showBackgroundStars !== false;
   if (overlay) overlay.classList.add('show');
 };
 window.closeSettings  = () => {
@@ -170,6 +200,11 @@ window.toggleGridCoords = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showGridCoords = !!enabled;
 };
+window.toggleBackgroundStars = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showBackgroundStars = !!enabled;
+  setStarsEnabled(state.settings.showBackgroundStars);
+};
 window.switchTab      = function(tab) {
   dismissHdrModal();
   state.activeTab = tab;
@@ -179,8 +214,16 @@ window.switchTab      = function(tab) {
 
 // ── Game loop ─────────────────────────────────────────────────
 let lastTick = 0;
+let lastGameFrameTs = 0;
+const GAME_FRAME_MS = 1000 / 60;
 
 function gameLoop(ts) {
+  if (ts - lastGameFrameTs < GAME_FRAME_MS) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+  lastGameFrameTs = ts;
+
   const dt = Math.min((ts - lastTick) / 1000, 0.1);
   lastTick = ts;
   tickEvents.length = 0;
@@ -202,9 +245,10 @@ function gameLoop(ts) {
 
   for (const s of state.ships) tickShip(s, dt);
 
+  state.highestAvailableNodeTier = Math.max(1, ...state.ships.map(s => s.mineTier || 1));
+
   // Flush deposit events
   flushTickEvents(canvas);
-  if (tickEvents.length) updateHeader();
 
   requestAnimationFrame(gameLoop);
 }
@@ -213,8 +257,26 @@ function gameLoop(ts) {
 const _STATUS_LABELS = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING' };
 const _STATUS_MSGS   = { flying:'▶ En Route', mining:'⛏ Mining', returning:'↩ Returning', pausing:'↩ Returning', idle:'● Idle' };
 const _STATUS_COLORS = { flying:'#48f', mining:'#c6f', returning:'#fa6', pausing:'#fa6', idle:'#4d8' };
+let _lastPatchTs = 0;
+let _lastPatchSig = '';
+const PATCH_FRAME_MS = 1000 / 20;
 
 function patchShipCards() {
+  const now = performance.now();
+  if (now - _lastPatchTs < PATCH_FRAME_MS) {
+    requestAnimationFrame(patchShipCards);
+    return;
+  }
+  _lastPatchTs = now;
+
+  const sig = state.ships.map(s => `${s.id}:${s.status}:${s.cargo}/${s.capacity}`).join('|')
+    + `|sel:${state.selectedShip ?? '-'}|sol:${state.sol}|coins:${state.coins}`;
+  if (sig === _lastPatchSig) {
+    requestAnimationFrame(patchShipCards);
+    return;
+  }
+  _lastPatchSig = sig;
+
   for (const ship of state.ships) {
     // Cargo bar
     const fill = document.getElementById(`cargo-fill-${ship.id}`);
@@ -265,12 +327,8 @@ document.addEventListener('visibilitychange', () => {
       state.sol++;
       const rpCap = 2 + (state.base.level - 1);
       state.rp = Math.min(state.rp + 1, rpCap);
-      scheduleNextEvent();
-    }
-    if (state.nextEventTimer !== null) {
-      state.nextEventTimer -= elapsed;
-      if (state.nextEventTimer <= 0) {
-        state.nextEventTimer = null;
+      if (state.nextEventSol !== null && state.sol >= state.nextEventSol) {
+        fireRandomEvent();
         scheduleNextEvent();
       }
     }
@@ -280,10 +338,10 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// ── Slow interval — header numbers only (no DOM rebuild) ─────
+// ── Slow interval — refresh open header panel ─────────────────
 setInterval(() => {
-  if (refresh.header) refresh.header();
   refreshHdrPanelIfOpen();
+  patchStatsPanel();
 }, 800);
 
 // ── Autosave ─────────────────────────────────────────────────

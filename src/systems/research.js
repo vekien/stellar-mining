@@ -5,6 +5,7 @@ import { state } from '../state.js';
 import { RESEARCH_TREE } from '../data/research.js';
 import { addLog } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
+import { updateHeaderRP } from '../ui/ui.js';
 
 const HP_BOOST_MAX = 10;
 
@@ -16,6 +17,7 @@ window.purchaseResearch = function(unlockId) {
   if (def.id === 'hp_boost' && (state.hpBoostCount || 0) >= HP_BOOST_MAX) { addLog(`⚠ HP Boost is maxed (${HP_BOOST_MAX}/${HP_BOOST_MAX}).`); return; }
   if (state.rp < def.cost) { addLog('⚠ Not enough Research Points.'); return; }
   state.rp -= def.cost;
+  updateHeaderRP();
 
   const trackUnlock = (id, name, amount = 1) => {
     const existing = state.researchUnlocksList.find(r => r.id === id);
@@ -34,7 +36,6 @@ window.purchaseResearch = function(unlockId) {
     trackUnlock(def.id, def.name, 1);
     addLog(`🔬 Research unlocked: ${def.name}`);
   }
-  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   // Re-open research panel to reflect new state
   if (window.openHdrPanel) { window._hdrPanelOpen = null; window.openHdrPanel('research'); }

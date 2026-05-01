@@ -25,14 +25,21 @@ export const RESOURCE_DEFS = {
 };
 
 export const MINE_TIERS = {
-  1:  { label: 'Tier I',    resources: ['iron', 'copper'],       color: '#b87040' },
-  2:  { label: 'Tier II',   resources: ['oxygen', 'nickel'],     color: '#40a0e0' },
-  3:  { label: 'Tier III',  resources: ['silicon', 'cobalt'],    color: '#8080a0' },
-  4:  { label: 'Tier IV',   resources: ['titanium', 'aluminum'], color: '#a0b0c0' },
-  5:  { label: 'Tier V',    resources: ['gold', 'chromium'],     color: '#e0c030' },
-  6:  { label: 'Tier VI',   resources: ['silver', 'neon'],       color: '#c8ccd4' },
-  7:  { label: 'Tier VII',  resources: ['platinum', 'xenon'],    color: '#d8d8e8' },
-  8:  { label: 'Tier VIII', resources: ['iridium', 'palladium'], color: '#8ea0bc' },
-  9:  { label: 'Tier IX',   resources: ['uranium', 'osmium'],    color: '#78d94a' },
-  10: { label: 'Tier X',    resources: ['rhodium', 'hafnium'],   color: '#8bf05a' },
+  1:  { label: 'Tier I',    resources: ['iron', 'copper'],       color: '#808090' },
+  2:  { label: 'Tier II',   resources: ['oxygen', 'nickel'],     color: '#4acd7a' },
+  3:  { label: 'Tier III',  resources: ['silicon', 'cobalt'],    color: '#4a90e2' },
+  4:  { label: 'Tier IV',   resources: ['titanium', 'aluminum'], color: '#9b6dff' },
+  5:  { label: 'Tier V',    resources: ['gold', 'chromium'],     color: '#ffd700' },
+  6:  { label: 'Tier VI',   resources: ['silver', 'neon'],       color: '#ff8c40' },
+  7:  { label: 'Tier VII',  resources: ['platinum', 'xenon'],    color: '#ff60b0' },
+  8:  { label: 'Tier VIII', resources: ['iridium', 'palladium'], color: '#00e5ff' },
+  9:  { label: 'Tier IX',   resources: ['uranium', 'osmium'],    color: '#ff4040' },
+  10: { label: 'Tier X',    resources: ['rhodium', 'hafnium'],   color: '#ffffff' },
 };
+
+export function getResourceTier(resourceType) {
+  for (const [tier, def] of Object.entries(MINE_TIERS)) {
+    if (def.resources.includes(resourceType)) return Number(tier);
+  }
+  return null;
+}

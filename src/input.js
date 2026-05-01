@@ -2,7 +2,7 @@
 // INPUT — canvas click/hover/pan, keyboard, touch, wheel
 // ============================================================
 import { state } from './state.js';
-import { RESOURCE_DEFS, MINE_TIERS } from './data/resources.js';
+import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from './data/resources.js';
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, BASE_COL, BASE_ROW } from './constants.js';
 import { cam, gridToWorld, screenToWorld, focusOnBase, adjustZoom } from './render/camera.js';
 import { W, H } from './render/renderer.js';
@@ -153,8 +153,11 @@ export function initInput(canvas) {
       moveTooltip(e);
     } else if (hit && hit.minLevel <= state.base.level) {
       canvasState.baseHovered = false;
+      const nodeTier = getResourceTier(hit.type) || 1;
+      const unmineableByFleet = nodeTier > (state.highestAvailableNodeTier || 1);
       if (canvasState.lastHoveredNode !== hit.id) {
-        canvasState.lastHoveredNode = hit.id; showTooltip(e, hit.type);
+        canvasState.lastHoveredNode = hit.id;
+        showTooltip(e, hit.type, { unmineableByFleet });
       } else {
         moveTooltip(e);
       }

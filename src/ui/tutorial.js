@@ -9,6 +9,10 @@ import { TILE_H, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
 import { showOnce } from './transmissions.js';
 import { NPCS } from '../data/npcs.js';
 
+function isAboutOpen() {
+  return document.getElementById('about-overlay')?.classList.contains('show');
+}
+
 // ── Canvas world-position → screen-pixel helper ──────────────
 function canvasPos(worldX, worldY) {
   const canvas = document.getElementById('main-canvas');
@@ -55,6 +59,7 @@ const TUTORIAL_DEFS = [
 
   {
     id: 'tut-ptr-node',
+    hideWhenBasePanelOpen: true,
     condition: s => s.tutStep === 1
       && s.ships.length === 1
       && s.ships[0].status === 'idle'
@@ -107,6 +112,7 @@ const TUTORIAL_DEFS = [
 
   {
     id: 'tut-ptr-newship',
+    hideWhenBasePanelOpen: true,
     condition: s => s.tutStep === 8,
     text: 'SELECT SHIP → ASSIGN TO NODE',
     placement: 'below',
@@ -227,9 +233,11 @@ const TUTORIAL_DEFS = [
 // ── Render all active tutorial pointers ──────────────────────
 export function renderTutPointers() {
   document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
+  if (isAboutOpen()) return;
 
   for (const def of TUTORIAL_DEFS) {
     if (!def.condition(state)) continue;
+    if (def.hideWhenBasePanelOpen && state.basePanelOpen) continue;
 
     let x, y;
 

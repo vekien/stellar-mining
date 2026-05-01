@@ -6,23 +6,33 @@ import { state, saveGame } from '../state.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
 import { addLog } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
-import { tickRandomEvents } from './events.js';
+import { updateHeaderRP } from '../ui/ui.js';
+import { fireRandomEvent } from './events.js';
 import { showTransmissionMessage } from '../ui/transmissions.js';
 import { checkTradeTutorial } from '../ui/tutorial.js';
 import { NPCS } from '../data/npcs.js';
+import { patchSolPanel } from '../ui/panels.js';
 
 export function scheduleNextEvent() {
-  const minT = 180, maxT = 480; // 3-8 minutes into SOL
-  state.nextEventTimer = minT + Math.random() * (maxT - minT);
+  const solsFromNow = 2 + Math.floor(Math.random() * 4); // 2-5 sols
+  state.nextEventSol = state.sol + solsFromNow;
 }
 
 function randomDemandMultiplier() {
   return Number((1.2 + Math.random() * 0.8).toFixed(2));
 }
 
+export function getAvailableMarketResourceTypes() {
+  const unlocked = new Set(
+    state.nodes
+      .filter(n => n.minLevel <= state.base.level)
+      .map(n => n.type)
+  );
+  return unlocked.size ? Array.from(unlocked) : Object.keys(RESOURCE_DEFS);
+}
+
 export function tickSOL(dt) {
   if (!state.solStarted) return;
-  tickRandomEvents(dt);
   state.solTimer += dt;
   checkTradeTutorial();
   if (state.solTimer >= SOL_DURATION) {
@@ -31,16 +41,22 @@ export function tickSOL(dt) {
 
     // Earn 1 RP per SOL, capped
     const rpCap = 2 + (state.base.level - 1);
-    if (state.rp < rpCap) { state.rp++; addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
+    if (state.rp < rpCap) { state.rp++; updateHeaderRP(); addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
 
     // Random in-demand resource
-    const types = Object.keys(RESOURCE_DEFS);
+    const types = getAvailableMarketResourceTypes();
     const boosted = types[Math.floor(Math.random() * types.length)];
     const multiplier = randomDemandMultiplier();
     state.marketBoost = { type: boosted, multiplier };
     addLog(`📈 Market boost: ${RESOURCE_DEFS[boosted].label} selling for ${multiplier}× this SOL!`);
     addLog(`☀ SOL ${state.sol} begins.`);
-    scheduleNextEvent();
+    patchSolPanel('sol');
+
+    // Fire event if this is the scheduled sol
+    if (state.nextEventSol !== null && state.sol >= state.nextEventSol) {
+      fireRandomEvent();
+      scheduleNextEvent();
+    }
 
     // Rigs nags about idle ships — repeats every SOL
     const idleShips = state.ships.filter(s => s.status === 'idle' && s.targetNode === null);

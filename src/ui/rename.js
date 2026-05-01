@@ -57,6 +57,7 @@ export function closeRenameOverlay() {
 
 export function commitRename(newName) {
   const cleanName = (newName || '').trim();
+  const wasBase = state.renamingBase;
   if (state.renamingBase) {
     state.base.name = cleanName || state.base.name || 'Base Station';
   } else {
@@ -64,6 +65,10 @@ export function commitRename(newName) {
     if (ship) ship.name = cleanName || ship.name;
   }
   closeRenameOverlay();
+  if (wasBase) {
+    state.basePanelOpen = true;
+    renderBasePanel();
+  }
   if (refresh.ui) refresh.ui();
 }
 
