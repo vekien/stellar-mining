@@ -12,7 +12,7 @@ import {
   drawSolarFlare, drawComet, drawFloaties, drawRangePulses, drawNodeParticles,
   getShakeOffset, setAnimCtx,
 } from './animations.js';
-import { drawStars, tickShootingStars } from './stars.js';
+import { drawStars } from './stars.js';
 import { drawTurrets, drawTurretPlacementHover, setTurretCtx } from './turrets.js';
 
 let ctx = null;
@@ -214,13 +214,21 @@ export function drawNode(node) {
     ctx.fillStyle = def.color+Math.floor(alpha*255).toString(16).padStart(2,'0'); ctx.fill();
     ctx.strokeStyle = '#fff3'; ctx.lineWidth=0.5; ctx.stroke();
   }
-  ctx.fillStyle = def.color; ctx.font='9px Share Tech Mono,monospace'; ctx.textAlign='center';
-  ctx.fillText(def.label.toUpperCase(), cx, cy-34);
+  const nodeLabelY = cy + 5;
+  ctx.font = '8px Share Tech Mono,monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 2;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = def.color;
+  ctx.fillText(def.label.toUpperCase(), cx, nodeLabelY);
   ctx.restore();
 }
 
 export function drawShipWorld(ship) {
-  const size = ship.type==='freighter'?10:ship.type==='hauler'?8:7;
+  const size = ship.type==='freighter'?11:ship.type==='hauler'?9:8;
   const col  = ship.type==='freighter'?'#ffaa30':ship.type==='hauler'?'#80d0ff':ship.type==='swift'?'#ff80c0':'#60d090';
   const isSelected = state.selectedShip === ship.id;
 
@@ -292,25 +300,63 @@ export function drawShipWorld(ship) {
       const ncx = nw.x, ncy = nw.y+TILE_H/2;
       const dx = ncx-ship.x, dy = ncy-ship.y;
       const dist = Math.sqrt(dx*dx+dy*dy);
+      if (dist < 0.001) { ctx.restore(); return; }
       const nx = dx/dist, ny = dy/dist;
-      const wobble = Math.sin(Date.now()/80)*0.12;
+      const wobble = Math.sin(Date.now()/120)*0.05;
       const cosW = Math.cos(wobble), sinW = Math.sin(wobble);
       const bx = nx*cosW-ny*sinW, by = nx*sinW+ny*cosW;
-      const beamLen   = dist*0.80;
-      const beamPulse = 0.6+0.4*Math.abs(Math.sin(Date.now()/120));
+      const beamLen = dist * 0.86;
+      const beamPulse = 0.78 + 0.22 * Math.abs(Math.sin(Date.now()/140));
       const def = RESOURCE_DEFS[node.type];
-      const halo = ctx.createLinearGradient(0,0,bx*beamLen,by*beamLen);
-      halo.addColorStop(0,def.color+'aa'); halo.addColorStop(1,def.color+'00');
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bx*beamLen,by*beamLen);
-      ctx.strokeStyle = halo; ctx.lineWidth = 18*beamPulse; ctx.globalAlpha = 0.22; ctx.stroke();
-      const bg = ctx.createLinearGradient(0,0,bx*beamLen,by*beamLen);
-      bg.addColorStop(0,'#ffffff'); bg.addColorStop(0.3,def.color+'ee'); bg.addColorStop(1,def.color+'00');
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bx*beamLen,by*beamLen);
-      ctx.strokeStyle = bg; ctx.lineWidth = 8*beamPulse; ctx.globalAlpha = 0.65; ctx.stroke();
-      const ig = ctx.createLinearGradient(0,0,bx*beamLen*0.85,by*beamLen*0.85);
-      ig.addColorStop(0,'#ffffff'); ig.addColorStop(0.5,'#ffffffcc'); ig.addColorStop(1,'#ffffff00');
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(bx*beamLen*0.85,by*beamLen*0.85);
-      ctx.strokeStyle = ig; ctx.lineWidth = 3.5*beamPulse; ctx.globalAlpha = 0.95*beamPulse; ctx.stroke();
+
+      const startX = bx * (size * 0.7);
+      const startY = by * (size * 0.7);
+      const endX = bx * beamLen;
+      const endY = by * beamLen;
+
+      const outer = ctx.createLinearGradient(startX, startY, endX, endY);
+      outer.addColorStop(0, def.color + '44');
+      outer.addColorStop(0.55, def.color + '66');
+      outer.addColorStop(1, def.color + 'aa');
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.strokeStyle = outer;
+      ctx.lineWidth = 3.5 * beamPulse;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = 0.5;
+      ctx.stroke();
+
+      const core = ctx.createLinearGradient(startX, startY, endX, endY);
+      core.addColorStop(0, '#ffffff88');
+      core.addColorStop(0.4, '#ffffffcc');
+      core.addColorStop(1, '#ffffffee');
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.strokeStyle = core;
+      ctx.lineWidth = 1.4 * beamPulse;
+      ctx.globalAlpha = 0.95;
+      ctx.stroke();
+
+      const impactPulse = 0.65 + 0.35 * Math.abs(Math.sin(Date.now() / 110));
+      const impactRadius = 3.5 + impactPulse * 2.2;
+      const impactGlow = ctx.createRadialGradient(endX, endY, 0, endX, endY, impactRadius * 2.2);
+      impactGlow.addColorStop(0, '#ffffffcc');
+      impactGlow.addColorStop(0.4, def.color + 'bb');
+      impactGlow.addColorStop(1, def.color + '00');
+      ctx.fillStyle = impactGlow;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.arc(endX, endY, impactRadius * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = def.color + 'cc';
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath();
+      ctx.arc(endX, endY, impactRadius, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.globalAlpha = 1;
     }
     ctx.restore();
@@ -321,6 +367,7 @@ export function drawShipWorld(ship) {
 
 export function render(ts) {
   if (!ctx) return;
+  drawStars(ts);
   ctx.clearRect(0,0,W,H);
   ctx.save();
   const shake = getShakeOffset();

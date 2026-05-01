@@ -4,12 +4,17 @@
 import { SAVE_KEY } from './constants.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
 import { gridToWorld } from './render/camera.js';
+import { RESOURCE_DEFS } from './data/resources.js';
+
+function makeEmptyResources() {
+  return Object.fromEntries(Object.keys(RESOURCE_DEFS).map((k) => [k, 0]));
+}
 
 export let state = {
   // Economy
   coins: 200,
   trips: 0,
-  resources: { iron: 0, copper: 0, oxygen: 0, silicon: 0, titanium: 0, gold: 0 },
+  resources: makeEmptyResources(),
 
   // World + entities
   ships: [],
@@ -114,7 +119,7 @@ export function loadGame() {
     const d = JSON.parse(raw);
     state.coins = d.coins ?? 200;
     state.trips = d.trips ?? 0;
-    state.resources = { iron:0, copper:0, oxygen:0, silicon:0, titanium:0, gold:0, ...(d.resources||{}) };
+    state.resources = { ...makeEmptyResources(), ...(d.resources || {}) };
     state.worldSeed = Number.isFinite(d.worldSeed) ? d.worldSeed : null;
     state.base = { name:'Base Station', level:1, health:10000, maxHealth:10000, ...(d.base||{}) };
     state.sol  = d.sol ?? 1;

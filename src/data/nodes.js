@@ -5,12 +5,17 @@ export const BASE_UPGRADE_COSTS = [0, 10000, 14000, 19600, 27440, 38416, 53782, 
 export const BASE_MAX_SHIPS     = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 export const BASE_RANGE         = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]; // tiles each direction from base
 
-const NODE_BANDS = [
-  { minLevel: 1, minDist: 2,  maxDist: 5,  types: ['iron','iron','copper','copper','copper','oxygen','silicon','titanium','gold'] },
-  { minLevel: 2, minDist: 6,  maxDist: 10, types: ['iron','iron','copper','copper','oxygen','oxygen','silicon','silicon','titanium','gold'] },
-  { minLevel: 3, minDist: 11, maxDist: 15, types: ['iron','iron','copper','copper','oxygen','oxygen','silicon','silicon','titanium','titanium','gold','gold'] },
-  { minLevel: 4, minDist: 16, maxDist: 20, types: ['iron','iron','copper','copper','oxygen','oxygen','silicon','silicon','titanium','titanium','gold','gold'] },
-  { minLevel: 5, minDist: 21, maxDist: 25, types: ['iron','iron','copper','copper','oxygen','oxygen','silicon','silicon','titanium','titanium','gold','gold'] },
+export const NODE_BANDS = [
+  { minLevel: 1,  minDist: 2,  maxDist: 5,  types: ['iron','iron','iron','copper','copper','oxygen','nickel','silicon','cobalt'] },
+  { minLevel: 2,  minDist: 6,  maxDist: 10, types: ['iron','iron','copper','copper','oxygen','nickel','silicon','cobalt','titanium','aluminum'] },
+  { minLevel: 3,  minDist: 11, maxDist: 15, types: ['copper','copper','oxygen','nickel','silicon','cobalt','titanium','aluminum','gold','chromium'] },
+  { minLevel: 4,  minDist: 16, maxDist: 20, types: ['oxygen','nickel','silicon','cobalt','titanium','aluminum','gold','chromium','silver','neon'] },
+  { minLevel: 5,  minDist: 21, maxDist: 25, types: ['silicon','cobalt','titanium','aluminum','gold','chromium','silver','neon','platinum','xenon'] },
+  { minLevel: 6,  minDist: 26, maxDist: 30, types: ['titanium','aluminum','gold','chromium','silver','neon','platinum','xenon','iridium','palladium'] },
+  { minLevel: 7,  minDist: 31, maxDist: 35, types: ['gold','chromium','silver','neon','platinum','xenon','iridium','palladium','uranium','osmium'] },
+  { minLevel: 8,  minDist: 36, maxDist: 40, types: ['silver','neon','platinum','xenon','iridium','palladium','osmium','rhodium','hafnium'] },
+  { minLevel: 9,  minDist: 41, maxDist: 45, types: ['platinum','xenon','iridium','palladium','osmium','rhodium','hafnium','hafnium'] },
+  { minLevel: 10, minDist: 46, maxDist: 50, types: ['iridium','palladium','uranium','uranium','osmium','rhodium','hafnium'] },
 ];
 
 function mulberry32(seed) {
@@ -31,10 +36,19 @@ function shuffle(arr, rand) {
   return arr;
 }
 
+function isTooCloseToExisting(col, row, picked, minSeparation) {
+  for (const [pc, pr] of picked) {
+    const cheb = Math.max(Math.abs(col - pc), Math.abs(row - pr));
+    if (cheb < minSeparation) return true;
+  }
+  return false;
+}
+
 export function generateNodes(baseCol, baseRow, seed) {
   const rand = mulberry32(seed || 1);
   const all = [];
   let id = 0;
+  const minSeparation = 2;
 
   for (const band of NODE_BANDS) {
     const candidates = [];
@@ -47,7 +61,21 @@ export function generateNodes(baseCol, baseRow, seed) {
     }
 
     shuffle(candidates, rand);
-    const chosen = candidates.slice(0, band.types.length);
+    const chosen = [];
+    for (const [c, r] of candidates) {
+      if (chosen.length >= band.types.length) break;
+      if (isTooCloseToExisting(c, r, chosen, minSeparation)) continue;
+      chosen.push([c, r]);
+    }
+
+    if (chosen.length < band.types.length) {
+      for (const [c, r] of candidates) {
+        if (chosen.length >= band.types.length) break;
+        if (chosen.some(([pc, pr]) => pc === c && pr === r)) continue;
+        chosen.push([c, r]);
+      }
+    }
+
     const types = shuffle([...band.types], rand);
 
     for (let i = 0; i < chosen.length; i++) {

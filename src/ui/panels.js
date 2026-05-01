@@ -5,7 +5,7 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS } from '../data/ships.js';
-import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/nodes.js';
+import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS, NODE_BANDS } from '../data/nodes.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE } from '../data/research.js';
 import { fmt } from '../helpers.js';
@@ -19,6 +19,14 @@ let _codexTab = 'crew';
 let _fleetCompSig = '';
 let _fleetSortKey = 'name';
 let _fleetSortDir = 1;
+
+function getResourceAbundanceHint(resourceKey) {
+  const firstBand = NODE_BANDS.find((band) => band.types.includes(resourceKey));
+  if (!firstBand) return 'Unknown';
+  if (firstBand.minLevel <= 4) return 'Abundant';
+  if (firstBand.minLevel <= 8) return 'Uncommon';
+  return 'Rare';
+}
 
 // Expose for research.js (re-opens after purchase)
 window.openHdrPanel  = openHdrPanel;
@@ -500,14 +508,6 @@ export function openHdrPanel(type) {
       }
 
     } else if (_codexTab === 'resources') {
-      const resourceBlurbs = {
-        iron:     'The backbone of early fleet operations. Abundant in the inner belt and essential for ship construction and base repairs. Every commander starts here.',
-        copper:   'A conductive ore woven into ship wiring and onboard electronics. Demand never drops — every new hull needs copper in its bones.',
-        oxygen:   'Pressurised gas siphoned from asteroid ice pockets. Uniquely stable — electromagnetic surges cannot touch it. A lifeline resource.',
-        silicon:  'Crystalline compound mined from glassy asteroid formations. Powers advanced ship systems and is a key ingredient in research components.',
-        titanium: 'Dense, alloy-grade ore forged under extreme pressure. Required for mid-tier ship construction and base armour plating. Not found close to home.',
-        gold:     'Rare heavy metal concentrated in deep-belt asteroid cores. Commands the highest market price in the sector and gates the most advanced fleet construction.',
-      };
       const resourceTier = {};
       for (const [tier, def] of Object.entries(MINE_TIERS)) {
         for (const r of def.resources) {
@@ -516,6 +516,7 @@ export function openHdrPanel(type) {
       }
       tabContent = Object.entries(RESOURCE_DEFS).map(([key, def]) => {
         const tierInfo = resourceTier[key];
+        const abundanceHint = getResourceAbundanceHint(key);
         const boost = state.marketBoost && state.marketBoost.type === key;
         const mult = state.marketBoost?.multiplier ?? 1.5;
         const sellDisplay = boost ? `<span style="color:#ffe066;">${Math.round(def.sellPrice * mult)}¢ ★ BOOSTED</span>` : `${def.sellPrice}¢`;
@@ -525,11 +526,11 @@ export function openHdrPanel(type) {
             <div style="font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:#e8eef8;letter-spacing:1px;flex:1;">${def.label}</div>
             <span style="font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid ${tierInfo.color}44;background:${tierInfo.color}18;color:${tierInfo.color};font-family:'Orbitron',sans-serif;letter-spacing:1px;">${tierInfo.label}</span>
           </div>
-          <div style="font-size:14px;color:#6a8aaa;line-height:1.25;margin-bottom:10px;">${resourceBlurbs[key]}</div>
+          <div style="font-size:14px;color:#6a8aaa;line-height:1.25;margin-bottom:10px;">${def.blurb || 'Industrial resource used by frontier fleet operations.'}</div>
           <div style="display:flex;gap:16px;font-size:11px;border-top:1px solid #1a3a5a;padding-top:8px;">
             <div><span style="color:#3a6a9a;font-size:12px;letter-spacing:0.5px;">SELL PRICE</span><br><span style="color:#4d8;font-family:'Share Tech Mono',monospace;font-size:16px;">${sellDisplay}</span></div>
             <div><span style="color:#3a6a9a;font-size:12px;letter-spacing:0.5px;">MINE TIER</span><br><span style="color:#cde;font-family:'Share Tech Mono',monospace;font-size:16px;">${tierInfo.label}</span></div>
-            <div><span style="color:#3a6a9a;font-size:12px;letter-spacing:0.5px;">IMMUNE TO FLARE</span><br><span style="color:${key==='oxygen'?'#4af':'#f66'};font-family:'Share Tech Mono',monospace;font-size:16px;">${key === 'oxygen' ? 'YES' : 'NO'}</span></div>
+            <div><span style="color:#3a6a9a;font-size:12px;letter-spacing:0.5px;">FOUND IN BELT</span><br><span style="color:${abundanceHint === 'Abundant' ? '#78d69c' : abundanceHint === 'Uncommon' ? '#ffd36b' : '#ff8c8c'};font-family:'Share Tech Mono',monospace;font-size:16px;">${abundanceHint}</span></div>
           </div>
         </div>`;
       }).join('');
