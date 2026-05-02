@@ -1,6 +1,14 @@
 // ============================================================
 // RESEARCH TREE DATA
 // ============================================================
+
+// ── HP Boost ──────────────────────────────────────────────────
+export const HP_BOOST_HEALTH_PER_PURCHASE = 2500; // HP added per purchase
+export const HP_BOOST_MAX_PURCHASES       = 10;   // max times purchasable
+
+// ── Defense (Armor Plating) ───────────────────────────────────
+export const DEFENSE_DAMAGE_REDUCTION = 0.10; // 10 % incoming damage reduction
+
 export const RESEARCH_TREE = [
   {
     tier: 1, label: 'Base Level 1',

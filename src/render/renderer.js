@@ -3,7 +3,7 @@
 // ============================================================
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
 import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS } from './camera.js';
-import { BASE_RANGE } from '../data/nodes.js';
+import { BASE_RANGE } from '../data/base.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
 import { hexToRgb } from '../helpers.js';
 import { state } from '../state.js';
@@ -309,14 +309,17 @@ export function drawShipWorld(ship) {
   ctx.save();
   ctx.translate(ship.x, ship.y);
 
+  const isHovered = !isSelected && state.hoveredShip === ship.id;
+  if (isHovered) {
+    ctx.beginPath(); ctx.arc(0,0,size+7,0,Math.PI*2);
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8;
+    ctx.globalAlpha = 0.85; ctx.stroke(); ctx.globalAlpha = 1;
+  }
   if (isSelected) {
     const pulse = 0.5+0.5*Math.sin(Date.now()/350);
     ctx.beginPath(); ctx.arc(0,0,size+8+pulse*4,0,Math.PI*2);
     ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 1.5;
     ctx.globalAlpha = 0.3+pulse*0.45; ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.arc(0,0,size+3,0,Math.PI*2);
-    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 0.8;
-    ctx.globalAlpha = 0.5+pulse*0.3; ctx.stroke(); ctx.globalAlpha = 1;
   }
 
   ctx.rotate(ship.heading || 0);
@@ -335,10 +338,6 @@ export function drawShipWorld(ship) {
   }
 
   if (ship.status==='mining') {
-    if (isSelected) {
-      ctx.beginPath(); ctx.arc(0,0,size+4+Math.sin(Date.now()/200)*3,0,Math.PI*2);
-      ctx.strokeStyle = col+'80'; ctx.lineWidth = 1.5; ctx.stroke();
-    }
     ctx.restore();
     ctx.save();
     ctx.translate(ship.x, ship.y);
@@ -417,6 +416,32 @@ export function drawShipWorld(ship) {
   ctx.restore();
 }
 
+function drawSelectedShipLine() {
+  if (!state.selectedShip) return;
+  const ship = state.ships.find(s => s.id === state.selectedShip);
+  if (!ship || !ship.targetNode) return;
+  const node = state.nodes.find(n => n.id === ship.targetNode);
+  if (!node) return;
+  const nw = gridToWorld(node.gr[0], node.gr[1]);
+  const nx = nw.x, ny = nw.y + TILE_H / 2;
+  const def = RESOURCE_DEFS[node.type];
+  const pulse = 0.45 + 0.35 * Math.sin(Date.now() / 500);
+
+  ctx.save();
+  ctx.setLineDash([6, 8]);
+  ctx.lineDashOffset = -(Date.now() / 60) % 14;
+  ctx.strokeStyle = def.color;
+  ctx.globalAlpha = pulse;
+  ctx.lineWidth = 1.2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(ship.x, ship.y);
+  ctx.lineTo(nx, ny);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
 export function render(ts) {
   if (!ctx) return;
   if (ts - lastRenderTs < RENDER_FRAME_MS) {
@@ -427,6 +452,13 @@ export function render(ts) {
   const rawFps = lastFpsSampleTs > 0 ? 1000 / Math.max(1, ts - lastFpsSampleTs) : 60;
   lastFpsSampleTs = ts;
   fpsAvg = fpsAvg * 0.9 + rawFps * 0.1;
+
+  // Camera follow
+  if (state.followShip) {
+    const fs = state.ships.find(s => s.id === state.followShip);
+    if (fs) { cam.x = fs.x; cam.y = fs.y; }
+    else { state.followShip = null; }
+  }
 
   if (state.settings?.showBackgroundStars !== false) drawStars(ts);
   ctx.clearRect(0,0,W,H);
@@ -442,6 +474,7 @@ export function render(ts) {
   const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
   for (const n of sn) drawNode(n);
   drawBase(BASE_COL, BASE_ROW);
+  drawSelectedShipLine();
   const ss = [...state.ships].sort((a,b)=>a.y-b.y);
   for (const s of ss) drawShipWorld(s);
   drawTurrets();

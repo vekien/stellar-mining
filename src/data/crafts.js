@@ -79,20 +79,6 @@ export const CRAFTS = {
       reqs: { titanium: 300, aluminum: 200, chromium: 100, gold: 80, platinum: 40, silver: 30 },
     },
 
-    // ── Galaxy Probes ────────────────────────────────────────────
-    {
-      id: 'probe_mk1', name: 'Probe Mk.I', desc: 'Galactic scout, probes tier 1–2 systems',
-      reqs: { silicon: 80, cobalt: 60, iron: 100, copper: 80, oxygen: 40 },
-    },
-    {
-      id: 'probe_mk2', name: 'Probe Mk.II', desc: 'Enhanced probe, reaches tier 1–3 zones',
-      reqs: { iridium: 40, xenon: 30, platinum: 20, silicon: 60, titanium: 60 },
-    },
-    {
-      id: 'warp_vessel', name: 'Warp Vessel', desc: 'Deep-space warp drive, all probe tiers',
-      reqs: { iridium: 80, palladium: 40, osmium: 20, platinum: 40, xenon: 60, uranium: 5 },
-    },
-
   ],
 
   turrets: [

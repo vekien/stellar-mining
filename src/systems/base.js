@@ -2,7 +2,7 @@
 // BASE SYSTEM — repair, upgrade
 // ============================================================
 import { state } from '../state.js';
-import { BASE_UPGRADE_COSTS, BASE_RANGE, BASE_MAX_SHIPS } from '../data/nodes.js';
+import { BASE_UPGRADE_COSTS, BASE_RANGE, BASE_MAX_SHIPS } from '../data/base.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';

@@ -1,6 +1,8 @@
 // ============================================================
 // STARS & SHOOTING STARS
 // ============================================================
+import { TWINKLE_INTERVAL_MS } from '../constants.js';
+
 let starsCtx = null;
 let W = 0, H = 0;
 let staticStars = [];
@@ -9,9 +11,6 @@ let staticLayer = null;
 let staticLayerCtx = null;
 let lastStarsDrawTs = 0;
 let starsEnabled = true;
-
-const TWINKLE_FPS = 20;
-const TWINKLE_INTERVAL_MS = 1000 / TWINKLE_FPS;
 
 export function initStars(ctx, w, h) { starsCtx = ctx; W = w; H = h; }
 export function resizeStars(w, h) { W = w; H = h; buildStarData(); }

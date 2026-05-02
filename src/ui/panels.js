@@ -5,7 +5,8 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS, SHIP_TIER_COSTS, toRoman } from '../data/ships.js';
-import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS, NODE_BANDS } from '../data/nodes.js';
+import { NODE_BANDS } from '../data/nodes.js';
+import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE } from '../data/research.js';
 import { fmt } from '../helpers.js';
@@ -431,6 +432,7 @@ export function openHdrPanel(type) {
   }
   _hdrPanelOpen = type;
   overlay.classList.add('open');
+  document.getElementById('hdr-modal').style.width = type === 'fleet' ? '1100px' : '';
 
   if (type === 'research' && state.seenMsgs['dax_lv3_intro'] && state.seenMsgs['kai_lv3_intro']) {
     state.seenMsgs['lv3_research_pointer_done'] = true;
@@ -649,6 +651,8 @@ export function openHdrPanel(type) {
     const typeCounts = getFleetTypeCounts();
     const compositionHtml = buildFleetCompositionHtml(typeCounts, state.ships.length, maxShips);
     _fleetCompSig = JSON.stringify(typeCounts);
+    const fmtSell = v => v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(0)}K` : `$${v}`;
+    const noWrap  = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     const rows = getSortedFleetShips().map(s => {
       const typeName = getShipTypeName(s);
       const status = getShipStatusLabel(s);
@@ -657,29 +661,29 @@ export function openHdrPanel(type) {
       const sellVal = getShipSellValue(s);
       return `<tr data-ship-id="${s.id}">
         <td style="color:#ffe066;font-weight:bold;">${totalLevel}</td>
-        <td>${s.name}</td>
-        <td>${typeName}</td>
-        <td style="text-transform:capitalize;">${role}</td>
+        <td style="${noWrap}">${s.name}</td>
+        <td style="${noWrap}">${typeName}</td>
+        <td style="text-transform:capitalize;${noWrap}">${role}</td>
         <td data-cell="tier">${shipTierPill(s)}</td>
-        <td data-cell="node">${getShipNodeLabel(s)}</td>
-        <td data-cell="status">${status}</td>
-        <td data-cell="cargo" style="color:#ffe066;">${s.cargo}/${s.capacity}</td>
-        <td style="color:#6fff9a;">$${fmt(sellVal)}</td>
+        <td data-cell="node" style="${noWrap}">${getShipNodeLabel(s)}</td>
+        <td data-cell="status" style="${noWrap}">${status}</td>
+        <td data-cell="cargo" style="color:#ffe066;${noWrap}">${s.cargo}/${s.capacity}</td>
+        <td style="color:#6fff9a;${noWrap}">${fmtSell(sellVal)}</td>
       </tr>`;
     }).join('');
     body.innerHTML = `
       <div id="fleet-composition-wrap">${compositionHtml}</div>
       <table class="fleet-table" style="table-layout:fixed;width:100%;">
         <colgroup>
-          <col style="width:6%;">
-          <col style="width:16%;">
+          <col style="width:5%;">
+          <col style="width:17%;">
           <col style="width:14%;">
-          <col style="width:10%;">
-          <col style="width:8%;">
-          <col style="width:13%;">
-          <col style="width:13%;">
-          <col style="width:11%;">
           <col style="width:9%;">
+          <col style="width:7%;">
+          <col style="width:12%;">
+          <col style="width:12%;">
+          <col style="width:12%;">
+          <col style="width:12%;">
         </colgroup>
         <thead><tr>${fleetHeaderCell('LV', 'level')}${fleetHeaderCell('NAME', 'name')}${fleetHeaderCell('TYPE', 'type')}${fleetHeaderCell('ROLE', 'role')}${fleetHeaderCell('TIER', 'tier')}${fleetHeaderCell('NODE', 'node')}${fleetHeaderCell('STATUS', 'status')}${fleetHeaderCell('CARGO', 'cargo')}${fleetHeaderCell('SELL', 'sell')}</tr></thead>
         <tbody>${rows}</tbody>
@@ -789,11 +793,6 @@ export function openHdrPanel(type) {
           role: 'garrison',  label: '🛡  GARRISON',        color: '#ff8c40',
           cols: ['SHIP','TIER','HP','ATTACK','RANGE','ATK RATE'],
           row: (id, s) => [(s.hp||0).toLocaleString(), s.attack||0, `${s.range||0} tiles`, `${s.attackSpeed||0}x`],
-        },
-        {
-          role: 'explorer',  label: '🔭  GALAXY PROBES',  color: '#b060ff',
-          cols: ['SHIP','TIER','PROBE TIERS','FLY SPD','CARGO'],
-          row: (id, s) => [`T${s.probeTier?.[0]}–T${s.probeTier?.[1]}`, `${s.flySpeed.toFixed(2)}x`, s.capacity],
         },
         {
           role: 'unique',    label: '★  UNIQUE SHIPS',    color: '#ffffff',

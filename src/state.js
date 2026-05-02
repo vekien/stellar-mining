@@ -23,6 +23,8 @@ export let state = {
 
   // UI state
   selectedShip: null,
+  followShip: null,
+  hoveredShip: null,
   activeTab: 'log',
   log: [],
   logHistory: [],

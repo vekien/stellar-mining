@@ -5,10 +5,12 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFTS, CRAFT_SHIPS as CRAFT_RECIPES, getCraft } from '../data/crafts.js';
 import { SHIP_DEFS, toRoman } from '../data/ships.js';
-import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE } from '../data/nodes.js';
+import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE } from '../data/base.js';
 import { fmt, showHintTooltip, hideTooltip } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
 import { renderTutPointers } from './tutorial.js';
+import { TURRET_BASE_STATS } from '../data/turrets.js';
+import { HP_BOOST_HEALTH_PER_PURCHASE, DEFENSE_DAMAGE_REDUCTION } from '../data/research.js';
 
 setInterval(() => {
   if (!state.basePanelOpen || state.bpTab !== 'craft') return;
@@ -80,7 +82,7 @@ export function renderBasePanel() {
       installedUpgrades.push({
         icon: '🛡',
         name: 'Armor Plating',
-        detail: 'Base incoming damage reduced by 10%',
+        detail: `Base incoming damage reduced by ${Math.round(DEFENSE_DAMAGE_REDUCTION * 100)}%`,
         qty: null,
       });
     }
@@ -88,7 +90,7 @@ export function renderBasePanel() {
       installedUpgrades.push({
         icon: '💪',
         name: 'HP Boost',
-        detail: `+${fmt(hpBoostCount * 2500)} max base HP total`,
+        detail: `+${fmt(hpBoostCount * HP_BOOST_HEALTH_PER_PURCHASE)} max base HP total`,
         qty: hpBoostCount,
       });
     }
@@ -168,7 +170,6 @@ export function renderBasePanel() {
       transport: { label: '▲  CARGO TRANSPORT',     color: '#80d0ff', icon: '▲' },
       combat:    { label: '⚔  COMBAT SHIPS',        color: '#ff6060', icon: '▲' },
       garrison:  { label: '🛡  GARRISON',            color: '#ff8c40', icon: '▲' },
-      explorer:  { label: '🔭  GALAXY PROBES',      color: '#b060ff', icon: '▲' },
     };
 
     function roleColor(role) {
@@ -192,10 +193,6 @@ export function renderBasePanel() {
         <span style="color:#cde;"><span style="${ic}">▲</span> ${stats.capacity}u cargo</span>
         <span style="color:#cde;"><span style="${ic}">✈</span> ${stats.flySpeed}x speed</span>
       </div>`;
-      if (r === 'explorer') return `<div style="display:flex;gap:10px;font-size:14px;align-items:center;flex-wrap:wrap;">
-        <span style="color:#cde;"><span style="${ic}">🔭</span> Probe T${stats.probeTier?.[0]}–T${stats.probeTier?.[1]}</span>
-        <span style="color:#cde;"><span style="${ic}">✈</span> ${stats.flySpeed}x speed</span>
-      </div>`;
       return `<div style="display:flex;gap:14px;font-size:14px;align-items:center;flex-wrap:wrap;">
         <span onmousemove="showHintTooltip(event,'Cargo Capacity')" onmouseleave="hideTooltip()" style="color:#cde;cursor:help;"><span style="${ic}">▲</span> ${stats.capacity}u</span>
         <span onmousemove="showHintTooltip(event,'Fly Speed')" onmouseleave="hideTooltip()" style="color:#cde;cursor:help;"><span style="${ic}">✈</span> ${stats.flySpeed}x</span>
@@ -203,7 +200,7 @@ export function renderBasePanel() {
       </div>`;
     }
 
-    const roleOrder = ['mining', 'transport', 'combat', 'garrison', 'explorer'];
+    const roleOrder = ['mining', 'transport', 'combat', 'garrison'];
     let items = '';
 
     for (const role of roleOrder) {
@@ -291,7 +288,7 @@ export function renderBasePanel() {
           <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#ffe066;letter-spacing:1px;">ARMOR PLATING</div>
           <span style="margin-left:auto;font-size:12px;color:#4d8;background:rgba(20,60,30,0.4);border:1px solid #2a6040;border-radius:3px;padding:1px 6px;">ACTIVE</span>
         </div>
-        <div style="font-size:14px;color:#5a7a9a;">Incoming base damage reduced by <strong style="color:#cde;">10%</strong>.</div>
+        <div style="font-size:14px;color:#5a7a9a;">Incoming base damage reduced by <strong style="color:#cde;">${Math.round(DEFENSE_DAMAGE_REDUCTION * 100)}%</strong>.</div>
       </div>`;
     }
 
@@ -302,7 +299,7 @@ export function renderBasePanel() {
           <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">TURRET SYSTEMS</div>
           <span style="margin-left:auto;font-size:13px;color:#8ab;">${turretCount} built</span>
         </div>
-        <div style="font-size:14px;color:#5a7a9a;margin-bottom:8px;">Build turrets on free map tiles to defend your base. Each turret has 5,000 HP, 100 damage and 6-tile range.</div>
+        <div style="font-size:14px;color:#5a7a9a;margin-bottom:8px;">Build turrets on free map tiles to defend your base. Each turret has ${TURRET_BASE_STATS.health.toLocaleString()} HP, ${TURRET_BASE_STATS.damage} damage and ${TURRET_BASE_STATS.range}-tile range.</div>
         ${(() => {
           const turretCraft = getCraft('turrets', 'turret');
           const canCoins  = state.coins >= turretCraft.cost;

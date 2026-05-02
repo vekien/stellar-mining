@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
-import { BASE_MAX_SHIPS } from '../data/nodes.js';
+import { BASE_MAX_SHIPS } from '../data/base.js';
 import { SOL_DURATION } from '../constants.js';
 import { fmt, showTooltip, hideTooltip, setHeaderCoinCb } from '../helpers.js';
 import { refresh } from './refresh.js';

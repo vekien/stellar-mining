@@ -67,17 +67,19 @@
       <div id="base-panel"></div>
     </div>
     <div id="admiral-panel">
-      <button class="adm-close" onclick="dismissAdmiral()" title="Close">✕</button>
+      <div class="adm-from">◈ INCOMING TRANSMISSION</div>
+      <div class="adm-divider"></div>
       <div class="adm-header">
         <img class="adm-avatar" id="admiral-avatar" src="" alt="">
         <div>
-          <div class="adm-from">◈ INCOMING TRANSMISSION</div>
           <div class="adm-name" id="admiral-name"></div>
           <div class="adm-ship" id="admiral-ship"></div>
         </div>
       </div>
+      <div class="adm-divider" style="margin-bottom:10px;"></div>
       <div class="adm-body" id="admiral-body"></div>
       <div class="adm-progress-bar"><div class="adm-progress-fill" id="admiral-progress"></div></div>
+      <div style="padding:0 14px 10px;"><button class="adm-close-btn" onclick="dismissAdmiral()">Close</button></div>
     </div>
     <div id="tutorial-banner" onclick="dismissTutorial()">
       <div class="tut-card" onclick="event.stopPropagation()">
@@ -86,11 +88,11 @@
         <div class="tut-title">MISSION BRIEFING</div>
         <div class="tut-divider"></div>
         <div class="tut-body">
-          Pilot! Manage your ships to gain resources and build up your base.<br>
+          Commander! Manage your ships to gain resources and build up your base.<br>
           <span>Raiders could attack at any moment's notice</span> — so keep your defences ready and your fleet operational!
         </div>
         <div class="tut-divider"></div>
-        <div class="tut-hint">Good luck out there, commander.</div>
+        <div class="tut-hint">Good luck out there, Commander.</div>
       </div>
     </div>
     <div id="log" style="display:none" onclick="openLogHistory()" title="Open full log history">
@@ -215,6 +217,20 @@
       <button onclick="closeHdrPanel(null);_hdrPanelOpen=null;">✕</button>
     </div>
     <div id="hdr-modal-body"></div>
+  </div>
+</div>
+
+<div id="dev-panel">
+  DEVELOPER
+  <div id="dev-menu">
+    <button id="dev-btn-transmission">Test Transmission</button>
+    <button id="dev-btn-coins">Add $1,000</button>
+    <button id="dev-btn-rp">Add Research Point</button>
+    <button id="dev-btn-resources">Add 100 All Resources</button>
+    <button id="dev-btn-sol">Next Sol Day</button>
+    <button id="dev-btn-max-upgrades">Max All Ship Upgrades</button>
+    <button id="dev-btn-assign-random">Assign All Ships Random</button>
+    <button id="dev-btn-upgrade-base">Upgrade Base</button>
   </div>
 </div>
 

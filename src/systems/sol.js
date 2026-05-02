@@ -1,7 +1,8 @@
 // ============================================================
 // SOL TICK (day/night cycle + market rotation)
 // ============================================================
-import { SOL_DURATION } from '../constants.js';
+import { SOL_DURATION, MARKET_BOOST_MIN, MARKET_BOOST_MAX } from '../data/sol.js';
+import { EVENT_SCHEDULE_MIN_SOLS, EVENT_SCHEDULE_MAX_SOLS } from '../data/events.js';
 import { state, saveGame } from '../state.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
 import { addLog } from '../helpers.js';
@@ -14,12 +15,12 @@ import { NPCS } from '../data/npcs.js';
 import { patchSolPanel } from '../ui/panels.js';
 
 export function scheduleNextEvent() {
-  const solsFromNow = 2 + Math.floor(Math.random() * 4); // 2-5 sols
+  const solsFromNow = EVENT_SCHEDULE_MIN_SOLS + Math.floor(Math.random() * (EVENT_SCHEDULE_MAX_SOLS - EVENT_SCHEDULE_MIN_SOLS + 1));
   state.nextEventSol = state.sol + solsFromNow;
 }
 
 function randomDemandMultiplier() {
-  return Number((1.2 + Math.random() * 0.8).toFixed(2));
+  return Number((MARKET_BOOST_MIN + Math.random() * (MARKET_BOOST_MAX - MARKET_BOOST_MIN)).toFixed(2));
 }
 
 export function getAvailableMarketResourceTypes() {

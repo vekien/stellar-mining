@@ -9,7 +9,7 @@ import {
   UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
   upgradeChunk, upgradeTotalCost, toRoman,
 } from '../data/ships.js';
-import { BASE_POS } from '../render/camera.js';
+import { BASE_POS, cam, ZOOM_MAX_V } from '../render/camera.js';
 import { TILE_H } from '../constants.js';
 import { fmt, addLog } from '../helpers.js';
 import { refresh } from './refresh.js';
@@ -83,7 +83,7 @@ export function renderFleetFilters() {
   container.appendChild(makeRow('Type', typeSelect));
 
   const roles = [...new Set(state.ships.map(s => SHIP_DEFS[s.type]?.role).filter(Boolean))];
-  const roleLabels = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', explorer: 'Explorer', unique: 'Unique' };
+  const roleLabels = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', unique: 'Unique' };
   const roleSelect = makeSelect(
     [{ value: '', label: 'All Roles' }, ...roles.map(r => ({ value: r, label: roleLabels[r] || r }))],
     ff.role,
@@ -292,6 +292,9 @@ export function renderShipsList() {
 
     card.appendChild(row1); card.appendChild(row2); card.appendChild(bar);
 
+    card.addEventListener('mouseenter', () => { state.hoveredShip = ship.id; });
+    card.addEventListener('mouseleave', () => { if (state.hoveredShip === ship.id) state.hoveredShip = null; });
+
     card.addEventListener('click', () => {
       if (state.renamingShip) return;
       if (state.tutStep === 3 && !state.seenMsgs['tut_mining_done']) {
@@ -307,7 +310,7 @@ export function renderShipsList() {
         state.pendingAssign = null; canvas.style.cursor = '';
       }
       if (isSelected) {
-        state.selectedShip = null; state.pendingAssign = null;
+        state.selectedShip = null; state.pendingAssign = null; state.followShip = null;
         canvas.style.cursor = ''; removeReassignTooltip();
       } else {
         cancelTurretPlacement();
@@ -401,10 +404,6 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
         <span class="ship-data-value" style="${nodeLabel !== '—' ? '' : 'color:#f55;'}">${nodeLabel !== '—' ? nodeLabel : 'UNASSIGNED'}</span>
       </div>` : ''}
       <div class="ship-data-row">
-        <span class="ship-data-label">Cargo</span>
-        <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
-      </div>
-      <div class="ship-data-row">
         <span class="ship-data-label">Ship Type</span>
         <span class="ship-data-value" style="color:#5a8ab0">${typeLabel}</span>
       </div>
@@ -413,13 +412,26 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
         <span class="ship-data-value" style="color:${tierColor}">${tierDef.label}</span>
       </div>
       <div class="ship-data-row">
-        <span class="ship-data-label">Flying Speed</span>
-        <span class="ship-data-value">${ship.flySpeed.toFixed(2)}x</span>
+        <span class="ship-data-label">Range from Base</span>
+        <span class="ship-data-value" id="action-panel-dist" style="color:#8ab;">${(function(){ const bp=BASE_POS(); const d=Math.round(Math.hypot(ship.x-bp.x,ship.y-bp.y)/36); return d===0?'<span style="color:#6fff9a">At Base</span>':`${d} tiles`; })()}</span>
       </div>
-      ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row">
-        <span class="ship-data-label">Mining Speed</span>
-        <span class="ship-data-value">${ship.mineSpeed.toFixed(2)}x</span>
-      </div>` : ''}
+    </div>
+    <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
+      <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ STATS</div>
+      <div class="ship-data-section">
+        <div class="ship-data-row">
+          <span class="ship-data-label">Cargo</span>
+          <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
+        </div>
+        <div class="ship-data-row">
+          <span class="ship-data-label">Flying Speed</span>
+          <span class="ship-data-value">${ship.flySpeed.toFixed(2)}x</span>
+        </div>
+        ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row">
+          <span class="ship-data-label">Mining Speed</span>
+          <span class="ship-data-value">${ship.mineSpeed.toFixed(2)}x</span>
+        </div>` : ''}
+      </div>
     </div>`;
 
   const canMine = (ship.mineSpeed || 0) > 0;
@@ -430,6 +442,7 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
        <div style="font-size:11px;color:#456;margin-bottom:8px;">Dimmed nodes need a higher tier.<br>Press <span style="color:#8ab">Esc</span> to deselect.</div>`
     : `<div class="ship-action-row" style="margin-top:8px;">
          <button class="btn danger" style="flex:1;font-size:12px" onclick="recallShip(${ship.id})">⟵ RECALL</button>
+         <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
        </div>`;
 
   const bottomActions = `<div class="ship-action-row">
@@ -444,6 +457,16 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
     + actionsHtml
     + bottomActions;
 }
+
+window.toggleFollowShip = function(shipId) {
+  if (state.followShip === shipId) {
+    state.followShip = null;
+  } else {
+    state.followShip = shipId;
+    cam.zoom = Math.min(3.0, ZOOM_MAX_V);
+  }
+  if (refresh.ui) refresh.ui();
+};
 
 window.openSellOverlay = function(shipId, sellVal) {
   if (state.ships.length <= 1) return;
@@ -541,7 +564,7 @@ function buildUpgradesSection(shipId) {
   return tierBlock
     + row('Cargo Cap',  s2.capacityLevel,  s2.capacity,                capCost2,  capChk,  'capacity')
     + row('Fly Speed',  s2.flySpeedLevel,  s2.flySpeed.toFixed(2)+'x', flyCost2,  flyChk,  'flySpeed')
-    + row('Mine Speed', s2.mineSpeedLevel, s2.mineSpeed.toFixed(2)+'x', mineCost2, mineChk, 'mineSpeed')
+    + (canMine2 ? row('Mine Speed', s2.mineSpeedLevel, s2.mineSpeed.toFixed(2)+'x', mineCost2, mineChk, 'mineSpeed') : '')
     + allRow;
 }
 

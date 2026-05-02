@@ -6,8 +6,19 @@ import { RESOURCE_DEFS } from '../data/resources.js';
 import { addLog, fmt } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { spawnSolarFlare, spawnComet } from '../render/animations.js';
-import { showOnce } from '../ui/transmissions.js';
+import { queueTransmissions } from '../ui/transmissions.js';
 import { NPCS } from '../data/npcs.js';
+import {
+  SOLAR_FLARE_MIN_TYPES, SOLAR_FLARE_MAX_TYPES,
+  SOLAR_FLARE_LOSS_MIN, SOLAR_FLARE_LOSS_MAX,
+  SOLAR_FLARE_WARNING_DURATION_MS, SOLAR_FLARE_TRANSMISSION_DELAY_MS,
+  COMET_BASE_DMG_MIN, COMET_BASE_DMG_MAX,
+  COMET_SCALE_DMG_MIN, COMET_SCALE_DMG_MAX,
+  COMET_WARNING_DURATION_MS, COMET_TRANSMISSION_DELAY_MS,
+  EVENT_SCHEDULE_MIN_SOLS, EVENT_SCHEDULE_MAX_SOLS,
+  SOLAR_FLARE_TRIGGER_DELAY_MS, COMET_TRIGGER_DELAY_MS,
+} from '../data/events.js';
+import { DEFENSE_DAMAGE_REDUCTION } from '../data/research.js';
 
 export function showEventWarning(label, detail, duration = 6000) {
   const banner = document.getElementById('event-warning');
@@ -23,10 +34,15 @@ export const RANDOM_EVENTS = [
     id: 'solar_flare',
     label: '☀ SOLAR FLARE',
     trigger(sol) {
-      const affectedTypes = ['iron','copper','silicon','titanium','gold'];
+      // Dynamically pick 3–8 resource types the player currently has stock of
+      const available = Object.keys(state.resources).filter(t => (state.resources[t] || 0) > 0 && RESOURCE_DEFS[t]);
+      const count = Math.min(available.length, SOLAR_FLARE_MIN_TYPES + Math.floor(Math.random() * (SOLAR_FLARE_MAX_TYPES - SOLAR_FLARE_MIN_TYPES + 1)));
+      // Shuffle and slice to get the affected subset
+      const shuffled = available.slice().sort(() => Math.random() - 0.5);
+      const affectedTypes = shuffled.slice(0, count);
       const losses = {};
       for (const type of affectedTypes) {
-        const pct = (Math.random() * 0.10 + 0.10);
+        const pct = SOLAR_FLARE_LOSS_MIN + Math.random() * (SOLAR_FLARE_LOSS_MAX - SOLAR_FLARE_LOSS_MIN);
         const lost = Math.floor((state.resources[type]||0) * pct);
         if (lost > 0) { state.resources[type] -= lost; losses[type] = lost; }
       }
@@ -43,9 +59,9 @@ export const RANDOM_EVENTS = [
       const flareDetail = lossRows
         ? `<div style="margin-bottom:4px;font-size:10px;letter-spacing:2px;color:#f88;">DEPOT LOSSES</div>${lossRows}<div class="event-shield-row">✦ Oxygen — SHIELDED</div>`
         : `<div style="color:#8f8;">MINIMAL DAMAGE DETECTED</div>`;
-      showEventWarning('☀ SOLAR FLARE', flareDetail, 10000);
+      showEventWarning('☀ SOLAR FLARE', flareDetail, SOLAR_FLARE_WARNING_DURATION_MS);
       spawnSolarFlare();
-      setTimeout(() => showOnce('vane_solar_explain', NPCS.vane.transmissionLines.vane_solar_explain, 14, 'vane'), 15000);
+      queueTransmissions([{ key: 'vane_solar_explain', text: NPCS.vane.transmissionLines.vane_solar_explain, duration: 14, npc: 'vane', delay: SOLAR_FLARE_TRANSMISSION_DELAY_MS }]);
       if (refresh.ui) refresh.ui();
     }
   },
@@ -54,10 +70,10 @@ export const RANDOM_EVENTS = [
     label: '☄ COMET IMPACT',
     trigger(sol) {
       const scale = Math.min(sol / 10, 1);
-      const minDmg = Math.round(300 + scale * 2700);
-      const maxDmg = Math.round(600 + scale * 5400);
+      const minDmg = Math.round(COMET_BASE_DMG_MIN + scale * COMET_SCALE_DMG_MIN);
+      const maxDmg = Math.round(COMET_BASE_DMG_MAX + scale * COMET_SCALE_DMG_MAX);
       const dmg = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
-      const defenseReduction = state.researchUnlocks['defense'] ? 0.10 : 0;
+      const defenseReduction = state.researchUnlocks['defense'] ? DEFENSE_DAMAGE_REDUCTION : 0;
       const actualDmg = Math.round(dmg * (1 - defenseReduction));
       const oldHp = state.base.health;
       state.base.health = Math.max(0, state.base.health - actualDmg);
@@ -79,8 +95,8 @@ export const RANDOM_EVENTS = [
         </div>
         ${critical ? '<div style="margin-top:6px;color:#ff4040;font-size:12px;letter-spacing:2px;animation:eventFlash 0.4s infinite alternate;">⚠ CRITICAL — REPAIR IMMEDIATELY</div>' : ''}
       `;
-      showEventWarning('☄ COMET IMPACT', cometDetail, 10000);
-      setTimeout(() => showOnce('vane_comet_explain', NPCS.vane.transmissionLines.vane_comet_explain(hpPct), 15, 'vane'), 15000);
+      showEventWarning('☄ COMET IMPACT', cometDetail, COMET_WARNING_DURATION_MS);
+      queueTransmissions([{ key: 'vane_comet_explain', text: NPCS.vane.transmissionLines.vane_comet_explain(hpPct), duration: 15, npc: 'vane', delay: COMET_TRANSMISSION_DELAY_MS }]);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
       if (refresh.ui) refresh.ui();
     }
@@ -91,7 +107,8 @@ export function fireRandomEvent() {
   const ev = RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)];
   if (ev.id === 'comet') spawnComet();
   state.eventCounts[ev.id] = (state.eventCounts[ev.id] || 0) + 1;
-  setTimeout(() => ev.trigger(state.sol), ev.id === 'comet' ? 3000 : 1500);
+  const triggerDelay = ev.id === 'comet' ? COMET_TRIGGER_DELAY_MS : SOLAR_FLARE_TRIGGER_DELAY_MS;
+  setTimeout(() => ev.trigger(state.sol), triggerDelay);
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
 }

@@ -1,9 +1,9 @@
 // ============================================================
 // NODE & BASE DATA
 // ============================================================
-export const BASE_UPGRADE_COSTS = [0, 10000, 14000, 19600, 27440, 38416, 53782, 75295, 105413, 147578];
-export const BASE_MAX_SHIPS     = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
-export const BASE_RANGE         = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]; // tiles each direction from base
+// BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE have moved to data/base.js.
+// Re-exported here for backward compatibility.
+export { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE } from './base.js';
 
 export const NODE_BANDS = [
   { minLevel: 1,  minDist: 2,  maxDist: 5,  types: ['iron','iron','iron','copper','copper','oxygen','nickel','silicon','cobalt'] },

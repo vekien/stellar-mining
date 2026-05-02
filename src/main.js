@@ -5,9 +5,10 @@ import { state, loadGame, saveGame } from './state.js';
 import { generateNodes } from './data/nodes.js';
 import { MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
-import { SOL_DURATION, BASE_COL, BASE_ROW } from './constants.js';
+import { BASE_COL, BASE_ROW } from './constants.js';
+import { SOL_DURATION, MARKET_BOOST_MIN, MARKET_BOOST_MAX } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI } from './helpers.js';
-import { cam, focusOnBase, nodeWorldPos } from './render/camera.js';
+import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
 import { initRenderer, resizeRenderer, render, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
 import {
@@ -25,6 +26,7 @@ import { renderBasePanel } from './ui/basePanel.js';
 import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen, patchStatsPanel } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
 import { initInput } from './input.js';
+import { initDevPanel } from './ui/devPanel.js';
 
 // ── Canvas + contexts ─────────────────────────────────────────
 const canvas  = document.getElementById('main-canvas');
@@ -51,6 +53,7 @@ initRenderer(ctx, canvas.width, canvas.height);
 initStars(starsCtx, canvas.width, canvas.height);
 initRefresh();
 initInput(canvas);
+initDevPanel();
 
 // ── Node init ─────────────────────────────────────────────────
 function initNodes() {
@@ -81,7 +84,7 @@ if (!state.shownAboutWindow) {
 // Ensure a market boost exists from the very first SOL
 if (!state.marketBoost) {
   const types = getAvailableMarketResourceTypes();
-  const multiplier = Number((1.2 + Math.random() * 0.8).toFixed(2));
+  const multiplier = Number((MARKET_BOOST_MIN + Math.random() * (MARKET_BOOST_MAX - MARKET_BOOST_MIN)).toFixed(2));
   state.marketBoost = { type: types[Math.floor(Math.random() * types.length)], multiplier };
 } else if (!state.marketBoost.multiplier) {
   state.marketBoost.multiplier = 1.5;
@@ -213,19 +216,12 @@ window.switchTab      = function(tab) {
 };
 
 // ── Game loop ─────────────────────────────────────────────────
-let lastTick = 0;
-let lastGameFrameTs = 0;
-const GAME_FRAME_MS = 1000 / 60;
+let lastTick = performance.now();
 
-function gameLoop(ts) {
-  if (ts - lastGameFrameTs < GAME_FRAME_MS) {
-    requestAnimationFrame(gameLoop);
-    return;
-  }
-  lastGameFrameTs = ts;
-
-  const dt = Math.min((ts - lastTick) / 1000, 0.1);
-  lastTick = ts;
+function gameLoop() {
+  const now = performance.now();
+  const dt = Math.min((now - lastTick) / 1000, 0.1);
+  lastTick = now;
   tickEvents.length = 0;
 
   tickFloaties(dt);
@@ -249,8 +245,6 @@ function gameLoop(ts) {
 
   // Flush deposit events
   flushTickEvents(canvas);
-
-  requestAnimationFrame(gameLoop);
 }
 
 // ── Fast rAF patch loop — cargo bars + status badges ──────────
@@ -307,35 +301,20 @@ function patchShipCards() {
           statusEl.style.color = _STATUS_COLORS[ship.status] || '#4d8';
         }
       }
+      const distEl = document.getElementById('action-panel-dist');
+      if (distEl) {
+        const bp = BASE_POS();
+        const d = Math.round(Math.hypot(ship.x - bp.x, ship.y - bp.y) / 36);
+        distEl.innerHTML = d === 0 ? '<span style="color:#6fff9a">At Base</span>' : `${d} tiles`;
+      }
     }
   }
   requestAnimationFrame(patchShipCards);
 }
 
-// ── Tab visibility — catch up while tab was hidden ────────────
-let _hiddenAt = null;
+// ── Tab visibility — reset tick timer on return to avoid dt spike ──
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    _hiddenAt = Date.now();
-  } else if (_hiddenAt !== null) {
-    const elapsed = Math.min((Date.now() - _hiddenAt) / 1000, 3600);
-    _hiddenAt = null;
-    if (!state.solStarted) return;
-    state.solTimer += elapsed;
-    while (state.solTimer >= SOL_DURATION) {
-      state.solTimer -= SOL_DURATION;
-      state.sol++;
-      const rpCap = 2 + (state.base.level - 1);
-      state.rp = Math.min(state.rp + 1, rpCap);
-      if (state.nextEventSol !== null && state.sol >= state.nextEventSol) {
-        fireRandomEvent();
-        scheduleNextEvent();
-      }
-    }
-    lastTick = performance.now();
-    updateHeader();
-    if (refresh.ui) refresh.ui();
-  }
+  if (!document.hidden) lastTick = performance.now();
 });
 
 // ── Slow interval — refresh open header panel ─────────────────
@@ -351,5 +330,8 @@ setInterval(saveGame, 5000);
 renderUI();
 refreshLogUI();
 requestAnimationFrame(render);
-requestAnimationFrame(gameLoop);
+const _timerWorker = new Worker(
+  URL.createObjectURL(new Blob([`setInterval(() => postMessage(1), ${1000 / 60})`], { type: 'application/javascript' }))
+);
+_timerWorker.onmessage = gameLoop;
 requestAnimationFrame(patchShipCards);

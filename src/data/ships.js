@@ -2,6 +2,16 @@
 // SHIP & UPGRADE DATA
 // ============================================================
 
+// ── Craft times ───────────────────────────────────────────────
+export const DEFAULT_CRAFT_TIME_MS = 10000;
+
+export const SHIP_CRAFT_TIME_MS = {
+  scout:     10000,
+  swift:     10000,
+  hauler:    14000,
+  freighter: 18000,
+};
+
 // Base stats for each ship type (used at spawn + display)
 export const SHIP_DEFS = {
 
@@ -52,20 +62,6 @@ export const SHIP_DEFS = {
   colossus: {
     role: 'garrison', capacity: 0, flySpeed: 0.05, mineSpeed: 0, mineTier: 5, turnRadius: 5.0,
     hp: 50000, attack: 900, attackSpeed: 0.3, range: 14,
-  },
-
-  // ── Galaxy Probes ──────────────────────────────────────────────
-  probe_mk1: {
-    role: 'explorer', capacity: 5,  flySpeed: 1.6, mineSpeed: 0, mineTier: 8, turnRadius: 0.8,
-    probeTier: [1, 2],
-  },
-  probe_mk2: {
-    role: 'explorer', capacity: 5,  flySpeed: 1.9, mineSpeed: 0, mineTier: 8, turnRadius: 0.7,
-    probeTier: [1, 3],
-  },
-  warp_vessel: {
-    role: 'explorer', capacity: 10, flySpeed: 2.2, mineSpeed: 0, mineTier: 8, turnRadius: 1.0,
-    probeTier: [1, 4],
   },
 
   // ── Unique / Legendary ─────────────────────────────────────────

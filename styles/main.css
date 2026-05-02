@@ -1204,6 +1204,32 @@
     letter-spacing: 0.3px;
   }
 
+  /* Dev panel */
+  #dev-panel {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 9999;
+    font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 2px;
+    color: #3a5a3a; background: rgba(5,15,5,0.7); border: 1px solid #1a3a1a;
+    border-radius: 4px; padding: 5px 12px; cursor: pointer;
+    user-select: none; transition: color 0.15s, border-color 0.15s;
+  }
+  #dev-panel:hover { color: #6aaa6a; border-color: #2a6a2a; }
+  #dev-menu {
+    display: none; flex-direction: column; gap: 4px;
+    position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    background: rgba(5,15,5,0.95); border: 1px solid #2a5a2a;
+    border-radius: 6px; padding: 8px; min-width: 200px;
+  }
+  #dev-menu.open { display: flex; }
+  #dev-menu button {
+    background: rgba(10,30,10,0.8); border: 1px solid #1a4a1a;
+    color: #6aaa6a; font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; padding: 6px 10px; border-radius: 3px;
+    cursor: pointer; text-align: left; white-space: nowrap;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  #dev-menu button:hover { background: rgba(20,60,20,0.9); border-color: #4a8a4a; }
+
   /* Admiral message panel */
   #admiral-panel {
     position: absolute;
@@ -1231,28 +1257,32 @@
   #admiral-panel.pulsing {
     animation: admPulse 1s ease-out 3;
   }
-  #admiral-panel .adm-header {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 14px 10px;
-    border-bottom: 1px solid #1a3a6e;
-    background: rgba(10,25,60,0.6);
-  }
-  #admiral-panel .adm-avatar {
-    width: 52px; height: 52px; border-radius: 50%;
-    border: 2px solid #4af;
-    object-fit: cover; flex-shrink: 0;
-    box-shadow: 0 0 10px rgba(40,160,255,0.4);
-  }
   #admiral-panel .adm-from {
     font-family: 'Orbitron', monospace;
-    font-size: 10px; letter-spacing: 2px; color: #4af; margin-bottom: 3px;
+    font-size: 9px; letter-spacing: 2.5px; color: #3a8adf;
+    text-align: center; padding: 10px 14px 8px;
+  }
+  #admiral-panel .adm-divider {
+    height: 1px; margin: 0 0 12px;
+    background: linear-gradient(to right, transparent, #2a5090 30%, #2a5090 70%, transparent);
+  }
+  #admiral-panel .adm-header {
+    display: flex; flex-direction: row; align-items: center;
+    padding: 0 14px 12px; gap: 16px;
+  }
+  #admiral-panel .adm-avatar {
+    width: 64px; height: 64px; border-radius: 50%;
+    border: 2px solid #2a6aaa;
+    object-fit: cover; flex-shrink: 0;
+    box-shadow: 0 0 14px rgba(40,160,255,0.4);
   }
   #admiral-panel .adm-name {
     font-family: 'Orbitron', monospace;
-    font-size: 16px; font-weight: 700; color: #cde; letter-spacing: 1px;
+    font-size: 20px; font-weight: 700; color: #e8f0ff; letter-spacing: 0.5px;
+    line-height: 1.1;
   }
   #admiral-panel .adm-ship {
-    font-size: 12px; color: #4a6a8a; margin-top: 1px;
+    font-size: 15px; color: #4a7aaa; letter-spacing: 0.3px; margin-top: 6px;
   }
   #admiral-panel .adm-body {
     padding: 12px 14px 10px;
@@ -1264,14 +1294,14 @@
     margin: 0 14px 10px;
     border-radius: 2px; overflow: hidden;
   }
-  #admiral-panel .adm-close {
-    position: absolute; top: 7px; right: 8px;
-    background: none; border: none; color: #4a6a8a;
-    font-size: 12px; cursor: pointer; padding: 2px 5px;
-    line-height: 1; border-radius: 3px;
-    transition: color 0.15s;
+  #admiral-panel .adm-close-btn {
+    width: 100%; padding: 5px 0;
+    background: rgba(10,20,50,0.6); border: 1px solid #2a4a7a;
+    color: #4a8ab0; font-size: 12px; letter-spacing: 1px;
+    font-family: 'Orbitron', sans-serif; border-radius: 3px;
+    cursor: pointer; transition: color 0.15s, border-color 0.15s;
   }
-  #admiral-panel .adm-close:hover { color: #cde; }
+  #admiral-panel .adm-close-btn:hover { color: #cde; border-color: #4a8ab0; }
   #admiral-panel .adm-progress-fill {
     height: 100%; background: #ffe066;
     border-radius: 2px;

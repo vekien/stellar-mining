@@ -6,6 +6,11 @@ import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { canvasState } from '../render/canvasState.js';
 import { getCraft } from '../data/crafts.js';
+import {
+  TURRET_UPGRADE_DELTA, TURRET_MAX_RANGE,
+  TURRET_SCRAP_BASE_COINS, TURRET_SCRAP_COINS_PER_LEVEL,
+  TURRET_SCRAP_IRON, TURRET_SCRAP_COPPER,
+} from '../data/turrets.js';
 
 // dismissBasePanel is in panels.js — use window reference to avoid circular dep
 function dismissBasePanel() { if (window.dismissBasePanel) window.dismissBasePanel(); }
@@ -93,9 +98,10 @@ window.upgradeTurret = function(id) {
   spendCoins(cost.coins);
   for (const [r, n] of Object.entries(cost.reqs)) state.resources[r] -= n;
   turret.level++;
-  turret.maxHealth += 500; turret.health = Math.min(turret.health + 500, turret.maxHealth);
-  turret.damage += 20;
-  turret.range = Math.min(turret.range + 1, 12);
+  turret.maxHealth += TURRET_UPGRADE_DELTA.health;
+  turret.health = Math.min(turret.health + TURRET_UPGRADE_DELTA.health, turret.maxHealth);
+  turret.damage += TURRET_UPGRADE_DELTA.damage;
+  turret.range = Math.min(turret.range + TURRET_UPGRADE_DELTA.range, TURRET_MAX_RANGE);
   addLog(`🔫 Turret upgraded to Level ${turret.level}!`);
   if (window.patchSolPanel) window.patchSolPanel('power');
   if (refresh.ui) refresh.ui();
@@ -105,9 +111,9 @@ window.upgradeTurret = function(id) {
 window.confirmScrapTurret = function(id) {
   const turret = state.turrets.find(t => t.id === id);
   if (!turret) return;
-  let refundCoins = 500;
-  for (let l = 1; l < turret.level; l++) refundCoins += 200 * l;
-  const refundIron = 10, refundCopper = 5;
+  let refundCoins = TURRET_SCRAP_BASE_COINS;
+  for (let l = 1; l < turret.level; l++) refundCoins += TURRET_SCRAP_COINS_PER_LEVEL * l;
+  const refundIron = TURRET_SCRAP_IRON, refundCopper = TURRET_SCRAP_COPPER;
   const body = document.getElementById('turret-modal-body');
   if (!body) return;
   body.innerHTML = `

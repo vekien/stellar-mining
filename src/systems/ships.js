@@ -7,8 +7,9 @@ import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
          UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
-         upgradeTotalCost, upgradeChunk } from '../data/ships.js';
-import { BASE_MAX_SHIPS } from '../data/nodes.js';
+         upgradeTotalCost, upgradeChunk,
+         SHIP_CRAFT_TIME_MS, DEFAULT_CRAFT_TIME_MS } from '../data/ships.js';
+import { BASE_MAX_SHIPS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
@@ -19,17 +20,10 @@ import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 
-const SHIP_CRAFT_TIME_MS = {
-  scout: 10000,
-  swift: 10000,
-  hauler: 14000,
-  freighter: 18000,
-};
-
 const craftTimeouts = {};
 
 function getShipCraftTimeMs(recipeId) {
-  return SHIP_CRAFT_TIME_MS[recipeId] || 10000;
+  return SHIP_CRAFT_TIME_MS[recipeId] || DEFAULT_CRAFT_TIME_MS;
 }
 
 function completeCraftShip(recipeId) {
@@ -87,11 +81,21 @@ export function spawnShip(type = 'scout') {
   state.ships.push(ship);
   updateHeaderShips();
   addLog(`⚡ ${ship.name} is ready for deployment.`);
+
+  // Rigs upgrade tutorial — fires once when the player builds their first non-starter ship
+  if (state.ships.length === 2 && !state.seenMsgs['rigs_upgrades']) {
+    setTimeout(() => {
+      showOnce('rigs_upgrades', NPCS.rigs.transmissionLines.rigs_upgrades, 20, 'rigs');
+      state.upgradesTutActive = true;
+      if (refresh.ui) refresh.ui();
+    }, 2500);
+  }
 }
 
 // ── Assign ──
 export function assignShip(ship, node) {
   if ((ship.mineSpeed || 0) <= 0) { addLog(`⚠ ${ship.name} has no mining equipment.`); return; }
+  if (ship.targetNode === node.id) { state.selectedShip = null; state.pendingAssign = null; state.followShip = null; document.getElementById('main-canvas').style.cursor = ''; if (refresh.ui) refresh.ui(); return; }
   if (node.minLevel > state.base.level) return;
   const alreadyAssigned = state.ships.some(s => s.id !== ship.id && s.targetNode === node.id);
   if (alreadyAssigned) {
@@ -108,19 +112,7 @@ export function assignShip(ship, node) {
   if (state.tutStep < 2) state.tutStep = 2;
   state.redirectTutActive = false;
 
-  // Rigs upgrade tutorial — fires first time a non-starter ship is assigned
-  if (state.ships.length > 1 && !state.seenMsgs['rigs_upgrades']) {
-    const alreadyUpgraded = state.ships.some(
-      s => s.capacityLevel > 0 || s.flySpeedLevel > 0 || s.mineSpeedLevel > 0 || s.mineTier > 1
-    );
-    setTimeout(() => {
-      showOnce('rigs_upgrades', NPCS.rigs.transmissionLines.rigs_upgrades, 20, 'rigs');
-      if (!alreadyUpgraded) {
-        state.upgradesTutActive = true;
-        if (refresh.ui) refresh.ui();
-      }
-    }, 1200);
-  }
+
   document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   removeReassignTooltip();
   ship.targetNode = node.id;
@@ -145,7 +137,7 @@ export function tickShip(ship, dt) {
 
     const dx = ship.destX-ship.x, dy = ship.destY-ship.y;
     const dist = Math.sqrt(dx*dx+dy*dy);
-    if (dist < 3) {
+    if (dist < 6) {
       ship.x = ship.destX; ship.y = ship.destY;
       if (ship.status==='flying') {
         ship.status='mining'; ship.mineTimer=0;
@@ -169,9 +161,9 @@ export function tickShip(ship, dt) {
     } else {
       // Turn rate from ship def — dynamically tighten turning when close to destination.
       const baseTurnRadius = SHIP_DEFS[ship.type]?.turnRadius ?? 1.0;
-      const CLOSE_TURN_DIST = 140;
+      const CLOSE_TURN_DIST = 200;
       const closeRatio = Math.max(0, Math.min(1, dist / CLOSE_TURN_DIST));
-      const dynamicTurnRadius = baseTurnRadius * (0.35 + 0.65 * closeRatio);
+      const dynamicTurnRadius = baseTurnRadius * (0.12 + 0.88 * closeRatio);
       const TURN_RATE = (Math.PI * 2) / dynamicTurnRadius;
       const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
       let da = targetAngle - ship.heading;
@@ -204,8 +196,12 @@ export function tickShip(ship, dt) {
       const turnSlowdown = 0.35 + 0.65 * Math.max(0, Math.cos(absDaBeforeTurn));
       const moveAngle = ship.heading - Math.PI / 2;
       const step = Math.min(FLY_SPEED * easedFactor * turnSlowdown * dt, dist);
-      ship.x += Math.cos(moveAngle) * step;
-      ship.y += Math.sin(moveAngle) * step;
+      // When very close, blend movement toward direct-to-target to prevent circling.
+      const directBlend = Math.max(0, 1 - dist / 60);
+      const hx = Math.cos(moveAngle), hy = Math.sin(moveAngle);
+      const tx = dx / dist,           ty = dy / dist;
+      ship.x += (hx * (1 - directBlend) + tx * directBlend) * step;
+      ship.y += (hy * (1 - directBlend) + ty * directBlend) * step;
     }
   } else {
     // Not flying — drain trail one point per frame so it fades out naturally
@@ -252,7 +248,7 @@ export function tickShip(ship, dt) {
 window.recallShip = function(shipId) {
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
   if (state.pendingAssign === shipId) { state.pendingAssign=null; document.getElementById('main-canvas').style.cursor=''; }
-  if (state.selectedShip === shipId) { state.selectedShip=null; removeReassignTooltip(); }
+  if (state.selectedShip === shipId) { state.selectedShip=null; state.followShip=null; removeReassignTooltip(); }
   ship.targetNode = null;
   if (ship.status==='returning') {
     addLog(`⟵ ${ship.name} recalled`);
@@ -289,7 +285,7 @@ window.sellShip = function(shipId, sellVal) {
   addCoins(sellVal);
   state.ships = state.ships.filter(s => s.id !== shipId);
   updateHeaderShips();
-  if (state.selectedShip === shipId) { state.selectedShip=null; state.pendingAssign=null; document.getElementById('main-canvas').style.cursor=''; removeReassignTooltip(); }
+  if (state.selectedShip === shipId) { state.selectedShip=null; state.pendingAssign=null; state.followShip=null; document.getElementById('main-canvas').style.cursor=''; removeReassignTooltip(); }
   addLog(`⊘ Sold ${ship.name} for ${fmt(sellVal)} coins`);
   if (refresh.ui) refresh.ui();
 };
@@ -373,6 +369,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     for (let i=0;i<allowed;i++) { ship.flySpeedLevel++; ship.flySpeed=parseFloat((ship.flySpeed+0.2).toFixed(2)); }
     addLog(`⬆ ${ship.name} fly Lv${ship.flySpeedLevel} → ${ship.flySpeed.toFixed(2)}x${ship.flySpeedLevel>=cap?' (MAX)':''}`);
   } else if (stat === 'mineSpeed') {
+    if ((ship.mineSpeed || 0) <= 0) return;
     const allowed = Math.min(chunk, cap-ship.mineSpeedLevel); if (allowed<=0) return;
     const cost = upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);

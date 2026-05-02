@@ -34,7 +34,7 @@ export function flushAdmiralQueue() {
   const prog   = document.getElementById('admiral-progress');
   if (avatar) { avatar.src = npc.portrait; avatar.alt = npc.name; }
   if (nameEl) nameEl.textContent = npc.name;
-  if (shipEl) shipEl.textContent = npc.ship;
+  if (shipEl) shipEl.textContent = npc.role || npc.ship;
   if (body) body.innerHTML = msg.text;
   if (prog) prog.style.width = '100%';
   const panel = document.getElementById('admiral-panel');
@@ -57,6 +57,29 @@ export function tickAdmiral(dt) {
     if (panel) panel.classList.remove('visible');
     admiralVisible = false;
     setTimeout(flushAdmiralQueue, 600);
+  }
+}
+
+// ── Batch queuing helper ──────────────────────────────────────
+// Each entry: { key, text, duration, npc, delay }
+//   key      — passed to showOnce (omit or null to always show)
+//   text     — HTML string for the message body
+//   duration — seconds the panel stays visible (default 10)
+//   npc      — NPC id string (default 'juno')
+//   delay    — ms from call time before this entry fires (default 0)
+export const transmissionQueue = [];
+
+export function queueTransmissions(arr) {
+  for (const entry of arr) {
+    transmissionQueue.push(entry);
+    const fireDelay = entry.delay || 0;
+    setTimeout(() => {
+      if (entry.key) {
+        showOnce(entry.key, entry.text, entry.duration ?? 10, entry.npc || 'juno');
+      } else {
+        showTransmissionMessage(entry.text, entry.duration ?? 10, entry.npc || 'juno');
+      }
+    }, fireDelay);
   }
 }
 

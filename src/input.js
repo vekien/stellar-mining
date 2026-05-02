@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from './state.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from './data/resources.js';
-import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, BASE_COL, BASE_ROW } from './constants.js';
+import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, BASE_COL, BASE_ROW, ZOOM_MIN, ZOOM_MAX } from './constants.js';
 import { cam, gridToWorld, screenToWorld, focusOnBase, adjustZoom } from './render/camera.js';
 import { W, H } from './render/renderer.js';
 import { canvasState } from './render/canvasState.js';
@@ -16,9 +16,7 @@ import { renderBasePanel } from './ui/basePanel.js';
 import { closeRenameOverlay } from './ui/rename.js';
 import { openTurretModal } from './ui/turretUI.js';
 import { assignShip } from './systems/ships.js';
-
-const ZOOM_MIN = 0.35;
-const ZOOM_MAX = 3.0;
+import { TURRET_BASE_STATS } from './data/turrets.js';
 
 export function initInput(canvas) {
   let isPanning   = false;
@@ -41,7 +39,7 @@ export function initInput(canvas) {
   window.addEventListener('mousemove', e => {
     if (!isPanning) return;
     const dx = e.clientX - mouseDownX, dy = e.clientY - mouseDownY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didPan = true;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) { didPan = true; state.followShip = null; }
     cam.x = panCamX - (e.clientX - panStartX) / cam.zoom;
     cam.y = panCamY - (e.clientY - panStartY) / cam.zoom;
   });
@@ -192,6 +190,7 @@ export function initInput(canvas) {
       if (state.selectedShip) {
         state.pendingAssign = null;
         state.selectedShip  = null;
+        state.followShip    = null;
         canvas.style.cursor = '';
         removeReassignTooltip();
         if (refresh.ui) refresh.ui();
@@ -245,7 +244,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
       state.placingTurret = false;
       canvas.style.cursor = '';
     } else {
-      state.turrets.push({ id: Date.now(), col, row, health: 5000, maxHealth: 5000, damage: 100, range: 2, level: 1 });
+      state.turrets.push({ id: Date.now(), col, row, health: TURRET_BASE_STATS.health, maxHealth: TURRET_BASE_STATS.health, damage: TURRET_BASE_STATS.damage, range: TURRET_BASE_STATS.range, level: 1 });
       state.unplacedTurrets--;
       addLog(`🔫 Turret placed at (${col},${row})!`);
       if (state.unplacedTurrets > 0) {

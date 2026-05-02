@@ -277,16 +277,15 @@ export function checkTradeTutorial() {
   if (state.seenMsgs['kade_intro']) return;
 
   // SOL clock is mapped to a 24-hour display; 10:00 = solTimer >= SOL_DURATION * 10/24
-  const has500Coins  = state.coins >= 500;
-  const brokeAfterUpgrade = state.coins <= 0 && state.ships.some(
-    s => s.capacityLevel > 0 || s.flySpeedLevel > 0 || s.mineSpeedLevel > 0 || s.mineTier > 1
-  );
-  const solAt10 = state.solTimer >= SOL_DURATION * 10 / 24;
+  const above500 = state.coins >= 500;
+  const below100 = state.coins < 100;
 
-  if (!has500Coins && !brokeAfterUpgrade && !solAt10) return;
+  if (!above500 && !below100) return;
 
-  state.tutStep = Math.max(state.tutStep, 10);
-  setTimeout(() => showOnce('kade_intro', NPCS.kade.transmissionLines.kade_intro, 20, 'kade'), 800);
+  setTimeout(() => {
+    state.tutStep = Math.max(state.tutStep, 10);
+    showOnce('kade_intro', NPCS.kade.transmissionLines.kade_intro, 20, 'kade');
+  }, 800);
 }
 
 // ── Dismiss mission briefing banner ──────────────────────────
