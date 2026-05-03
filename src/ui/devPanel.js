@@ -5,6 +5,7 @@ const DEBUG = true;
 
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
+import { BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { TIER_UPGRADE_CAP } from '../data/ships.js';
 import { addCoins } from '../helpers.js';
@@ -24,7 +25,7 @@ function devTestTransmission() {
 }
 
 function devAddCoins() {
-  addCoins(1000);
+  addCoins(1_000_000);
   updateHeader();
 }
 
@@ -75,6 +76,14 @@ function devMaxUpgrades() {
   if (refresh.ui) refresh.ui();
 }
 
+function devUpgradeBase() {
+  const cost = BASE_UPGRADE_COSTS[state.base.level];
+  const prev = state.coins;
+  if (cost && state.coins < cost) state.coins = cost;
+  window.upgradeBase?.();
+  if (cost && state.coins < prev) state.coins = prev;
+}
+
 function devAssignAllRandom() {
   for (const ship of state.ships) {
     if ((ship.mineSpeed || 0) <= 0) continue;
@@ -113,5 +122,5 @@ export function initDevPanel() {
   document.getElementById('dev-btn-sol').addEventListener('click',           e => { e.stopPropagation(); devNextSol(); });
   document.getElementById('dev-btn-max-upgrades').addEventListener('click',  e => { e.stopPropagation(); devMaxUpgrades(); });
   document.getElementById('dev-btn-assign-random').addEventListener('click',  e => { e.stopPropagation(); devAssignAllRandom(); });
-  document.getElementById('dev-btn-upgrade-base').addEventListener('click',   e => { e.stopPropagation(); window.upgradeBase?.(); });
+  document.getElementById('dev-btn-upgrade-base').addEventListener('click',   e => { e.stopPropagation(); devUpgradeBase(); });
 }
