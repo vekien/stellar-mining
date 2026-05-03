@@ -10,6 +10,15 @@ export function hexToRgb(hex) {
   return `${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)}`;
 }
 
+/** Returns true if a hex colour is perceptually light (use dark text on top) */
+export function isLightColor(hex) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  // Perceived luminance formula
+  return (r * 0.299 + g * 0.587 + b * 0.114) > 160;
+}
+
 /** Format number with commas (floor first) */
 export function fmt(n) { return Math.floor(n).toLocaleString(); }
 

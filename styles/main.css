@@ -153,6 +153,23 @@
   .codex-group-label { font-family: 'Orbitron',sans-serif; font-size: 14px; letter-spacing: 2px; color: #4af; padding: 10px 0 6px; border-bottom: 1px solid #1a3a6e; margin-bottom: 4px; }
   .codex-group-label:not(:first-child) { margin-top: 8px; }
 
+  /* codex > resources */
+  .codex-resources-card { background: rgba(10,20,50,0.5); border: 1px solid #1e3a6e; border-radius: 5px; padding: 12px 14px; margin-bottom: 8px; }
+  .codex-resources-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .codex-resources-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+  .codex-resources-name { font-family: 'Orbitron',sans-serif; font-size: 13px; font-weight: 700; color: #e8eef8; letter-spacing: 1px; flex: 1; }
+  .codex-resources-tier-pill { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-family: 'Orbitron',sans-serif; letter-spacing: 1px; }
+  .codex-resources-blurb { font-size: 14px; color: #6a8aaa; line-height: 1.25; margin-bottom: 10px; }
+  .codex-resources-stats { display: flex; align-items: stretch; font-size: 11px; border-top: 1px solid #1a3a5a; padding-top: 10px; }
+  .codex-resources-stat { flex: 1; }
+  .codex-resources-stat:nth-child(1) { padding-right: 16px; }
+  .codex-resources-stat:nth-child(3) { padding: 0 16px; }
+  .codex-resources-stat:nth-child(5) { padding-left: 16px; }
+  .codex-resources-divider { width: 1px; background: #1e3a6e; align-self: stretch; margin: 0 4px; }
+  .codex-resources-stat-label { color: #3a6a9a; font-size: 12px; letter-spacing: 0.5px; }
+  .codex-resources-stat-value { font-family: 'Share Tech Mono',monospace; font-size: 16px; color: #cde; }
+  .codex-resources-sell { color: #4d8; }
+
   /* codex > ships */
   .codex-ships-group-header { font-family: 'Orbitron',sans-serif; font-size: 10px; letter-spacing: 2px; margin: 14px 0 7px; padding-bottom: 5px; }
   .codex-ships-table { width: 100%; border-collapse: collapse; background: rgba(10,20,50,0.4); border: 1px solid #1a3a6e; border-radius: 4px; overflow: hidden; margin-bottom: 4px; table-layout: fixed; }

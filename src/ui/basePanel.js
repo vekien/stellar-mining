@@ -5,7 +5,7 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
 import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE, BASE_TIER_REQS } from '../data/base.js';
-import { fmt, showHintTooltip, hideTooltip } from '../helpers.js';
+import { fmt, showHintTooltip, hideTooltip, isLightColor } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
 import { renderTutPointers } from './tutorial.js';
 import { HP_BOOST_HEALTH_PER_PURCHASE, DEFENSE_DAMAGE_REDUCTION } from '../data/research.js';
@@ -83,7 +83,7 @@ export function renderBasePanel() {
           <button onclick="openBaseRenameOverlay()" title="Rename Base" style="background:none;border:none;color:#6ad;cursor:pointer;font-size:16px;line-height:1;padding:0 0 0 4px;opacity:0.9;vertical-align:middle;">✎</button>
         </div>
         <div style="padding:6px 8px;">
-          <div class="bp-level" style="color:#ffffff;font-family:'Orbitron',sans-serif;font-weight:700;letter-spacing:2px;background:${MINE_TIERS[bl]?.color||'#8ab'};padding:2px 10px;border-radius:4px;">TIER ${toRoman(bl)}</div>
+          <div class="bp-level" style="color:${isLightColor(MINE_TIERS[bl]?.color||'#8ab')?'#111':'#fff'};font-family:'Orbitron',sans-serif;font-weight:700;letter-spacing:2px;background:${MINE_TIERS[bl]?.color||'#8ab'};padding:2px 10px;border-radius:4px;">TIER ${toRoman(bl)}</div>
         </div>
       </div>
       <div class="bp-section-title">◈ Base Stats</div>

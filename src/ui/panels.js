@@ -44,6 +44,7 @@ let _codexTab = 'crew';
 let _fleetCompSig = '';
 let _fleetSortKey = 'name';
 let _fleetSortDir = 1;
+let _stockpileMineableKeys = null;
 
 function getResourceAbundanceHint(resourceKey) {
   const firstBand = NODE_BANDS.find((band) => band.types.includes(resourceKey));
@@ -85,6 +86,7 @@ export function refreshHdrPanelIfOpen() {
   if (_hdrPanelOpen === 'craft') return;
   if (_hdrPanelOpen === 'research') return;
   if (_hdrPanelOpen === 'stats') return;
+  if (_hdrPanelOpen === 'resources') return;
   if (_hdrPanelOpen === 'fleet') {
     refreshFleetPanelPartial();
     return;
@@ -348,35 +350,33 @@ function buildStatsHtml() {
     </div>`;
   }).join('');
 
-  // Resource stockpile per tier, merged with node/assignment data
+  // Resource stockpile per tier — only show resources at least one ship can mine
+  const mineableSet = new Set(Object.entries(nodesByType).filter(([,d]) => d.mineable).map(([k]) => k));
+  _stockpileMineableKeys = mineableSet;
   const stockpileSections = Object.entries(MINE_TIERS).map(([tier, tierInfo]) => {
     const cards = tierInfo.resources.map(k => {
       const def = RESOURCE_DEFS[k];
       if (!def) return '';
-      const v = state.resources[k] || 0;
       const d = nodesByType[k];
-      const noNodes = !d;
-      if (noNodes) return '';
-      const unoccupied = d.total - d.occupied;
-      const noShips = d.occupied === 0 && d.mineable;
-      const unmined = !d.mineable;
+      if (!d || !d.mineable) return '';
+      const v = state.resources[k] || 0;
+      const noShips = d.occupied === 0;
       const cardBorder = noShips ? 'border-color:#803020;border-left-color:#f44;' : '';
-      const cardBg = noShips ? 'background:rgba(60,10,10,0.45);' : unmined ? 'background:rgba(10,20,50,0.3);opacity:0.5;' : 'background:rgba(10,20,50,0.6);';
-      const alert = noShips ? `<span style="color:#f44;font-size:14px;margin-left:4px;" title="No ships assigned">⚠</span>` : '';
-      const nodeLabel = unmined
-        ? `<span style="font-size:11px;color:#3a5a7a;font-style:italic;">no ship</span>`
-        : `<span style="font-size:11px;color:${unoccupied>0?'#f66':'#4d8'};">${d.occupied}/${d.total} nodes</span>`;
-      return `<div id="stats-node-${k}" data-occ="${d.occupied}" style="border:1px solid #1a3a6e;border-left:3px solid ${def.color};border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px;${cardBg}${cardBorder}">
+      const cardBg = noShips ? 'background:rgba(60,10,10,0.45);' : 'background:rgba(10,20,50,0.6);';
+      const alert = noShips
+        ? `<span id="stockpile-alert-${k}" style="color:#f44;font-size:14px;margin-left:4px;cursor:help;" onmouseover="showHintTooltip(event,'No ships assigned — this resource is not being mined')" onmouseout="hideTooltip()">⚠</span>`
+        : `<span id="stockpile-alert-${k}" style="display:none;"></span>`;
+      return `<div id="stockpile-card-${k}" style="border:1px solid #1a3a6e;border-left:5px solid ${def.color};border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px;${cardBg}${cardBorder}">
         <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${def.color};flex-shrink:0;box-shadow:0 0 6px ${def.color}99;"></span>
         <span style="font-family:'Orbitron',sans-serif;font-size:12px;color:#cde;letter-spacing:1px;flex:1;">${def.label}${alert}</span>
-        <span style="font-size:15px;font-weight:bold;color:${v===0?'#4a6a8a':'#ffe066'};font-family:'Share Tech Mono',monospace;">${fmt(v)}</span>
-        <span style="margin-left:6px;">${nodeLabel}</span>
+        <span id="stockpile-val-${k}" style="font-size:15px;font-weight:bold;color:${v===0?'#4a6a8a':'#ffe066'};font-family:'Share Tech Mono',monospace;">${fmt(v)}</span>
+        <span style="margin-left:6px;font-size:11px;color:#cde;">(${d.total} Nodes)</span>
       </div>`;
     }).filter(Boolean).join('');
     if (!cards) return '';
     return `<div style="margin-bottom:14px;">
       <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:${tierInfo.color};margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid ${tierInfo.color}55;">${tierInfo.label}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="stats-nodes-list">${cards}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">${cards}</div>
     </div>`;
   }).join('');
 
@@ -408,6 +408,45 @@ function buildYieldHtml(nodesByType) {
   }).join('');
 }
 
+function patchStockpileCards(nodesByType) {
+  // If the set of mineable resources changed, full rebuild is needed
+  const newKeys = Object.entries(nodesByType).filter(([,d]) => d.mineable).map(([k]) => k).sort().join(',');
+  const curKeys = _stockpileMineableKeys ? [..._stockpileMineableKeys].sort().join(',') : null;
+  if (curKeys !== newKeys) {
+    const body = document.getElementById('hdr-modal-body');
+    if (body) body.innerHTML = buildStatsHtml();
+    return;
+  }
+  for (const [k, d] of Object.entries(nodesByType)) {
+    if (!d.mineable) continue;
+    const def = RESOURCE_DEFS[k];
+    if (!def) continue;
+    const card = document.getElementById(`stockpile-card-${k}`);
+    if (!card) continue;
+    const noShips = d.occupied === 0;
+    card.style.borderColor = noShips ? '#803020' : '#1a3a6e';
+    card.style.borderLeftColor = noShips ? '#f44' : def.color;
+    card.style.background = noShips ? 'rgba(60,10,10,0.45)' : 'rgba(10,20,50,0.6)';
+    const alertEl = document.getElementById(`stockpile-alert-${k}`);
+    if (alertEl) alertEl.style.display = noShips ? '' : 'none';
+    const valEl = document.getElementById(`stockpile-val-${k}`);
+    if (valEl) {
+      const v = state.resources[k] || 0;
+      const txt = fmt(v);
+      if (valEl.textContent !== txt) {
+        valEl.textContent = txt;
+        valEl.style.color = v === 0 ? '#4a6a8a' : '#ffe066';
+      }
+    }
+  }
+}
+
+window.patchStockpileCards = function() {
+  const overlay = document.getElementById('hdr-modal-overlay');
+  if (_hdrPanelOpen !== 'resources' || !overlay?.classList.contains('open')) return;
+  patchStockpileCards(buildStatsData().nodesByType);
+};
+
 export function patchStatsPanel() {
   const overlay = document.getElementById('hdr-modal-overlay');
   if (_hdrPanelOpen !== 'resources' || !overlay?.classList.contains('open')) return;
@@ -419,37 +458,10 @@ export function patchStatsPanel() {
   set('stat-IDLE', idle);
   set('stat-NODES', `${occupiedNodes}/${totalNodes}`);
 
+  patchStockpileCards(nodesByType);
+
   for (const [type, d] of Object.entries(nodesByType)) {
     set(`stats-yield-${type}`, `${Math.round(d.yield)}/m`);
-    const row = document.getElementById(`stats-node-${type}`);
-    if (row) {
-      const unoccupied = d.total - d.occupied;
-      const allFull = unoccupied === 0;
-      const countEl = row.querySelector('[data-count]');
-      // Update via full node row if count changed — rows are cheap, list stays stable
-      const current = row.getAttribute('data-occ');
-      if (current !== String(d.occupied)) {
-        row.setAttribute('data-occ', d.occupied);
-        const unmined = !d.mineable;
-        const noShips = d.occupied === 0 && d.mineable;
-        row.style.background = unmined ? 'rgba(20,20,30,0.3)' : noShips ? 'rgba(80,10,10,0.35)' : '';
-        row.style.opacity = unmined ? '0.5' : '';
-        const def = RESOURCE_DEFS[type];
-        const tierEntry = Object.entries(MINE_TIERS).find(([,v]) => v.resources.includes(type));
-        const tierColor = tierEntry ? (MINE_TIERS[tierEntry[0]].color || '#8ab') : '#8ab';
-        const suffix = unmined
-          ? `<div style="font-size:11px;color:#4a5a7a;min-width:100px;text-align:right;font-style:italic;">no ship can mine</div>`
-          : unoccupied > 0
-            ? `<div style="font-size:12px;color:#f66;min-width:60px;text-align:right;">${unoccupied} empty</div>`
-            : `<div style="min-width:60px;"></div>`;
-        row.innerHTML = `
-          <div style="width:10px;height:10px;border-radius:50%;background:${def.color};flex-shrink:0;box-shadow:0 0 6px ${def.color}88;"></div>
-          <div style="flex:1;color:#8ab;font-size:14px;">${def.label}</div>
-          <div style="font-size:11px;color:${tierColor};font-family:'Orbitron',sans-serif;letter-spacing:1px;margin-right:8px;">T${tierEntry?.[0]??'?'}</div>
-          <div style="font-size:14px;font-weight:bold;color:${allFull?'#4d8':'#ffe066'};">${d.occupied}/${d.total}</div>
-          ${suffix}`;
-      }
-    }
   }
   // Patch yield list only if set changed
   const yieldEl = document.getElementById('stats-yield-list');
@@ -980,22 +992,23 @@ export function openHdrPanel(type) {
       tabContent = Object.entries(RESOURCE_DEFS).map(([key, def]) => {
         const tierInfo = resourceTier[key];
         const abundanceHint = getResourceAbundanceHint(key);
+        const abundanceColor = abundanceHint === 'Abundant' ? '#78d69c' : abundanceHint === 'Uncommon' ? '#ffd36b' : '#ff8c8c';
         const boost = state.marketBoost && state.marketBoost.type === key;
         const mult = state.marketBoost?.multiplier ?? 1.5;
-        const sellDisplay = boost ? `<span style="color:#ffe066;">$${Math.round(def.sellPrice * mult)} ★ BOOSTED</span>` : `<span style="color:#6fff9a;">$${def.sellPrice}</span>`;
-        return `<div style="background:rgba(10,20,50,0.5);border:1px solid #1e3a6e;border-left:3px solid ${def.color};border-radius:5px;padding:12px 14px;margin-bottom:8px;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-            <div style="width:14px;height:14px;border-radius:50%;background:${def.color};flex-shrink:0;box-shadow:0 0 8px ${def.color}88;"></div>
-            <div style="font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:#e8eef8;letter-spacing:1px;flex:1;">${def.label}</div>
-            <span style="font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid ${tierInfo.color}44;background:${tierInfo.color}18;color:${tierInfo.color};font-family:'Orbitron',sans-serif;letter-spacing:1px;">${tierInfo.label}</span>
+        const sellDisplay = boost ? `<span style="color:#ffe066;">$${Math.round(def.sellPrice * mult)} ★ BOOSTED</span>` : `<span class="codex-resources-sell">$${def.sellPrice}</span>`;
+        return `<div class="codex-resources-card" style="border-left: 8px solid ${def.color};">
+          <div class="codex-resources-header">
+            <div class="codex-resources-dot" style="background:${def.color};box-shadow:0 0 8px ${def.color}88;"></div>
+            <div class="codex-resources-name">${def.label}</div>
+            <span class="codex-resources-tier-pill" style="border:1px solid ${tierInfo.color}44;background:${tierInfo.color}18;color:${tierInfo.color};">${tierInfo.label}</span>
           </div>
-          <div style="font-size:14px;color:#6a8aaa;line-height:1.25;margin-bottom:10px;">${def.blurb || 'Industrial resource used by frontier fleet operations.'}</div>
-          <div style="display:flex;align-items:stretch;font-size:11px;border-top:1px solid #1a3a5a;padding-top:10px;">
-             <div style="flex:1;padding-right:16px;"><span style="color:#3a6a9a;font-size:12px;letter-spacing:0.5px;">SELL PRICE</span><br><span style="color:#4d8;font-family:'Share Tech Mono',monospace;font-size:16px;">${sellDisplay}</span></div>
-             <div style="width:1px;background:#1e3a6e;align-self:stretch;margin:0 4px;"></div>
-             <div style="flex:1;padding:0 16px;"><span style="color:#3a6a9a;font-size:12px;letter-spacing:0.5px;">MINE TIER</span><br><span style="color:#cde;font-family:'Share Tech Mono',monospace;font-size:16px;">${tierInfo.label}</span></div>
-             <div style="width:1px;background:#1e3a6e;align-self:stretch;margin:0 4px;"></div>
-             <div style="flex:1;padding-left:16px;"><span style="color:#3a6a9a;font-size:12px;letter-spacing:0.5px;">FOUND IN BELT</span><br><span style="color:${abundanceHint === 'Abundant' ? '#78d69c' : abundanceHint === 'Uncommon' ? '#ffd36b' : '#ff8c8c'};font-family:'Share Tech Mono',monospace;font-size:16px;">${abundanceHint}</span></div>
+          <div class="codex-resources-blurb">${def.blurb || 'Industrial resource used by frontier fleet operations.'}</div>
+          <div class="codex-resources-stats">
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">SELL PRICE</span><br><span class="codex-resources-stat-value">${sellDisplay}</span></div>
+            <div class="codex-resources-divider"></div>
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">MINE TIER</span><br><span class="codex-resources-stat-value">${tierInfo.label}</span></div>
+            <div class="codex-resources-divider"></div>
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">FOUND IN BELT</span><br><span class="codex-resources-stat-value" style="color:${abundanceColor};">${abundanceHint}</span></div>
           </div>
         </div>`;
       }).join('');

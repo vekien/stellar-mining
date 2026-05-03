@@ -140,6 +140,7 @@ export function assignShip(ship, node) {
   ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
   addLog(`🚀 ${ship.name} → ${RESOURCE_DEFS[node.type].label} node`);
   if (refresh.ui) refresh.ui();
+  window.patchStockpileCards?.();
 }
 
 // ── Tick ──
@@ -179,9 +180,9 @@ export function tickShip(ship, dt) {
     } else {
       // Turn rate from ship def — dynamically tighten turning when close to destination.
       const baseTurnRadius = SHIP_DEFS[ship.type]?.turnRadius ?? 1.0;
-      const CLOSE_TURN_DIST = 200;
+      const CLOSE_TURN_DIST = 80;
       const closeRatio = Math.max(0, Math.min(1, dist / CLOSE_TURN_DIST));
-      const dynamicTurnRadius = baseTurnRadius * (0.12 + 0.88 * closeRatio);
+      const dynamicTurnRadius = baseTurnRadius * (0.15 + 0.85 * closeRatio);
       const TURN_RATE = (Math.PI * 2) / dynamicTurnRadius;
       const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
       let da = targetAngle - ship.heading;
@@ -306,6 +307,7 @@ window.sellShip = function(shipId, sellVal) {
   if (state.selectedShip === shipId) { state.selectedShip=null; state.pendingAssign=null; state.followShip=null; document.getElementById('main-canvas').style.cursor=''; removeReassignTooltip(); }
   addLog(`⊘ Sold ${ship.name} for ${fmt(sellVal)} coins`);
   if (refresh.ui) refresh.ui();
+  window.patchStockpileCards?.();
 };
 
 // ── Craft ──
