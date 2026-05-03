@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
-import { CRAFTS, CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
+import { CRAFTS, CRAFT_SHIPS as CRAFT_RECIPES, getCraft } from '../data/crafts.js';
 import {
   SHIP_DEFS, SHIP_TIER_COSTS, toRoman,
   formatFlySpeed, formatMineSpeedPercent, formatLoadSpeedPercent, formatAtkRatePercent,
@@ -14,7 +14,8 @@ import {
 import { NODE_BANDS } from '../data/nodes.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
-import { RESEARCH_TREE } from '../data/research.js';
+import { RESEARCH_TREE, DEFENSE_DAMAGE_REDUCTION } from '../data/research.js';
+import { TURRET_BASE_STATS } from '../data/turrets.js';
 import { fmt } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
@@ -347,6 +348,38 @@ function buildStatsHtml() {
     </div>`;
   }).join('');
 
+  // Resource stockpile per tier, merged with node/assignment data
+  const stockpileSections = Object.entries(MINE_TIERS).map(([tier, tierInfo]) => {
+    const cards = tierInfo.resources.map(k => {
+      const def = RESOURCE_DEFS[k];
+      if (!def) return '';
+      const v = state.resources[k] || 0;
+      const d = nodesByType[k];
+      const noNodes = !d;
+      if (noNodes) return '';
+      const unoccupied = d.total - d.occupied;
+      const noShips = d.occupied === 0 && d.mineable;
+      const unmined = !d.mineable;
+      const cardBorder = noShips ? 'border-color:#803020;border-left-color:#f44;' : '';
+      const cardBg = noShips ? 'background:rgba(60,10,10,0.45);' : unmined ? 'background:rgba(10,20,50,0.3);opacity:0.5;' : 'background:rgba(10,20,50,0.6);';
+      const alert = noShips ? `<span style="color:#f44;font-size:14px;margin-left:4px;" title="No ships assigned">⚠</span>` : '';
+      const nodeLabel = unmined
+        ? `<span style="font-size:11px;color:#3a5a7a;font-style:italic;">no ship</span>`
+        : `<span style="font-size:11px;color:${unoccupied>0?'#f66':'#4d8'};">${d.occupied}/${d.total} nodes</span>`;
+      return `<div id="stats-node-${k}" data-occ="${d.occupied}" style="border:1px solid #1a3a6e;border-left:3px solid ${def.color};border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px;${cardBg}${cardBorder}">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${def.color};flex-shrink:0;box-shadow:0 0 6px ${def.color}99;"></span>
+        <span style="font-family:'Orbitron',sans-serif;font-size:12px;color:#cde;letter-spacing:1px;flex:1;">${def.label}${alert}</span>
+        <span style="font-size:15px;font-weight:bold;color:${v===0?'#4a6a8a':'#ffe066'};font-family:'Share Tech Mono',monospace;">${fmt(v)}</span>
+        <span style="margin-left:6px;">${nodeLabel}</span>
+      </div>`;
+    }).filter(Boolean).join('');
+    if (!cards) return '';
+    return `<div style="margin-bottom:14px;">
+      <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:${tierInfo.color};margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid ${tierInfo.color}55;">${tierInfo.label}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="stats-nodes-list">${cards}</div>
+    </div>`;
+  }).join('');
+
   return `
     <div style="display:flex;gap:8px;margin-bottom:16px;">
       ${statCard('SHIPS', `${state.ships.length}/${maxShips}`)}
@@ -354,11 +387,9 @@ function buildStatsHtml() {
       ${statCard('IDLE', idle, idle > 0 ? '#f88' : '#4d8')}
       ${statCard('NODES', `${occupiedNodes}/${totalNodes}`, occupiedNodes === totalNodes ? '#4d8' : '#ffe066')}
     </div>
-    <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ NODE ASSIGNMENTS</div>
-    <div style="background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:5px;overflow:hidden;margin-bottom:16px;" id="stats-nodes-list">
-      ${nodeRows || '<div style="padding:10px;color:#3a5a7a;font-size:14px;">No accessible nodes yet.</div>'}
-    </div>
-    <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ YIELD RATE</div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:10px;">◈ RESOURCE STOCKPILE</div>
+    ${stockpileSections || '<div style="padding:10px;color:#3a5a7a;font-size:14px;">No accessible nodes yet.</div>'}
+    <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:8px;margin-top:4px;">◈ YIELD RATE</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;" id="stats-yield-list">
       ${buildYieldHtml(nodesByType)}
     </div>`;
@@ -379,7 +410,7 @@ function buildYieldHtml(nodesByType) {
 
 export function patchStatsPanel() {
   const overlay = document.getElementById('hdr-modal-overlay');
-  if (_hdrPanelOpen !== 'stats' || !overlay?.classList.contains('open')) return;
+  if (_hdrPanelOpen !== 'resources' || !overlay?.classList.contains('open')) return;
   const { maxShips, assigned, idle, totalNodes, occupiedNodes, nodesByType } = buildStatsData();
 
   const set = (id, val) => { const el = document.getElementById(id); if (el && el.textContent !== String(val)) el.textContent = val; };
@@ -547,8 +578,8 @@ export function openHdrPanel(type) {
 
     const craftTabDefs = [
       { id: 'ships',   label: 'SHIPS',   icon: '▲' },
-      { id: 'base',    label: 'BASE',    icon: '⬡' },
-      { id: 'modules', label: 'MODULES', icon: '🛡' },
+      { id: 'defense', label: 'DEFENSE', icon: '🛡' },
+      { id: 'modules', label: 'MODULES', icon: '⬡' },
     ];
     const tabBar = craftTabDefs.map(t =>
       `<button id="craft-tab-${t.id}" onclick="setCraftTab('${t.id}')" style="flex:1;padding:8px 4px;background:${activeCraftTab===t.id?'rgba(30,60,120,0.7)':'transparent'};border:none;border-bottom:2px solid ${activeCraftTab===t.id?'#4af':'transparent'};color:${activeCraftTab===t.id?'#4af':'#4a6a8a'};font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:1px;cursor:pointer;">${t.icon} ${t.label}</button>`
@@ -665,9 +696,58 @@ export function openHdrPanel(type) {
         });
       }
 
+    } else if (activeCraftTab === 'defense') {
+      const turretsUnlocked = state.researchUnlocks['turrets'];
+      const defenseUnlocked = state.researchUnlocks['defense'];
+      const turretCount = (state.turrets || []).length;
+      let defHtml = '';
+
+      if (!turretsUnlocked && !defenseUnlocked) {
+        defHtml = `<div style="padding:16px;background:rgba(20,50,100,0.2);border:1px solid #1a3a6e;border-radius:4px;text-align:center;color:#4a6a8a;font-size:15px;">
+          🔒 No defense systems unlocked yet.<br><br>
+          <span style="font-size:13px;">Visit the <strong style="color:#8ab">Research panel</strong> to unlock Turret Systems.</span>
+        </div>`;
+      }
+
+      if (defenseUnlocked) {
+        defHtml += `<div style="background:rgba(10,30,60,0.5);border:1px solid #2a4a7a;border-radius:5px;padding:10px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <span style="font-size:20px;">🛡</span>
+            <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#ffe066;letter-spacing:1px;">ARMOR PLATING</div>
+            <span style="margin-left:auto;font-size:12px;color:#4d8;background:rgba(20,60,30,0.4);border:1px solid #2a6040;border-radius:3px;padding:1px 6px;">ACTIVE</span>
+          </div>
+          <div style="font-size:14px;color:#5a7a9a;">Incoming base damage reduced by <strong style="color:#cde;">${Math.round(DEFENSE_DAMAGE_REDUCTION * 100)}%</strong>.</div>
+        </div>`;
+      }
+
+      if (turretsUnlocked) {
+        const turretCraft = getCraft('turrets', 'turret');
+        const canCoins = state.coins >= turretCraft.cost;
+        const reqsMet  = Object.entries(turretCraft.reqs).map(([r, n]) => [(state.resources[r] || 0) >= n, r, n]);
+        const canBuild = canCoins && reqsMet.every(([met]) => met);
+        const pill    = (met, label) => `<span class="bp-craft-req" style="font-size:14px;border-color:${met?'#7a6010':'#802020'};background:${met?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)'};color:${met?'#ffe066':'#f88'};">${label}</span>`;
+        const resPill = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}" style="font-size:14px;">${label}</span>`;
+        const resPills = reqsMet.map(([met, r, n]) => resPill(met, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
+        defHtml += `<div style="background:rgba(10,30,60,0.5);border:1px solid #2a4a7a;border-radius:5px;padding:10px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="font-size:20px;">🔫</span>
+            <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">TURRET SYSTEMS</div>
+            <span style="margin-left:auto;font-size:13px;color:#8ab;">${turretCount} built</span>
+          </div>
+          <div style="font-size:14px;color:#5a7a9a;margin-bottom:8px;">Build turrets on free map tiles to defend your base. Each turret has ${TURRET_BASE_STATS.health.toLocaleString()} HP, ${TURRET_BASE_STATS.damage} damage and ${TURRET_BASE_STATS.range}-tile range.</div>
+          <div class="bp-craft-reqs" style="margin-bottom:8px;">${pill(canCoins, '$' + turretCraft.cost)}${resPills}</div>
+          ${state.unplacedTurrets > 0
+            ? `<button class="btn primary" style="width:100%;font-size:14px;" onclick="beginPlacingTurret()">🔫 PLACE TURRET (${state.unplacedTurrets})</button>`
+            : `<button class="btn primary" style="width:100%;font-size:14px;" ${canBuild?'':'disabled'} onclick="startPlaceTurret()">🔫 BUILD TURRET</button>`
+          }
+        </div>`;
+      }
+
+      tabContent = defHtml;
+
     } else {
       tabContent = `<div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:24px;text-align:center;opacity:0.6;margin-top:8px;">
-        <div style="font-size:22px;margin-bottom:8px;">🛡</div>
+        <div style="font-size:22px;margin-bottom:8px;">⬡</div>
         <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:8px;">COMING SOON</div>
         <div style="font-size:12px;color:#4a6a8a;">More fabrication options will be available in a future update.</div>
       </div>`;
@@ -727,7 +807,7 @@ export function openHdrPanel(type) {
         <div>
           <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:3px;">RESEARCH POINTS</div>
           <div style="font-size:24px;color:#ffe066;font-weight:bold;">🔬 ${state.rp} <span style="font-size:14px;color:#4a6a8a;">/ ${rpCap}</span></div>
-          <div style="font-size:13px;color:#6f97bc;margin-top:2px;">+1 per SOL · cap = 1+2+…+tier (T1:1, T2:3, T3:6…)</div>
+          <div style="font-size:13px;color:#6f97bc;margin-top:2px;">+1 per SOL</div>
         </div>
       </div>
       ${treeHtml}`;
@@ -842,9 +922,9 @@ export function openHdrPanel(type) {
       </table>`;
   }
 
-  // ── OPERATIONS STATS ───────────────────────────────────────
-  else if (type === 'stats') {
-    heading.textContent = 'OPERATIONS STATS';
+  // ── RESOURCES ──────────────────────────────────────────────
+  else if (type === 'resources') {
+    heading.textContent = 'RESOURCES';
     body.innerHTML = buildStatsHtml();
   }
 
@@ -852,11 +932,14 @@ export function openHdrPanel(type) {
   else if (type === 'codex') {
     heading.textContent = 'CODEX';
     const codexTabs = [
-      { id: 'crew', label: 'Crew & Contacts' },
-      { id: 'events', label: 'Events' },
-      { id: 'resources', label: 'Resources' },
-      { id: 'ships', label: 'Ships' },
+      { id: 'crew',     label: 'Crew & Contacts' },
+      { id: 'events',   label: 'Events' },
+      { id: 'resources',label: 'Resources' },
+      { id: 'ships',    label: 'Ships' },
       { id: 'upgrades', label: 'Base Upgrades' },
+      { id: 'research', label: 'Research' },
+      { id: 'sector',   label: 'Sector' },
+      { id: 'trade',    label: 'Trade' },
     ];
     const tabBar = `<div style="width:190px;flex-shrink:0;border-right:1px solid #1a3a6e;padding-right:10px;">
       ${codexTabs.map(tab => `<button onclick="event.stopPropagation();switchCodexTab('${tab.id}')" style="width:100%;text-align:left;padding:9px 10px;margin-bottom:6px;font-family:'Orbitron',monospace;font-size:11px;letter-spacing:1.3px;border:1px solid ${_codexTab===tab.id?'#2f6fb8':'#1a3458'};border-left:3px solid ${_codexTab===tab.id?'#4af':'#24466f'};border-radius:4px;background:${_codexTab===tab.id?'rgba(16,48,90,0.45)':'rgba(8,18,40,0.4)'};color:${_codexTab===tab.id?'#8fd0ff':'#5f7fa0'};cursor:pointer;transition:all 0.15s;text-transform:uppercase;">${tab.label}</button>`).join('')}
@@ -1072,6 +1155,159 @@ export function openHdrPanel(type) {
           ${encountered ? `<div style="font-size:14px;color:#ffe066;line-height:1.35;border-top:1px solid #1a3a5a;padding-top:8px;">${ev.effect}</div>` : ''}
         </div>`;
       }).join('');
+    }
+
+    // ── RESEARCH ────────────────────────────────────────────────
+    if (_codexTab === 'research') {
+      const rpCapTable = [1,3,6,10,15,21,28,36,45,55];
+      const rpCapRows = rpCapTable.map((cap, i) =>
+        `<tr>
+          <td class="codex-ships-td" style="color:${MINE_TIERS[i+1]?.color||'#8ab'};">Tier ${i+1}</td>
+          <td class="codex-ships-td codex-ships-td-stat">${cap} RP</td>
+        </tr>`
+      ).join('');
+
+      const researchItems = [
+        {
+          icon: '💪', name: 'HP Boost',
+          tier: 'Base Tier 1', cost: '1 RP per purchase', max: '10 purchases (+25,000 HP total)',
+          purpose: 'Increases base station max health by 2,500 HP per purchase. Stacks up to 10 times for a total of +25,000 HP on top of your base tier health.',
+        },
+        {
+          icon: '🔫', name: 'Turret Systems',
+          tier: 'Base Tier 3', cost: '1 RP', max: 'One-time unlock',
+          purpose: 'Unlocks the ability to construct and place defensive turrets on the map. Turrets automatically engage enemy ships within their range and are essential for base defense during raids.',
+        },
+        {
+          icon: '🛡', name: 'Armor Plating',
+          tier: 'Base Tier 3', cost: '2 RP', max: 'One-time unlock',
+          purpose: 'Permanently reduces all incoming damage to the base station by 10%. Stacks with turret defense. Recommended before advancing into higher-threat sectors.',
+        },
+      ];
+
+      const itemCards = researchItems.map(r => `
+        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="font-size:24px;line-height:1;">${r.icon}</span>
+            <div style="flex:1;">
+              <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${r.name}</div>
+              <div style="font-size:11px;color:#4a7aaa;margin-top:1px;letter-spacing:1px;">${r.tier}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#ffe066;">${r.cost}</div>
+              <div style="font-size:10px;color:#4a6a8a;margin-top:1px;">${r.max}</div>
+            </div>
+          </div>
+          <div style="font-size:13px;color:#6a8aaa;line-height:1.4;border-top:1px solid #1a3a5a;padding-top:8px;">${r.purpose}</div>
+        </div>`).join('');
+
+      tabContent = `
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:10px;">◈ RESEARCH TREE</div>
+        ${itemCards}
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ RESEARCH POINT CAP PER BASE TIER</div>
+        <div style="font-size:13px;color:#6a8aaa;margin-bottom:10px;">You earn +1 Research Point per SOL. The cap increases as your base tier advances.</div>
+        <table class="codex-ships-table">
+          <thead><tr>
+            <th class="codex-ships-th" style="color:#4af;">BASE TIER</th>
+            <th class="codex-ships-th" style="color:#4af;">MAX RP</th>
+          </tr></thead>
+          <tbody>${rpCapRows}</tbody>
+        </table>`;
+
+    // ── SECTOR ────────────────────────────────────────────────
+    } else if (_codexTab === 'sector') {
+      tabContent = `
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:10px;">◈ GALAXY: ANDROMEDA</div>
+        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
+          <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;margin-bottom:6px;">THE SECTOR</div>
+          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+            You are operating in the <strong style="color:#cde;">Andromeda Galaxy</strong>, deep within an unmapped asteroid belt designated <strong style="color:#cde;">Sector 7-G</strong>.
+            Rich in raw minerals and volatile compounds, this sector was flagged by long-range probes as a high-yield extraction zone.
+            Your base station was deployed here to begin resource extraction and establish a permanent frontier presence.
+          </div>
+        </div>
+
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ SOL — SOLAR DAY</div>
+        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
+          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+            One <strong style="color:#ffe066;">SOL</strong> represents a single solar day in this sector — approximately <strong style="color:#cde;">3 Earth minutes</strong> in real time.
+            Each SOL triggers market demand shifts, awards Research Points, and advances your operational timeline.
+            Events such as solar flares and comet impacts are tied to SOL progression — the higher your SOL count, the greater the risk.
+          </div>
+        </div>
+
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ FLEET POWER</div>
+        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
+          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+            Fleet Power is a combined rating of your operational strength. It is calculated from three sources:
+          </div>
+          <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="font-family:'Orbitron',sans-serif;font-size:10px;color:#4af;letter-spacing:1px;width:80px;flex-shrink:0;">SHIPS</span>
+              <span style="color:#8ab;">Sum of all ship upgrade levels (cargo + fly speed + mine/load speed)</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="font-family:'Orbitron',sans-serif;font-size:10px;color:#ff8c40;letter-spacing:1px;width:80px;flex-shrink:0;">TURRETS</span>
+              <span style="color:#8ab;">Sum of all placed turret levels</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="font-family:'Orbitron',sans-serif;font-size:10px;color:#60d090;letter-spacing:1px;width:80px;flex-shrink:0;">BASE</span>
+              <span style="color:#8ab;">Your current base tier level</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ SECTOR STATUS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;">
+            <div style="font-family:'Orbitron',sans-serif;font-size:10px;color:#4a7aaa;letter-spacing:1px;margin-bottom:6px;">PIRATE STATUS</div>
+            <div style="font-size:13px;color:#4a6a8a;font-style:italic;">— Data unavailable —</div>
+          </div>
+          <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;">
+            <div style="font-family:'Orbitron',sans-serif;font-size:10px;color:#4a7aaa;letter-spacing:1px;margin-bottom:6px;">THREAT LEVEL</div>
+            <div style="font-size:13px;color:#4a6a8a;font-style:italic;">— Data unavailable —</div>
+          </div>
+        </div>`;
+
+    // ── TRADE ────────────────────────────────────────────────
+    } else if (_codexTab === 'trade') {
+      tabContent = `
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:10px;">◈ MARKET DEMAND</div>
+        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
+          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+            Every SOL, the market shifts demand to a random resource accessible in your sector.
+            The <strong style="color:#ffe066;">boosted resource</strong> sells at a multiplied rate between <strong style="color:#cde;">1.2×</strong> and <strong style="color:#cde;">2.0×</strong> its base price for that SOL.
+            Only resources from nodes reachable at your current base tier are eligible for the demand boost.
+            Watch the trade panel each SOL — timing your sales around demand spikes is one of the most effective ways to grow your credits quickly.
+          </div>
+        </div>
+
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ BASE SELL PRICES</div>
+        <div style="font-size:13px;color:#6a8aaa;margin-bottom:10px;">Prices below reflect standard market rate. Demand boosts apply on top of these values each SOL.</div>
+        <table class="codex-ships-table">
+          <thead><tr>
+            <th class="codex-ships-th" style="color:#4af;">RESOURCE</th>
+            <th class="codex-ships-th" style="color:#4af;">TIER</th>
+            <th class="codex-ships-th" style="color:#4af;">BASE PRICE</th>
+          </tr></thead>
+          <tbody>
+            ${Object.entries(RESOURCE_DEFS).map(([key, def]) => {
+              const tierInfo = (() => { for (const [t,td] of Object.entries(MINE_TIERS)) if (td.resources.includes(key)) return td; return null; })();
+              return `<tr>
+                <td class="codex-ships-td" style="color:#e8eef8;font-family:'Orbitron',sans-serif;font-size:11px;">
+                  <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${def.color};margin-right:7px;vertical-align:middle;"></span>${def.label}
+                </td>
+                <td class="codex-ships-td"><span style="font-size:11px;padding:1px 6px;border-radius:3px;border:1px solid ${tierInfo?.color||'#8ab'}44;background:${tierInfo?.color||'#8ab'}18;color:${tierInfo?.color||'#8ab'};">${tierInfo?.label||'—'}</span></td>
+                <td class="codex-ships-td codex-ships-td-stat">$${def.sellPrice}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ TAX & TRADE FEES</div>
+        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;">
+          <div style="font-size:13px;color:#4a6a8a;font-style:italic;">— Trade fee data pending sector clearance —</div>
+        </div>`;
     }
 
     body.innerHTML = `<div style="display:flex;gap:14px;align-items:flex-start;">${tabBar}<div style="flex:1;min-width:0;">${tabContent}</div></div>`;
