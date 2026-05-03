@@ -4,7 +4,7 @@
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFTS, CRAFT_SHIPS as CRAFT_RECIPES, getCraft } from '../data/crafts.js';
-import { SHIP_DEFS, toRoman } from '../data/ships.js';
+import { SHIP_DEFS, toRoman, formatFlySpeed, formatMineSpeedPercent } from '../data/ships.js';
 import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE } from '../data/base.js';
 import { fmt, showHintTooltip, hideTooltip } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
@@ -191,12 +191,12 @@ export function renderBasePanel() {
       </div>`;
       if (r === 'transport') return `<div style="display:flex;gap:10px;font-size:14px;align-items:center;flex-wrap:wrap;">
         <span style="color:#cde;"><span style="${ic}">▲</span> ${stats.capacity}u cargo</span>
-        <span style="color:#cde;"><span style="${ic}">✈</span> ${stats.flySpeed}x speed</span>
+        <span style="color:#cde;"><span style="${ic}">✈</span> ${formatFlySpeed(stats.flySpeed)} speed</span>
       </div>`;
       return `<div style="display:flex;gap:14px;font-size:14px;align-items:center;flex-wrap:wrap;">
         <span onmousemove="showHintTooltip(event,'Cargo Capacity')" onmouseleave="hideTooltip()" style="color:#cde;cursor:help;"><span style="${ic}">▲</span> ${stats.capacity}u</span>
-        <span onmousemove="showHintTooltip(event,'Fly Speed')" onmouseleave="hideTooltip()" style="color:#cde;cursor:help;"><span style="${ic}">✈</span> ${stats.flySpeed}x</span>
-        <span onmousemove="showHintTooltip(event,'Mine Speed')" onmouseleave="hideTooltip()" style="color:#cde;cursor:help;"><span style="${ic}">⛏</span> ${stats.mineSpeed}x</span>
+        <span onmousemove="showHintTooltip(event,'Fly Speed')" onmouseleave="hideTooltip()" style="color:#cde;cursor:help;"><span style="${ic}">✈</span> ${formatFlySpeed(stats.flySpeed)}</span>
+        <span onmousemove="showHintTooltip(event,'Mine Speed')" onmouseleave="hideTooltip()" style="color:#cde;cursor:help;"><span style="${ic}">⛏</span> ${formatMineSpeedPercent(stats.mineSpeed)}</span>
       </div>`;
     }
 

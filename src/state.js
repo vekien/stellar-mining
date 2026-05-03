@@ -5,6 +5,8 @@ import { SAVE_KEY } from './constants.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
 import { gridToWorld } from './render/camera.js';
 import { RESOURCE_DEFS } from './data/resources.js';
+import { normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel } from './data/ships.js';
+import { clampCoins } from './helpers.js';
 
 function makeEmptyResources() {
   return Object.fromEntries(Object.keys(RESOURCE_DEFS).map((k) => [k, 0]));
@@ -88,6 +90,8 @@ export let state = {
   },
 };
 
+const SAVE_VERSION = 4;
+
 export let shipIdCounter = 1;
 export function setShipIdCounter(v) { shipIdCounter = v; }
 export function bumpShipIdCounter() { return shipIdCounter++; }
@@ -111,6 +115,7 @@ export function saveGame() {
       turrets: state.turrets, unplacedTurrets: state.unplacedTurrets,
       logHistory: state.logHistory,
       shipCraftTimers: state.shipCraftTimers,
+      saveVersion: SAVE_VERSION,
       ships: state.ships.map(s => ({
         id:s.id, name:s.name, type:s.type,
         capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
@@ -126,7 +131,8 @@ export function loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return false;
     const d = JSON.parse(raw);
-    state.coins = d.coins ?? 200;
+    const saveVersion = d.saveVersion ?? 1;
+    state.coins = clampCoins(d.coins ?? 200);
     state.trips = d.trips ?? 0;
     state.resources = { ...makeEmptyResources(), ...(d.resources || {}) };
     state.worldSeed = Number.isFinite(d.worldSeed) ? d.worldSeed : null;
@@ -173,11 +179,13 @@ export function loadGame() {
     shipIdCounter = d.shipIdCounter ?? 1;
     state.ships = (d.ships||[]).map(sd => {
       const base = gridToWorld(BASE_COL, BASE_ROW);
+      const rawFlySpeed = sd.flySpeed ?? (saveVersion < 2 ? 1.0 : 100);
+      const rawMineSpeed = sd.mineSpeed ?? (saveVersion < 3 ? 1.0 : 2.0);
       return {
         id:sd.id, name:sd.name, type:sd.type,
-        capacity:sd.capacity ?? 10,
-        flySpeed:sd.flySpeed ?? 1.0,
-        mineSpeed:sd.mineSpeed ?? 1.0,
+        capacity: capacityFromTierAndLevel(sd.type, sd.mineTier ?? 1, sd.capacityLevel ?? 0, sd.capacity ?? 10),
+        flySpeed: normalizeFlySpeed(rawFlySpeed, saveVersion),
+        mineSpeed: normalizeMineSpeed(rawMineSpeed, saveVersion),
         mineTier:sd.mineTier ?? 1,
         capacityLevel:sd.capacityLevel ?? 0,
         flySpeedLevel:sd.flySpeedLevel ?? 0,

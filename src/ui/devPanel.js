@@ -7,8 +7,8 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
-import { TIER_UPGRADE_CAP } from '../data/ships.js';
-import { addCoins } from '../helpers.js';
+import { TIER_UPGRADE_CAP, FLY_SPEED_UPGRADE_STEP, MINE_SPEED_UPGRADE_STEP, capacityFromTierAndLevel } from '../data/ships.js';
+import { MAX_COINS } from '../helpers.js';
 import { showTransmissionMessage } from './transmissions.js';
 import { refresh } from './refresh.js';
 import { updateHeader } from './ui.js';
@@ -25,8 +25,9 @@ function devTestTransmission() {
 }
 
 function devAddCoins() {
-  addCoins(1_000_000);
+  state.coins = MAX_COINS;
   updateHeader();
+  if (refresh.ui) refresh.ui();
 }
 
 function devAddRP() {
@@ -56,21 +57,18 @@ function devMaxUpgrades() {
     ship.mineTier = 10;
 
     const cap = TIER_UPGRADE_CAP[10]; // 100
-    const capStep = ship.type === 'freighter' ? 10 : ship.type === 'hauler' ? 5 : 2;
-
-    const capLevels  = cap - ship.capacityLevel;
     const flyLevels  = cap - ship.flySpeedLevel;
     const mineLevels = cap - ship.mineSpeedLevel;
 
     ship.capacityLevel = cap;
-    ship.capacity += capStep * capLevels;
+    ship.capacity = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity);
 
     ship.flySpeedLevel = cap;
-    ship.flySpeed = parseFloat((ship.flySpeed + 0.2 * flyLevels).toFixed(2));
+    ship.flySpeed += FLY_SPEED_UPGRADE_STEP * flyLevels;
 
     if ((ship.mineSpeed || 0) > 0) {
       ship.mineSpeedLevel = cap;
-      ship.mineSpeed = parseFloat((ship.mineSpeed + 0.2 * mineLevels).toFixed(2));
+      ship.mineSpeed = parseFloat((ship.mineSpeed + MINE_SPEED_UPGRADE_STEP * mineLevels).toFixed(2));
     }
   }
   if (refresh.ui) refresh.ui();

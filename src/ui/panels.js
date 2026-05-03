@@ -4,7 +4,7 @@
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
-import { SHIP_DEFS, SHIP_TIER_COSTS, toRoman } from '../data/ships.js';
+import { SHIP_DEFS, SHIP_TIER_COSTS, toRoman, formatFlySpeed, formatMineSpeedPercent } from '../data/ships.js';
 import { NODE_BANDS } from '../data/nodes.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
@@ -777,17 +777,17 @@ export function openHdrPanel(type) {
         {
           role: 'mining',    label: '⛏  MINING SHIPS',    color: '#60d090',
           cols: ['SHIP','TIER','CARGO','FLY SPD','MINE SPD','TURN RAD'],
-          row: (id, s) => [s.capacity, `${s.flySpeed.toFixed(2)}x`, `${s.mineSpeed.toFixed(2)}x`, s.turnRadius.toFixed(2)],
+          row: (id, s) => [s.capacity, formatFlySpeed(s.flySpeed), formatMineSpeedPercent(s.mineSpeed), s.turnRadius.toFixed(2)],
         },
         {
           role: 'transport', label: '▲  CARGO TRANSPORT',  color: '#80d0ff',
           cols: ['SHIP','TIER','CARGO','FLY SPD','TURN RAD'],
-          row: (id, s) => [s.capacity, `${s.flySpeed.toFixed(2)}x`, s.turnRadius.toFixed(2)],
+          row: (id, s) => [s.capacity, formatFlySpeed(s.flySpeed), s.turnRadius.toFixed(2)],
         },
         {
           role: 'combat',    label: '⚔  COMBAT SHIPS',    color: '#ff6060',
           cols: ['SHIP','TIER','HP','ATTACK','ATK RATE','FLY SPD'],
-          row: (id, s) => [(s.hp||0).toLocaleString(), s.attack||0, `${s.attackSpeed||0}x`, `${s.flySpeed.toFixed(2)}x`],
+          row: (id, s) => [(s.hp||0).toLocaleString(), s.attack||0, `${s.attackSpeed||0}x`, formatFlySpeed(s.flySpeed)],
         },
         {
           role: 'garrison',  label: '🛡  GARRISON',        color: '#ff8c40',
@@ -797,7 +797,7 @@ export function openHdrPanel(type) {
         {
           role: 'unique',    label: '★  UNIQUE SHIPS',    color: '#ffffff',
           cols: ['SHIP','TIER','HP','CARGO','FLY SPD','ATTACK'],
-          row: (id, s) => [(s.hp||0).toLocaleString(), s.capacity, `${s.flySpeed.toFixed(2)}x`, s.attack||'—'],
+          row: (id, s) => [(s.hp||0).toLocaleString(), s.capacity, formatFlySpeed(s.flySpeed), s.attack||'—'],
         },
       ];
 

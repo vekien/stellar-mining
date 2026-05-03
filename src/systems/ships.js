@@ -6,9 +6,11 @@ import { state, bumpShipIdCounter } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
-         UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
-         upgradeTotalCost, upgradeChunk,
-         SHIP_CRAFT_TIME_MS, DEFAULT_CRAFT_TIME_MS } from '../data/ships.js';
+          UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
+          upgradeTotalCost, upgradeChunk,
+          SHIP_CRAFT_TIME_MS, DEFAULT_CRAFT_TIME_MS,
+          flySpeedToMultiplier, formatFlySpeed, FLY_SPEED_UPGRADE_STEP, MINE_SPEED_UPGRADE_STEP,
+          capacityFromTierAndLevel, formatMineSpeedPercent } from '../data/ships.js';
 import { BASE_MAX_SHIPS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
@@ -68,7 +70,7 @@ export function spawnShip(type = 'scout') {
     id,
     name: recipe ? `${recipe.name} #${id}` : `Starter #${id}`,
     type,
-    capacity:  stats.capacity,
+    capacity:  capacityFromTierAndLevel(type, stats.mineTier, 0, stats.capacity),
     flySpeed:  stats.flySpeed,
     mineSpeed: stats.mineSpeed,
     mineTier:  stats.mineTier,
@@ -128,7 +130,7 @@ export function assignShip(ship, node) {
 export let tickEvents = [];
 
 export function tickShip(ship, dt) {
-  const FLY_SPEED = 80 * ship.flySpeed;
+  const FLY_SPEED = 80 * flySpeedToMultiplier(ship.flySpeed);
   if (ship.status==='flying'||ship.status==='returning') {
     // Trail: record world position every frame, keep last 28 points
     if (!ship.trail) ship.trail = [];
@@ -307,8 +309,8 @@ window.craftShip = function(recipeId) {
   const flavour    = NPCS.rigs.shipLines[recipeId] || NPCS.rigs.shipLines.default;
   const statsTable = `<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;">
     <tr><td style="color:#4a7aaa;padding:2px 0;width:55%;">▲ Cargo Capacity</td><td style="color:#cde;font-weight:bold;">${shipStats.capacity} units</td></tr>
-    <tr><td style="color:#4a7aaa;padding:2px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${shipStats.flySpeed}x</td></tr>
-    <tr><td style="color:#4a7aaa;padding:2px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${shipStats.mineSpeed}x</td></tr>
+    <tr><td style="color:#4a7aaa;padding:2px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${formatFlySpeed(shipStats.flySpeed)}</td></tr>
+    <tr><td style="color:#4a7aaa;padding:2px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${formatMineSpeedPercent(shipStats.mineSpeed)}</td></tr>
   </table>`;
   setTimeout(() => showOnce('craft_' + recipeId,
     `<strong>${recipe.name}</strong> rolling out of the yard!${statsTable}${flavour}`,
@@ -359,22 +361,22 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     const allowed = Math.min(chunk, cap-ship.capacityLevel); if (allowed<=0) return;
     const cost = upgradeTotalCost(UPGRADE_CAP_COST, ship, 'capacity', allowed); if (state.coins < cost) return;
     spendCoins(cost);
-    const capStep = ship.type==='freighter'?10:ship.type==='hauler'?5:2;
-    for (let i=0;i<allowed;i++) { ship.capacityLevel++; ship.capacity+=capStep; }
+    ship.capacityLevel += allowed;
+    ship.capacity = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity);
     addLog(`⬆ ${ship.name} cargo Lv${ship.capacityLevel} → ${ship.capacity}${ship.capacityLevel>=cap?' (MAX)':''}`);
   } else if (stat === 'flySpeed') {
     const allowed = Math.min(chunk, cap-ship.flySpeedLevel); if (allowed<=0) return;
     const cost = upgradeTotalCost(UPGRADE_FLY_COST, ship, 'flySpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
-    for (let i=0;i<allowed;i++) { ship.flySpeedLevel++; ship.flySpeed=parseFloat((ship.flySpeed+0.2).toFixed(2)); }
-    addLog(`⬆ ${ship.name} fly Lv${ship.flySpeedLevel} → ${ship.flySpeed.toFixed(2)}x${ship.flySpeedLevel>=cap?' (MAX)':''}`);
+    for (let i=0;i<allowed;i++) { ship.flySpeedLevel++; ship.flySpeed += FLY_SPEED_UPGRADE_STEP; }
+    addLog(`⬆ ${ship.name} fly Lv${ship.flySpeedLevel} → ${formatFlySpeed(ship.flySpeed)}${ship.flySpeedLevel>=cap?' (MAX)':''}`);
   } else if (stat === 'mineSpeed') {
     if ((ship.mineSpeed || 0) <= 0) return;
     const allowed = Math.min(chunk, cap-ship.mineSpeedLevel); if (allowed<=0) return;
     const cost = upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
-    for (let i=0;i<allowed;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+0.2).toFixed(2)); }
-    addLog(`⬆ ${ship.name} mine Lv${ship.mineSpeedLevel} → ${ship.mineSpeed.toFixed(2)}x${ship.mineSpeedLevel>=cap?' (MAX)':''}`);
+    for (let i=0;i<allowed;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+MINE_SPEED_UPGRADE_STEP).toFixed(2)); }
+    addLog(`⬆ ${ship.name} mine Lv${ship.mineSpeedLevel} → ${formatMineSpeedPercent(ship.mineSpeed)}${ship.mineSpeedLevel>=cap?' (MAX)':''}`);
   } else if (stat === 'mineTier') {
     const nextTier = ship.mineTier+1; if (nextTier>10) return;
     const cost = SHIP_TIER_COSTS[nextTier]; if (!cost||state.coins<cost) return;
@@ -407,14 +409,14 @@ window.upgradeShipAll = function(shipId, levels) {
   spendCoins(total);
 
   if (capChk > 0) {
-    const capStep = ship.type==='freighter'?10:ship.type==='hauler'?5:2;
-    for (let i=0;i<capChk;i++) { ship.capacityLevel++; ship.capacity+=capStep; }
+    ship.capacityLevel += capChk;
+    ship.capacity = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity);
   }
   if (flyChk > 0) {
-    for (let i=0;i<flyChk;i++) { ship.flySpeedLevel++; ship.flySpeed=parseFloat((ship.flySpeed+0.2).toFixed(2)); }
+    for (let i=0;i<flyChk;i++) { ship.flySpeedLevel++; ship.flySpeed += FLY_SPEED_UPGRADE_STEP; }
   }
   if (mineChk > 0) {
-    for (let i=0;i<mineChk;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+0.2).toFixed(2)); }
+    for (let i=0;i<mineChk;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+MINE_SPEED_UPGRADE_STEP).toFixed(2)); }
   }
 
   const label = levels === 'max' ? 'MAX' : `+${levels}`;

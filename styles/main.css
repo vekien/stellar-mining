@@ -544,11 +544,11 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 8px 0; border-bottom: 1px solid #0d1f40; gap: 6px;
   }
-  .upgrade-label { color: #8ab; flex: 1; font-size: 14px; }
-  .upgrade-val { color: #cde; font-size: 16px; }
-  .upgrade-cost { color: #ffe066; font-size: 16px; }
+  .upgrade-label { color: #8ab; flex: 1; font-size: 14px; font-family: 'Share Tech Mono', monospace; line-height: 1; }
+  .upgrade-val { color: #cde; font-size: 14px; font-family: 'Share Tech Mono', monospace; line-height: 1; }
+  .upgrade-cost { color: #ffe066; font-size: 14px; font-family: 'Share Tech Mono', monospace; line-height: 1; }
   .upgrade-btn {
-    font-family: 'Share Tech Mono', monospace; font-size: 13px;
+    font-family: 'Share Tech Mono', monospace; font-size: 14px;
     background: rgba(20,50,100,0.6); border: 1px solid #2a5090; color: #8cf;
     padding: 4px 11px; border-radius: 3px; cursor: pointer; min-width: 48px; text-align: center;
   }

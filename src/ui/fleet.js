@@ -7,7 +7,7 @@ import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
   SHIP_DEFS, TIER_COLORS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
   UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
-  upgradeChunk, upgradeTotalCost, toRoman,
+  upgradeTotalCost, toRoman, formatFlySpeed, formatMineSpeedPercent, capacityFromTierAndLevel,
 } from '../data/ships.js';
 import { BASE_POS, cam, ZOOM_MAX_V } from '../render/camera.js';
 import { TILE_H } from '../constants.js';
@@ -425,11 +425,11 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
         </div>
         <div class="ship-data-row">
           <span class="ship-data-label">Flying Speed</span>
-          <span class="ship-data-value">${ship.flySpeed.toFixed(2)}x</span>
+          <span class="ship-data-value">${formatFlySpeed(ship.flySpeed)}</span>
         </div>
         ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row">
           <span class="ship-data-label">Mining Speed</span>
-          <span class="ship-data-value">${ship.mineSpeed.toFixed(2)}x</span>
+          <span class="ship-data-value">${formatMineSpeedPercent(ship.mineSpeed)}</span>
         </div>` : ''}
       </div>
     </div>`;
@@ -508,12 +508,18 @@ function buildUpgradesSection(shipId) {
   const capAtM  = s2.capacityLevel  >= cap2;
   const flyAtM  = s2.flySpeedLevel  >= cap2;
   const mineAtM = s2.mineSpeedLevel >= cap2;
-  const capChk  = capAtM  ? 0 : Math.min(upgradeChunk(s2.capacityLevel),  cap2 - s2.capacityLevel);
-  const flyChk  = flyAtM  ? 0 : Math.min(upgradeChunk(s2.flySpeedLevel),  cap2 - s2.flySpeedLevel);
-  const mineChk = mineAtM ? 0 : Math.min(upgradeChunk(s2.mineSpeedLevel), cap2 - s2.mineSpeedLevel);
+  const capChk  = capAtM  ? 0 : 1;
+  const flyChk  = flyAtM  ? 0 : 1;
+  const mineChk = mineAtM ? 0 : 1;
   const capCost2  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  capChk)  : 0;
   const flyCost2  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  flyChk)  : 0;
   const mineCost2 = mineChk > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', mineChk) : 0;
+
+  const nextCapacity = capChk > 0
+    ? capacityFromTierAndLevel(s2.type, s2.mineTier, s2.capacityLevel + 1, s2.capacity)
+    : 'MAX';
+  const nextFlySpeed = flyChk > 0 ? formatFlySpeed(s2.flySpeed + 20) : 'MAX';
+  const nextMineSpeed = mineChk > 0 ? formatMineSpeedPercent(s2.mineSpeed + 0.4) : 'MAX';
 
   const tierBlock = nt
     ? '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:8px;margin-bottom:6px;">'
@@ -527,11 +533,11 @@ function buildUpgradesSection(shipId) {
       + '</div>'
     : '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:6px;margin-bottom:6px;font-size:11px;color:#ffe066;">★ MAX TIER</div>';
 
-  const row = (label, lv, val, cost, chunk, stat) =>
+  const row = (label, lv, currentVal, nextVal, cost, chunk, stat) =>
     '<div class="upgrade-row">'
-    + '<span class="upgrade-label">'+label+'</span>'
-    + '<span class="upgrade-val">Lv'+lv+' · '+val+'</span>'
-    + '<span class="upgrade-cost" style="color:#ffe066;">'+(chunk > 0 ? '$'+fmt(cost) : '—')+'</span>'
+    + '<span class="upgrade-label">Lv'+lv+' '+label+'</span>'
+    + '<span class="upgrade-val">'+currentVal+' <span style="color:#4a6a8a;">➜</span> <span style="color:#6fff9a;">'+nextVal+'</span></span>'
+    + '<span class="upgrade-cost">'+(chunk > 0 ? '$'+fmt(cost) : '—')+'</span>'
     + '<button class="upgrade-btn" onclick="upgradeShip('+s2.id+',\''+stat+'\','+chunk+')" '+(chunk <= 0 || state.coins < cost ? 'disabled' : '')+'>'+(chunk <= 0 ? 'MAX' : chunk > 1 ? '×'+chunk : '↑')+'</button>'
     + '</div>';
 
@@ -562,9 +568,9 @@ function buildUpgradesSection(shipId) {
     + '</div>';
 
   return tierBlock
-    + row('Cargo Cap',  s2.capacityLevel,  s2.capacity,                capCost2,  capChk,  'capacity')
-    + row('Fly Speed',  s2.flySpeedLevel,  s2.flySpeed.toFixed(2)+'x', flyCost2,  flyChk,  'flySpeed')
-    + (canMine2 ? row('Mine Speed', s2.mineSpeedLevel, s2.mineSpeed.toFixed(2)+'x', mineCost2, mineChk, 'mineSpeed') : '')
+    + row('Cargo Cap',  s2.capacityLevel,  s2.capacity,                nextCapacity,  capCost2,  capChk,  'capacity')
+    + row('Fly Speed',  s2.flySpeedLevel,  formatFlySpeed(s2.flySpeed), nextFlySpeed,  flyCost2,  flyChk,  'flySpeed')
+    + (canMine2 ? row('Mine Speed', s2.mineSpeedLevel, formatMineSpeedPercent(s2.mineSpeed), nextMineSpeed, mineCost2, mineChk, 'mineSpeed') : '')
     + allRow;
 }
 

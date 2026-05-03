@@ -13,11 +13,18 @@ export function hexToRgb(hex) {
 /** Format number with commas (floor first) */
 export function fmt(n) { return Math.floor(n).toLocaleString(); }
 
+export const MAX_COINS = 999_999_999;
+
+export function clampCoins(n) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(MAX_COINS, Math.floor(n)));
+}
+
 // ── Coin helpers — mutate state.coins and push update to header ──
 let _headerCoinCb = null;
 export function setHeaderCoinCb(fn) { _headerCoinCb = fn; }
-export function addCoins(n) { _stateRef.coins += n; _headerCoinCb?.(); }
-export function spendCoins(n) { _stateRef.coins -= n; _headerCoinCb?.(); }
+export function addCoins(n) { _stateRef.coins = clampCoins((_stateRef.coins || 0) + n); _headerCoinCb?.(); }
+export function spendCoins(n) { _stateRef.coins = clampCoins((_stateRef.coins || 0) - n); _headerCoinCb?.(); }
 
 // ── Canvas log entries ──
 // state is imported lazily via the getter to avoid circular deps at module init
