@@ -7,10 +7,13 @@ import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
           UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
+          UPGRADE_LOAD_COST, UPGRADE_HP_COST, UPGRADE_ATTACK_COST, UPGRADE_ATK_RATE_COST,
           upgradeTotalCost, upgradeChunk,
           SHIP_CRAFT_TIME_MS, DEFAULT_CRAFT_TIME_MS,
           flySpeedToMultiplier, formatFlySpeed, FLY_SPEED_UPGRADE_STEP, MINE_SPEED_UPGRADE_STEP,
-          capacityFromTierAndLevel, formatMineSpeedPercent } from '../data/ships.js';
+          capacityFromTierAndLevel, flySpeedFromLevel, mineSpeedFromLevel,
+          loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel,
+          formatMineSpeedPercent } from '../data/ships.js';
 import { BASE_MAX_SHIPS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
@@ -66,15 +69,27 @@ export function spawnShip(type = 'scout') {
   const stats  = SHIP_DEFS[type] || SHIP_DEFS.scout;
   const base = gridToWorld(BASE_COL, BASE_ROW);
   const id = bumpShipIdCounter();
+  const isUnique = stats.unique === true;
   const ship = {
     id,
     name: recipe ? `${recipe.name} #${id}` : `Starter #${id}`,
     type,
-    capacity:  capacityFromTierAndLevel(type, stats.mineTier, 0, stats.capacity),
-    flySpeed:  stats.flySpeed,
-    mineSpeed: stats.mineSpeed,
-    mineTier:  stats.mineTier,
-    capacityLevel:0, flySpeedLevel:0, mineSpeedLevel:0,
+    capacity:     isUnique ? stats.capacity : capacityFromTierAndLevel(type, stats.mineTier, 0, stats.capacity),
+    flySpeed:     stats.flySpeed,
+    mineSpeed:    stats.mineSpeed,
+    loadSpeed:    stats.loadSpeed ?? 0,
+    hp:           stats.hp       ?? 0,
+    attack:       stats.attack   ?? 0,
+    attackSpeed:  stats.attackSpeed ?? 0,
+    mineTier:     stats.mineTier,
+    // Upgrade levels — all 0 for normal ships, 100 for unique (already at max)
+    capacityLevel:  isUnique ? 100 : 0,
+    flySpeedLevel:  isUnique ? 100 : 0,
+    mineSpeedLevel: isUnique ? 100 : 0,
+    loadSpeedLevel: isUnique ? 100 : 0,
+    hpLevel:        isUnique ? 100 : 0,
+    attackLevel:    isUnique ? 100 : 0,
+    atkRateLevel:   isUnique ? 100 : 0,
     cargo:0, cargoResource:null,
     status:'idle', targetNode:null,
     heading: Math.random() * Math.PI * 2,
@@ -306,11 +321,17 @@ window.craftShip = function(recipeId) {
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
   const shipStats  = SHIP_DEFS[recipeId] || SHIP_DEFS.scout;
+  const shipRole   = shipStats.role || 'mining';
   const flavour    = NPCS.rigs.shipLines[recipeId] || NPCS.rigs.shipLines.default;
+  const thirdRow   = shipRole === 'transport'
+    ? `<tr><td style="color:#4a7aaa;padding:2px 0;">⟳ Load Speed</td><td style="color:#cde;font-weight:bold;">${Math.round((shipStats.loadSpeed||0)*10)}%</td></tr>`
+    : shipRole === 'combat'
+    ? `<tr><td style="color:#4a7aaa;padding:2px 0;">⚔ Attack</td><td style="color:#cde;font-weight:bold;">${shipStats.attack||0}</td></tr>`
+    : `<tr><td style="color:#4a7aaa;padding:2px 0;">⛏ MINE SPD</td><td style="color:#cde;font-weight:bold;">${formatMineSpeedPercent(shipStats.mineSpeed)}</td></tr>`;
   const statsTable = `<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;">
-    <tr><td style="color:#4a7aaa;padding:2px 0;width:55%;">▲ Cargo Capacity</td><td style="color:#cde;font-weight:bold;">${shipStats.capacity} units</td></tr>
-    <tr><td style="color:#4a7aaa;padding:2px 0;">✈ Fly Speed</td><td style="color:#cde;font-weight:bold;">${formatFlySpeed(shipStats.flySpeed)}</td></tr>
-    <tr><td style="color:#4a7aaa;padding:2px 0;">⛏ Mine Speed</td><td style="color:#cde;font-weight:bold;">${formatMineSpeedPercent(shipStats.mineSpeed)}</td></tr>
+    ${shipRole !== 'combat' ? `<tr><td style="color:#4a7aaa;padding:2px 0;width:55%;">▲ CARGO</td><td style="color:#cde;font-weight:bold;">${shipStats.capacity} units</td></tr>` : ''}
+    <tr><td style="color:#4a7aaa;padding:2px 0;">✈ FLY SPD</td><td style="color:#cde;font-weight:bold;">${formatFlySpeed(shipStats.flySpeed)}</td></tr>
+    ${thirdRow}
   </table>`;
   setTimeout(() => showOnce('craft_' + recipeId,
     `<strong>${recipe.name}</strong> rolling out of the yard!${statsTable}${flavour}`,
@@ -356,33 +377,73 @@ window.syncShipCraftTimers();
 // ── Upgrade Ship Stats ──
 window.upgradeShip = function(shipId, stat, chunk = 1) {
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
+  if (SHIP_DEFS[ship.type]?.unique) return; // unique ships are already maxed
   const cap = TIER_UPGRADE_CAP[ship.mineTier] || 10;
+
   if (stat === 'capacity') {
-    const allowed = Math.min(chunk, cap-ship.capacityLevel); if (allowed<=0) return;
+    const allowed = Math.min(chunk, cap - ship.capacityLevel); if (allowed <= 0) return;
     const cost = upgradeTotalCost(UPGRADE_CAP_COST, ship, 'capacity', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.capacityLevel += allowed;
     ship.capacity = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity);
     addLog(`⬆ ${ship.name} cargo Lv${ship.capacityLevel} → ${ship.capacity}${ship.capacityLevel>=cap?' (MAX)':''}`);
+
   } else if (stat === 'flySpeed') {
-    const allowed = Math.min(chunk, cap-ship.flySpeedLevel); if (allowed<=0) return;
+    const allowed = Math.min(chunk, cap - ship.flySpeedLevel); if (allowed <= 0) return;
     const cost = upgradeTotalCost(UPGRADE_FLY_COST, ship, 'flySpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
-    for (let i=0;i<allowed;i++) { ship.flySpeedLevel++; ship.flySpeed += FLY_SPEED_UPGRADE_STEP; }
+    ship.flySpeedLevel += allowed;
+    ship.flySpeed = flySpeedFromLevel(ship.type, ship.flySpeedLevel);
     addLog(`⬆ ${ship.name} fly Lv${ship.flySpeedLevel} → ${formatFlySpeed(ship.flySpeed)}${ship.flySpeedLevel>=cap?' (MAX)':''}`);
+
   } else if (stat === 'mineSpeed') {
     if ((ship.mineSpeed || 0) <= 0) return;
-    const allowed = Math.min(chunk, cap-ship.mineSpeedLevel); if (allowed<=0) return;
+    const allowed = Math.min(chunk, cap - ship.mineSpeedLevel); if (allowed <= 0) return;
     const cost = upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
-    for (let i=0;i<allowed;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+MINE_SPEED_UPGRADE_STEP).toFixed(2)); }
+    ship.mineSpeedLevel += allowed;
+    ship.mineSpeed = mineSpeedFromLevel(ship.type, ship.mineSpeedLevel);
     addLog(`⬆ ${ship.name} mine Lv${ship.mineSpeedLevel} → ${formatMineSpeedPercent(ship.mineSpeed)}${ship.mineSpeedLevel>=cap?' (MAX)':''}`);
+
+  } else if (stat === 'loadSpeed') {
+    const allowed = Math.min(chunk, cap - (ship.loadSpeedLevel||0)); if (allowed <= 0) return;
+    const cost = upgradeTotalCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', allowed); if (state.coins < cost) return;
+    spendCoins(cost);
+    ship.loadSpeedLevel = (ship.loadSpeedLevel || 0) + allowed;
+    ship.loadSpeed = loadSpeedFromLevel(ship.type, ship.loadSpeedLevel);
+    addLog(`⬆ ${ship.name} load Lv${ship.loadSpeedLevel} → ${Math.round(ship.loadSpeed*10)}%${ship.loadSpeedLevel>=cap?' (MAX)':''}`);
+
+  } else if (stat === 'hp') {
+    const allowed = Math.min(chunk, cap - (ship.hpLevel||0)); if (allowed <= 0) return;
+    const cost = upgradeTotalCost(UPGRADE_HP_COST, ship, 'hp', allowed); if (state.coins < cost) return;
+    spendCoins(cost);
+    ship.hpLevel = (ship.hpLevel || 0) + allowed;
+    ship.hp = hpFromLevel(ship.type, ship.hpLevel);
+    addLog(`⬆ ${ship.name} HP Lv${ship.hpLevel} → ${ship.hp.toLocaleString()}${ship.hpLevel>=cap?' (MAX)':''}`);
+
+  } else if (stat === 'attack') {
+    const allowed = Math.min(chunk, cap - (ship.attackLevel||0)); if (allowed <= 0) return;
+    const cost = upgradeTotalCost(UPGRADE_ATTACK_COST, ship, 'attack', allowed); if (state.coins < cost) return;
+    spendCoins(cost);
+    ship.attackLevel = (ship.attackLevel || 0) + allowed;
+    ship.attack = attackFromLevel(ship.type, ship.attackLevel);
+    addLog(`⬆ ${ship.name} ATK Lv${ship.attackLevel} → ${ship.attack}${ship.attackLevel>=cap?' (MAX)':''}`);
+
+  } else if (stat === 'atkRate') {
+    const allowed = Math.min(chunk, cap - (ship.atkRateLevel||0)); if (allowed <= 0) return;
+    const cost = upgradeTotalCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate', allowed); if (state.coins < cost) return;
+    spendCoins(cost);
+    ship.atkRateLevel = (ship.atkRateLevel || 0) + allowed;
+    ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel);
+    addLog(`⬆ ${ship.name} ATK rate Lv${ship.atkRateLevel} → ${Math.round(ship.attackSpeed*100)}%${ship.atkRateLevel>=cap?' (MAX)':''}`);
+
   } else if (stat === 'mineTier') {
-    const nextTier = ship.mineTier+1; if (nextTier>10) return;
-    const cost = SHIP_TIER_COSTS[nextTier]; if (!cost||state.coins<cost) return;
-    spendCoins(cost); ship.mineTier=nextTier;
+    const nextTier = ship.mineTier + 1; if (nextTier > 10) return;
+    const cost = SHIP_TIER_COSTS[nextTier]; if (!cost || state.coins < cost) return;
+    spendCoins(cost); ship.mineTier = nextTier;
     addLog(`⬆ ${ship.name} upgraded to ${MINE_TIERS[nextTier].label}!`);
   }
+
   state.upgradesTutActive = false;
   document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   dismissTransmission();
@@ -393,31 +454,44 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
 
 window.upgradeShipAll = function(shipId, levels) {
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
-  const cap = TIER_UPGRADE_CAP[ship.mineTier] || 10;
-  const canMine = (ship.mineSpeed || 0) > 0;
+  if (SHIP_DEFS[ship.type]?.unique) return;
+  const cap  = TIER_UPGRADE_CAP[ship.mineTier] || 10;
+  const role = SHIP_DEFS[ship.type]?.role || 'mining';
+  const n    = levels === 'max';
 
-  const capChk  = levels === 'max' ? cap - ship.capacityLevel  : Math.min(levels, cap - ship.capacityLevel);
-  const flyChk  = levels === 'max' ? cap - ship.flySpeedLevel  : Math.min(levels, cap - ship.flySpeedLevel);
-  const mineChk = canMine ? (levels === 'max' ? cap - ship.mineSpeedLevel : Math.min(levels, cap - ship.mineSpeedLevel)) : 0;
+  let total = 0;
+  const upgrades = [];
 
-  const capCost  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk)  : 0;
-  const flyCost  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk)  : 0;
-  const mineCost = mineChk > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', mineChk) : 0;
-  const total = capCost + flyCost + mineCost;
+  if (role === 'mining') {
+    const capChk  = n ? cap - ship.capacityLevel  : Math.min(levels, cap - ship.capacityLevel);
+    const flyChk  = n ? cap - ship.flySpeedLevel  : Math.min(levels, cap - ship.flySpeedLevel);
+    const mineChk = n ? cap - ship.mineSpeedLevel : Math.min(levels, cap - ship.mineSpeedLevel);
+    if (capChk  > 0) { const c = upgradeTotalCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk);  total += c; upgrades.push(() => { ship.capacityLevel  += capChk;  ship.capacity   = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity); }); }
+    if (flyChk  > 0) { const c = upgradeTotalCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel  += flyChk;  ship.flySpeed   = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
+    if (mineChk > 0) { const c = upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', mineChk); total += c; upgrades.push(() => { ship.mineSpeedLevel += mineChk; ship.mineSpeed  = mineSpeedFromLevel(ship.type, ship.mineSpeedLevel); }); }
+
+  } else if (role === 'transport') {
+    const capChk  = n ? cap - ship.capacityLevel               : Math.min(levels, cap - ship.capacityLevel);
+    const flyChk  = n ? cap - ship.flySpeedLevel               : Math.min(levels, cap - ship.flySpeedLevel);
+    const loadChk = n ? cap - (ship.loadSpeedLevel||0)         : Math.min(levels, cap - (ship.loadSpeedLevel||0));
+    if (capChk  > 0) { const c = upgradeTotalCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk);  total += c; upgrades.push(() => { ship.capacityLevel  += capChk;  ship.capacity   = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity); }); }
+    if (flyChk  > 0) { const c = upgradeTotalCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel  += flyChk;  ship.flySpeed   = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
+    if (loadChk > 0) { const c = upgradeTotalCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', loadChk); total += c; upgrades.push(() => { ship.loadSpeedLevel = (ship.loadSpeedLevel||0) + loadChk; ship.loadSpeed = loadSpeedFromLevel(ship.type, ship.loadSpeedLevel); }); }
+
+  } else if (role === 'combat') {
+    const flyChk  = n ? cap - ship.flySpeedLevel               : Math.min(levels, cap - ship.flySpeedLevel);
+    const hpChk   = n ? cap - (ship.hpLevel||0)                : Math.min(levels, cap - (ship.hpLevel||0));
+    const atkChk  = n ? cap - (ship.attackLevel||0)            : Math.min(levels, cap - (ship.attackLevel||0));
+    const rateChk = n ? cap - (ship.atkRateLevel||0)           : Math.min(levels, cap - (ship.atkRateLevel||0));
+    if (flyChk  > 0) { const c = upgradeTotalCost(UPGRADE_FLY_COST,      ship, 'flySpeed', flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel += flyChk;  ship.flySpeed    = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
+    if (hpChk   > 0) { const c = upgradeTotalCost(UPGRADE_HP_COST,       ship, 'hp',       hpChk);   total += c; upgrades.push(() => { ship.hpLevel       = (ship.hpLevel||0) + hpChk;     ship.hp          = hpFromLevel(ship.type, ship.hpLevel); }); }
+    if (atkChk  > 0) { const c = upgradeTotalCost(UPGRADE_ATTACK_COST,   ship, 'attack',   atkChk);  total += c; upgrades.push(() => { ship.attackLevel   = (ship.attackLevel||0) + atkChk;  ship.attack      = attackFromLevel(ship.type, ship.attackLevel); }); }
+    if (rateChk > 0) { const c = upgradeTotalCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate',  rateChk); total += c; upgrades.push(() => { ship.atkRateLevel  = (ship.atkRateLevel||0) + rateChk; ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel); }); }
+  }
 
   if (total <= 0 || state.coins < total) return;
   spendCoins(total);
-
-  if (capChk > 0) {
-    ship.capacityLevel += capChk;
-    ship.capacity = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity);
-  }
-  if (flyChk > 0) {
-    for (let i=0;i<flyChk;i++) { ship.flySpeedLevel++; ship.flySpeed += FLY_SPEED_UPGRADE_STEP; }
-  }
-  if (mineChk > 0) {
-    for (let i=0;i<mineChk;i++) { ship.mineSpeedLevel++; ship.mineSpeed=parseFloat((ship.mineSpeed+MINE_SPEED_UPGRADE_STEP).toFixed(2)); }
-  }
+  upgrades.forEach(fn => fn());
 
   const label = levels === 'max' ? 'MAX' : `+${levels}`;
   addLog(`⬆ ${ship.name} all stats ${label} — $${fmt(total)} spent`);

@@ -4,7 +4,13 @@
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
-import { SHIP_DEFS, SHIP_TIER_COSTS, toRoman, formatFlySpeed, formatMineSpeedPercent } from '../data/ships.js';
+import {
+  SHIP_DEFS, SHIP_TIER_COSTS, toRoman,
+  formatFlySpeed, formatMineSpeedPercent, formatLoadSpeedPercent, formatAtkRatePercent,
+  profileMax,
+  CARGO_PROFILE, FLY_SPEED_PROFILE, MINE_SPEED_PROFILE, LOAD_SPEED_PROFILE,
+  HP_PROFILE, ATTACK_PROFILE, ATK_RATE_PROFILE,
+} from '../data/ships.js';
 import { NODE_BANDS } from '../data/nodes.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
@@ -773,31 +779,60 @@ export function openHdrPanel(type) {
         ebon_hawk: { name: 'Ebon Hawk',      desc: 'Legendary smuggler vessel from a galaxy far, far away' },
       };
 
+      // Helper: wraps a base value + optional MAX annotation in green
+      const withMax = (base, maxVal) => {
+        if (maxVal === null || maxVal === undefined) return String(base);
+        return `${base} <span style="color:#4dff8a;font-size:10px;">(MAX: ${maxVal})</span>`;
+      };
+
       const ROLE_GROUPS = [
         {
-          role: 'mining',    label: '⛏  MINING SHIPS',    color: '#60d090',
-          cols: ['SHIP','TIER','CARGO','FLY SPD','MINE SPD','TURN RAD'],
-          row: (id, s) => [s.capacity, formatFlySpeed(s.flySpeed), formatMineSpeedPercent(s.mineSpeed), s.turnRadius.toFixed(2)],
+          role: 'mining', label: '⛏  MINING SHIPS', color: '#60d090',
+          cols: ['SHIP','TIER','CARGO','FLY SPD','MINE SPD'],
+          row: (id, s) => [
+            withMax(s.capacity, profileMax(CARGO_PROFILE, id)),
+            withMax(formatFlySpeed(s.flySpeed), profileMax(FLY_SPEED_PROFILE, id) !== null ? formatFlySpeed(profileMax(FLY_SPEED_PROFILE, id)) : null),
+            withMax(formatMineSpeedPercent(s.mineSpeed), profileMax(MINE_SPEED_PROFILE, id) !== null ? `${Math.round(profileMax(MINE_SPEED_PROFILE, id)*10)}%` : null),
+          ],
         },
         {
-          role: 'transport', label: '▲  CARGO TRANSPORT',  color: '#80d0ff',
-          cols: ['SHIP','TIER','CARGO','FLY SPD','TURN RAD'],
-          row: (id, s) => [s.capacity, formatFlySpeed(s.flySpeed), s.turnRadius.toFixed(2)],
+          role: 'transport', label: '▲  CARGO TRANSPORT', color: '#80d0ff',
+          cols: ['SHIP','TIER','CARGO','FLY SPD','LOAD SPD'],
+          row: (id, s) => [
+            withMax(s.capacity, profileMax(CARGO_PROFILE, id)),
+            withMax(formatFlySpeed(s.flySpeed), profileMax(FLY_SPEED_PROFILE, id) !== null ? formatFlySpeed(profileMax(FLY_SPEED_PROFILE, id)) : null),
+            withMax(formatLoadSpeedPercent(s.loadSpeed || 0), profileMax(LOAD_SPEED_PROFILE, id) !== null ? `${Math.round(profileMax(LOAD_SPEED_PROFILE, id)*10)}%` : null),
+          ],
         },
         {
-          role: 'combat',    label: '⚔  COMBAT SHIPS',    color: '#ff6060',
+          role: 'combat', label: '⚔  COMBAT SHIPS', color: '#ff6060',
           cols: ['SHIP','TIER','HP','ATTACK','ATK RATE','FLY SPD'],
-          row: (id, s) => [(s.hp||0).toLocaleString(), s.attack||0, `${s.attackSpeed||0}x`, formatFlySpeed(s.flySpeed)],
+          row: (id, s) => [
+            withMax((s.hp||0).toLocaleString(), profileMax(HP_PROFILE, id) !== null ? profileMax(HP_PROFILE, id).toLocaleString() : null),
+            withMax(s.attack||0, profileMax(ATTACK_PROFILE, id)),
+            withMax(formatAtkRatePercent(s.attackSpeed||0), profileMax(ATK_RATE_PROFILE, id) !== null ? `${Math.round(profileMax(ATK_RATE_PROFILE, id)*100)}%` : null),
+            withMax(formatFlySpeed(s.flySpeed), profileMax(FLY_SPEED_PROFILE, id) !== null ? formatFlySpeed(profileMax(FLY_SPEED_PROFILE, id)) : null),
+          ],
         },
         {
-          role: 'garrison',  label: '🛡  GARRISON',        color: '#ff8c40',
+          role: 'garrison', label: '🛡  GARRISON', color: '#ff8c40',
           cols: ['SHIP','TIER','HP','ATTACK','RANGE','ATK RATE'],
-          row: (id, s) => [(s.hp||0).toLocaleString(), s.attack||0, `${s.range||0} tiles`, `${s.attackSpeed||0}x`],
+          row: (id, s) => [
+            (s.hp||0).toLocaleString(),
+            s.attack||0,
+            `${s.range||0} tiles`,
+            formatAtkRatePercent(s.attackSpeed||0),
+          ],
         },
         {
-          role: 'unique',    label: '★  UNIQUE SHIPS',    color: '#ffffff',
+          role: 'unique', label: '★  UNIQUE SHIPS', color: '#ffffff',
           cols: ['SHIP','TIER','HP','CARGO','FLY SPD','ATTACK'],
-          row: (id, s) => [(s.hp||0).toLocaleString(), s.capacity, formatFlySpeed(s.flySpeed), s.attack||'—'],
+          row: (id, s) => [
+            (s.hp||0).toLocaleString(),
+            s.capacity,
+            formatFlySpeed(s.flySpeed),
+            s.attack||'—',
+          ],
         },
       ];
 

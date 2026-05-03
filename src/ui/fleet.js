@@ -7,7 +7,11 @@ import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
   SHIP_DEFS, TIER_COLORS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
   UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
-  upgradeTotalCost, toRoman, formatFlySpeed, formatMineSpeedPercent, capacityFromTierAndLevel,
+  UPGRADE_LOAD_COST, UPGRADE_HP_COST, UPGRADE_ATTACK_COST, UPGRADE_ATK_RATE_COST,
+  upgradeTotalCost, toRoman,
+  formatFlySpeed, formatMineSpeedPercent, formatLoadSpeedPercent, formatAtkRatePercent,
+  capacityFromTierAndLevel, flySpeedFromLevel, mineSpeedFromLevel,
+  loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel,
 } from '../data/ships.js';
 import { BASE_POS, cam, ZOOM_MAX_V } from '../render/camera.js';
 import { TILE_H } from '../constants.js';
@@ -29,6 +33,8 @@ window.toggleFleetFilters = function() {
 
 let _sellOverlayShipId = null;
 let _sellOverlayValue = 0;
+
+const ROLE_LABELS = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', unique: 'Unique' };
 
 export function renderFleetFilters() {
   const container = document.getElementById('fleet-filters');
@@ -83,9 +89,8 @@ export function renderFleetFilters() {
   container.appendChild(makeRow('Type', typeSelect));
 
   const roles = [...new Set(state.ships.map(s => SHIP_DEFS[s.type]?.role).filter(Boolean))];
-  const roleLabels = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', unique: 'Unique' };
   const roleSelect = makeSelect(
-    [{ value: '', label: 'All Roles' }, ...roles.map(r => ({ value: r, label: roleLabels[r] || r }))],
+    [{ value: '', label: 'All Roles' }, ...roles.map(r => ({ value: r, label: ROLE_LABELS[r] || r }))],
     ff.role,
     (v) => { ff.role = v || null; renderShipsList(); }
   );
@@ -100,21 +105,17 @@ export function renderFleetFilters() {
 
   const sortSelect = makeSelect(
     [
-      { value: 'none', label: 'No Sort' },
-      { value: 'fly', label: 'Flying Speed' },
-      { value: 'mine', label: 'Mining Speed' },
+      { value: 'none',     label: 'No Sort' },
+      { value: 'fly',      label: 'Fly Speed' },
+      { value: 'mine',     label: 'Mine Speed' },
       { value: 'capacity', label: 'Cargo Size' },
-      { value: 'level', label: 'Level' },
-      { value: 'node', label: 'Node Type' },
+      { value: 'level',    label: 'Level' },
+      { value: 'node',     label: 'Node Type' },
     ],
     ff.sort || 'none',
     (v) => {
-      if (v === 'none') {
-        ff.sort = null;
-        ff.sortDir = 1;
-      } else {
-        ff.sort = v;
-      }
+      if (v === 'none') { ff.sort = null; ff.sortDir = 1; }
+      else { ff.sort = v; }
       renderShipsList();
     }
   );
@@ -135,7 +136,6 @@ export function renderFleetFilters() {
     renderShipsList();
   };
   sortWrap.appendChild(sortDirBtn);
-
   container.appendChild(makeRow('Sort', sortWrap));
 
   const clearRow = document.createElement('div');
@@ -144,10 +144,7 @@ export function renderFleetFilters() {
   const idleToggle = document.createElement('button');
   idleToggle.className = 'fleet-filter' + (ff.idleOnly ? ' active' : '');
   idleToggle.textContent = 'Idle';
-  idleToggle.onclick = () => {
-    ff.idleOnly = !ff.idleOnly;
-    renderShipsList();
-  };
+  idleToggle.onclick = () => { ff.idleOnly = !ff.idleOnly; renderShipsList(); };
 
   const clr = document.createElement('button');
   clr.className = 'fleet-filter fleet-filter-clear';
@@ -186,8 +183,7 @@ export function renderShipsList() {
 
   if (ff.sort === 'level') {
     ships = [...ships].sort((a, b) => {
-      const la = a.capacityLevel + a.flySpeedLevel + a.mineSpeedLevel;
-      const lb = b.capacityLevel + b.flySpeedLevel + b.mineSpeedLevel;
+      const la = _overallLevel(a), lb = _overallLevel(b);
       return (lb - la) * ff.sortDir * -1;
     });
   } else if (ff.sort === 'capacity') {
@@ -215,12 +211,14 @@ export function renderShipsList() {
     const isSelected = state.selectedShip === ship.id;
     const card = document.createElement('div');
     card.className = `ship-card ${isSelected?'selected':''} ${ship.status!=='idle'?'busy':''}`;
-    const pct = ship.cargo / ship.capacity * 100;
+    const role    = SHIP_DEFS[ship.type]?.role || 'mining';
+    const hasCargo = role === 'mining' || role === 'transport' || role === 'unique';
+    const pct = hasCargo ? ship.cargo / Math.max(1, ship.capacity) * 100 : 0;
     const statusLabels = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING' };
 
     const safeTierNum = Math.min(10, Math.max(1, ship.mineTier || 1));
     const tierRarityColor = TIER_COLORS[safeTierNum] || '#e8eaf0';
-    const overallLevel = (ship.capacityLevel || 0) + (ship.flySpeedLevel || 0) + (ship.mineSpeedLevel || 0);
+    const overallLevel = _overallLevel(ship);
     const typeLabel = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
     const targetNode = ship.targetNode !== null && ship.targetNode !== undefined ? state.nodes.find(n => n.id === ship.targetNode) : null;
     const resDef = targetNode ? RESOURCE_DEFS[targetNode.type] : null;
@@ -276,21 +274,26 @@ export function renderShipsList() {
         unassignedLabel.textContent = 'UNASSIGNED';
         row2.appendChild(unassignedLabel);
       }
-      const cargoText = document.createElement('span');
-      cargoText.id = `cargo-text-${ship.id}`;
-      cargoText.style.cssText = 'font-size:14px;color:#8ab;margin-left:auto;';
-      cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
-      row2.appendChild(cargoText);
+      if (hasCargo) {
+        const cargoText = document.createElement('span');
+        cargoText.id = `cargo-text-${ship.id}`;
+        cargoText.style.cssText = 'font-size:14px;color:#8ab;margin-left:auto;';
+        cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
+        row2.appendChild(cargoText);
+      }
     }
 
-    // ROW 3: cargo bar
-    const bar = document.createElement('div'); bar.className = 'ship-cargo-bar';
-    const fill = document.createElement('div'); fill.className = 'ship-cargo-fill';
-    fill.id = `cargo-fill-${ship.id}`;
-    fill.style.width = `${pct}%`;
-    bar.appendChild(fill);
-
-    card.appendChild(row1); card.appendChild(row2); card.appendChild(bar);
+    // ROW 3: cargo bar (only for ships with cargo)
+    if (hasCargo) {
+      const bar = document.createElement('div'); bar.className = 'ship-cargo-bar';
+      const fill = document.createElement('div'); fill.className = 'ship-cargo-fill';
+      fill.id = `cargo-fill-${ship.id}`;
+      fill.style.width = `${pct}%`;
+      bar.appendChild(fill);
+      card.appendChild(row1); card.appendChild(row2); card.appendChild(bar);
+    } else {
+      card.appendChild(row1); card.appendChild(row2);
+    }
 
     card.addEventListener('mouseenter', () => { state.hoveredShip = ship.id; });
     card.addEventListener('mouseleave', () => { if (state.hoveredShip === ship.id) state.hoveredShip = null; });
@@ -326,12 +329,22 @@ export function renderShipsList() {
   }
 }
 
+// Overall level shown in ship card — role-aware
+function _overallLevel(ship) {
+  const role = SHIP_DEFS[ship.type]?.role || 'mining';
+  if (role === 'mining')    return (ship.capacityLevel||0) + (ship.flySpeedLevel||0) + (ship.mineSpeedLevel||0);
+  if (role === 'transport') return (ship.capacityLevel||0) + (ship.flySpeedLevel||0) + (ship.loadSpeedLevel||0);
+  if (role === 'combat')    return (ship.hpLevel||0) + (ship.attackLevel||0) + (ship.atkRateLevel||0) + (ship.flySpeedLevel||0);
+  if (role === 'unique')    return 400; // all 4 stats at 100
+  return (ship.capacityLevel||0) + (ship.flySpeedLevel||0);
+}
+
 export function renderActionPanel() {
-  const actionPanel = document.getElementById('action-panel');
-  const titleEl = document.getElementById('action-panel-title');
-  const panel   = document.getElementById('action-content');
+  const actionPanel   = document.getElementById('action-panel');
+  const titleEl       = document.getElementById('action-panel-title');
+  const panel         = document.getElementById('action-content');
   const upgradeDrawer = document.getElementById('ship-upgrade-drawer');
-  const upgradeTitle = document.getElementById('ship-upgrade-title');
+  const upgradeTitle  = document.getElementById('ship-upgrade-title');
   const upgradeContent = document.getElementById('ship-upgrade-content');
 
   if (!state.selectedShip) {
@@ -369,17 +382,16 @@ export function renderActionPanel() {
                     : ship.status === 'returning' || ship.status === 'pausing' ? '#fa6'
                     : '#4d8';
 
-  const stats = SHIP_DEFS[ship.type] || SHIP_DEFS.scout;
+  const stats    = SHIP_DEFS[ship.type] || SHIP_DEFS.scout;
+  const isIdle   = ship.status === 'idle';
+  const typeLabel = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
 
   let upgradeCost = 0;
-  for (let i = 0; i < ship.capacityLevel;  i++) upgradeCost += Math.floor(40  * Math.pow(1.10, i));
-  for (let i = 0; i < ship.flySpeedLevel;  i++) upgradeCost += Math.floor(60  * Math.pow(1.10, i));
-  for (let i = 0; i < ship.mineSpeedLevel; i++) upgradeCost += Math.floor(60  * Math.pow(1.10, i));
+  for (let i = 0; i < ship.capacityLevel;  i++) upgradeCost += Math.floor(40 * Math.pow(1.10, i));
+  for (let i = 0; i < ship.flySpeedLevel;  i++) upgradeCost += Math.floor(60 * Math.pow(1.10, i));
+  for (let i = 0; i < ship.mineSpeedLevel; i++) upgradeCost += Math.floor(60 * Math.pow(1.10, i));
   for (let t = stats.mineTier + 1; t <= ship.mineTier; t++) upgradeCost += SHIP_TIER_COSTS[t] || 0;
   const sellVal = Math.max(10, upgradeCost);
-
-  const isIdle    = ship.status === 'idle';
-  const typeLabel = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
 
   panel.innerHTML = '';
 
@@ -393,49 +405,121 @@ export function renderActionPanel() {
 }
 
 function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal }) {
-  const statsHtml = `
-    <div class="ship-data-section">
-      <div class="ship-data-row">
-        <span class="ship-data-label">Status</span>
-        <span class="ship-data-value" id="action-panel-status" style="color:${statusColor}">${statusMsg}</span>
-      </div>
-      ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row">
-        <span class="ship-data-label">Assigned Node</span>
-        <span class="ship-data-value" style="${nodeLabel !== '—' ? '' : 'color:#f55;'}">${nodeLabel !== '—' ? nodeLabel : 'UNASSIGNED'}</span>
-      </div>` : ''}
-      <div class="ship-data-row">
-        <span class="ship-data-label">Ship Type</span>
-        <span class="ship-data-value" style="color:#5a8ab0">${typeLabel}</span>
-      </div>
-      <div class="ship-data-row">
-        <span class="ship-data-label">Mining Tier</span>
-        <span class="ship-data-value" style="color:${tierColor}">${tierDef.label}</span>
-      </div>
-      <div class="ship-data-row">
-        <span class="ship-data-label">Range from Base</span>
-        <span class="ship-data-value" id="action-panel-dist" style="color:#8ab;">${(function(){ const bp=BASE_POS(); const d=Math.round(Math.hypot(ship.x-bp.x,ship.y-bp.y)/36); return d===0?'<span style="color:#6fff9a">At Base</span>':`${d} tiles`; })()}</span>
-      </div>
+  const role = SHIP_DEFS[ship.type]?.role || 'mining';
+  const roleLabel = ROLE_LABELS[role] || role;
+  const isUnique = SHIP_DEFS[ship.type]?.unique === true;
+
+  // ── Info section ───────────────────────────────────────────────
+  let infoRows = `
+    <div class="ship-data-row">
+      <span class="ship-data-label">Status</span>
+      <span class="ship-data-value" id="action-panel-status" style="color:${statusColor}">${statusMsg}</span>
     </div>
-    <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
-      <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ STATS</div>
-      <div class="ship-data-section">
-        <div class="ship-data-row">
-          <span class="ship-data-label">Cargo</span>
-          <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
-        </div>
-        <div class="ship-data-row">
-          <span class="ship-data-label">Flying Speed</span>
-          <span class="ship-data-value">${formatFlySpeed(ship.flySpeed)}</span>
-        </div>
-        ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row">
-          <span class="ship-data-label">Mining Speed</span>
-          <span class="ship-data-value">${formatMineSpeedPercent(ship.mineSpeed)}</span>
-        </div>` : ''}
-      </div>
+    <div class="ship-data-row">
+      <span class="ship-data-label">Ship Role</span>
+      <span class="ship-data-value" style="color:#9bd6ff">${roleLabel}</span>
+    </div>
+    <div class="ship-data-row">
+      <span class="ship-data-label">Ship Type</span>
+      <span class="ship-data-value" style="color:#5a8ab0">${typeLabel}</span>
     </div>`;
 
+  if (role === 'mining') {
+    infoRows += `<div class="ship-data-row">
+      <span class="ship-data-label">Assigned Node</span>
+      <span class="ship-data-value" style="${nodeLabel !== '—' ? '' : 'color:#f55;'}">${nodeLabel !== '—' ? nodeLabel : 'UNASSIGNED'}</span>
+    </div>`;
+  }
+
+  infoRows += `<div class="ship-data-row">
+    <span class="ship-data-label">Mining Tier</span>
+    <span class="ship-data-value" style="color:${tierColor}">${tierDef.label}</span>
+  </div>
+  <div class="ship-data-row">
+    <span class="ship-data-label">Range from Base</span>
+    <span class="ship-data-value" id="action-panel-dist" style="color:#8ab;">${(function(){ const bp=BASE_POS(); const d=Math.round(Math.hypot(ship.x-bp.x,ship.y-bp.y)/36); return d===0?'<span style="color:#6fff9a">At Base</span>':`${d} tiles`; })()}</span>
+  </div>`;
+
+  // ── Stats section (role-appropriate) ───────────────────────────
+  let statsRows = '';
+  if (role === 'mining') {
+    statsRows = `
+      <div class="ship-data-row">
+        <span class="ship-data-label">CARGO</span>
+        <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
+      </div>
+      <div class="ship-data-row">
+        <span class="ship-data-label">FLY SPD</span>
+        <span class="ship-data-value">${formatFlySpeed(ship.flySpeed)}</span>
+      </div>
+      <div class="ship-data-row">
+        <span class="ship-data-label">MINE SPD</span>
+        <span class="ship-data-value">${formatMineSpeedPercent(ship.mineSpeed)}</span>
+      </div>`;
+  } else if (role === 'transport') {
+    statsRows = `
+      <div class="ship-data-row">
+        <span class="ship-data-label">CARGO</span>
+        <span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span>
+      </div>
+      <div class="ship-data-row">
+        <span class="ship-data-label">FLY SPD</span>
+        <span class="ship-data-value">${formatFlySpeed(ship.flySpeed)}</span>
+      </div>
+      <div class="ship-data-row">
+        <span class="ship-data-label">LOAD SPD</span>
+        <span class="ship-data-value">${formatLoadSpeedPercent(ship.loadSpeed || 0)}</span>
+      </div>`;
+  } else if (role === 'combat' || role === 'garrison') {
+    statsRows = `
+      <div class="ship-data-row">
+        <span class="ship-data-label">HP</span>
+        <span class="ship-data-value">${(ship.hp || 0).toLocaleString()}</span>
+      </div>
+      <div class="ship-data-row">
+        <span class="ship-data-label">ATTACK</span>
+        <span class="ship-data-value">${ship.attack || 0}</span>
+      </div>
+      <div class="ship-data-row">
+        <span class="ship-data-label">ATK RATE</span>
+        <span class="ship-data-value">${formatAtkRatePercent(ship.attackSpeed || 0)}</span>
+      </div>
+      <div class="ship-data-row">
+        <span class="ship-data-label">FLY SPD</span>
+        <span class="ship-data-value">${formatFlySpeed(ship.flySpeed)}</span>
+      </div>`;
+  } else if (role === 'unique') {
+    statsRows = `
+      ${(ship.hp || 0) > 0 ? `<div class="ship-data-row"><span class="ship-data-label">HP</span><span class="ship-data-value">${(ship.hp||0).toLocaleString()}</span></div>` : ''}
+      ${(ship.capacity || 0) > 0 ? `<div class="ship-data-row"><span class="ship-data-label">CARGO</span><span class="ship-data-value" id="action-panel-cargo">${ship.cargo} / ${ship.capacity}</span></div>` : ''}
+      <div class="ship-data-row">
+        <span class="ship-data-label">FLY SPD</span>
+        <span class="ship-data-value">${formatFlySpeed(ship.flySpeed)}</span>
+      </div>
+      ${(ship.attack || 0) > 0 ? `<div class="ship-data-row"><span class="ship-data-label">ATTACK</span><span class="ship-data-value">${ship.attack||0}</span></div>` : ''}
+      ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row"><span class="ship-data-label">MINE SPD</span><span class="ship-data-value">${formatMineSpeedPercent(ship.mineSpeed)}</span></div>` : ''}`;
+  }
+
+  const statsHtml = `
+    <div class="ship-data-section">${infoRows}</div>
+    <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
+      <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ STATS</div>
+      <div class="ship-data-section">${statsRows}</div>
+    </div>`;
+
+  // ── Actions ────────────────────────────────────────────────────
   const canMine = (ship.mineSpeed || 0) > 0;
-  const actionsHtml = !canMine
+  const actionsHtml = (role === 'combat' || role === 'garrison')
+    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⚔ Combat vessel — cannot be assigned to nodes.</div>
+       <div class="ship-action-row" style="margin-top:8px;">
+         <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
+       </div>`
+    : role === 'transport'
+    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">▲ Transport vessel — ferries cargo between operations.</div>
+       <div class="ship-action-row" style="margin-top:8px;">
+         <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
+       </div>`
+    : !canMine
     ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⊘ No mining equipment — cannot be assigned to a node.</div>`
     : isIdle
     ? `<div class="cmd-status-text" style="color:#ffe066;font-size:12px;margin:8px 0 6px;">⬡ Click a node on the map to assign.</div>
@@ -446,9 +530,9 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
        </div>`;
 
   const bottomActions = `<div class="ship-action-row">
-      <button class="btn" style="flex:1;font-size:12px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab" onclick="openRenameOverlay(${ship.id})">✎ RENAME</button>
-      <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id},${sellVal})">⊘ SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
-    </div>`;
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab" onclick="openRenameOverlay(${ship.id})">✎ RENAME</button>
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id},${sellVal})">⊘ SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
+  </div>`;
 
   return statsHtml
     + '<div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;"><div id="upgrades-section-header" style="font-family:\'Orbitron\',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ UPGRADES</div>'
@@ -468,14 +552,21 @@ window.toggleFollowShip = function(shipId) {
   if (refresh.ui) refresh.ui();
 };
 
+// Called by home button — focus base and unfollow
+window.goHome = function() {
+  state.followShip = null;
+  window.resetView?.();
+  if (refresh.ui) refresh.ui();
+};
+
 window.openSellOverlay = function(shipId, sellVal) {
   if (state.ships.length <= 1) return;
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
   _sellOverlayShipId = shipId;
   _sellOverlayValue = sellVal;
-  const nameEl = document.getElementById('sell-ship-name');
+  const nameEl  = document.getElementById('sell-ship-name');
   const valueEl = document.getElementById('sell-ship-value');
-  if (nameEl) nameEl.textContent = ship.name;
+  if (nameEl)  nameEl.textContent  = ship.name;
   if (valueEl) valueEl.textContent = `$${fmt(sellVal)}`;
   const overlay = document.getElementById('sell-overlay');
   if (overlay) overlay.classList.add('show');
@@ -489,68 +580,149 @@ window.closeSellOverlay = function() {
 };
 
 window.confirmSellOverlay = function() {
-  if (_sellOverlayShipId !== null) {
-    window.sellShip(_sellOverlayShipId, _sellOverlayValue);
-  }
+  if (_sellOverlayShipId !== null) window.sellShip(_sellOverlayShipId, _sellOverlayValue);
   window.closeSellOverlay();
 };
 
+// ── Upgrades section (role-aware) ──────────────────────────────────────────
 function buildUpgradesSection(shipId) {
   const s2 = state.ships.find(s => s.id === shipId); if (!s2) return '';
-  const st = Math.min(10, Math.max(1, s2.mineTier || 1));
-  const tc = TIER_COLORS[st];
-  const td = MINE_TIERS[st];
-  const nt = st < 10 ? st + 1 : null;
+  const role = SHIP_DEFS[s2.type]?.role || 'mining';
+  const isUnique = SHIP_DEFS[s2.type]?.unique === true;
+
+  if (isUnique) {
+    return '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #ffffff44;border-radius:5px;padding:10px;font-size:12px;color:#ffe066;letter-spacing:1px;">★ LEGENDARY — ALL STATS MAXED</div>';
+  }
+
+  const st   = Math.min(10, Math.max(1, s2.mineTier || 1));
+  const tc   = TIER_COLORS[st];
+  const td   = MINE_TIERS[st];
+  const nt   = st < 10 ? st + 1 : null;
   const tCost = nt ? SHIP_TIER_COSTS[nt] : null;
   const blockedByBase = nt && nt > state.base.level;
   const canAffordTier = nt && state.coins >= tCost;
-  const cap2 = TIER_UPGRADE_CAP[st];
-  const capAtM  = s2.capacityLevel  >= cap2;
-  const flyAtM  = s2.flySpeedLevel  >= cap2;
-  const mineAtM = s2.mineSpeedLevel >= cap2;
-  const capChk  = capAtM  ? 0 : 1;
-  const flyChk  = flyAtM  ? 0 : 1;
-  const mineChk = mineAtM ? 0 : 1;
-  const capCost2  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  capChk)  : 0;
-  const flyCost2  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  flyChk)  : 0;
-  const mineCost2 = mineChk > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', mineChk) : 0;
-
-  const nextCapacity = capChk > 0
-    ? capacityFromTierAndLevel(s2.type, s2.mineTier, s2.capacityLevel + 1, s2.capacity)
-    : 'MAX';
-  const nextFlySpeed = flyChk > 0 ? formatFlySpeed(s2.flySpeed + 20) : 'MAX';
-  const nextMineSpeed = mineChk > 0 ? formatMineSpeedPercent(s2.mineSpeed + 0.4) : 'MAX';
+  const cap  = TIER_UPGRADE_CAP[st];
 
   const tierBlock = nt
     ? '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:8px;margin-bottom:6px;">'
       + '<div style="font-size:9px;letter-spacing:2px;color:#4a7aaa;margin-bottom:4px;font-family:Orbitron,sans-serif;">SHIP TIER</div>'
       + '<div style="margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:8px;">'
-      + '<span style="font-size:14px;font-weight:bold;color:'+tc+'">'+td.label+'</span>'
+      + `<span style="font-size:14px;font-weight:bold;color:${tc}">${td.label}</span>`
       + '<span style="color:#7aa7d8;font-size:13px;line-height:1;">➜</span>'
-      + '<span style="font-size:14px;font-weight:bold;color:'+TIER_COLORS[nt]+'">'+MINE_TIERS[nt].label+'</span></div>'
-      + (blockedByBase ? '<div style="font-size:13px;color:#fa8;margin-bottom:6px;">MAX BASE LV' + state.base.level + '</div>' : '')
-      + (blockedByBase ? '' : '<button class="btn '+(canAffordTier ? 'primary' : 'danger')+'" style="width:100%;font-size:13px;" onclick="upgradeShip('+s2.id+',\'mineTier\',1)" '+(canAffordTier ? '' : 'disabled')+'>⬆ UPGRADE T'+nt+' — <span style="color:#ffe066;">$'+fmt(tCost)+'</span></button>')
+      + `<span style="font-size:14px;font-weight:bold;color:${TIER_COLORS[nt]}">${MINE_TIERS[nt].label}</span></div>`
+      + (blockedByBase ? `<div style="font-size:13px;color:#fa8;margin-bottom:6px;">MAX BASE LV${state.base.level}</div>` : '')
+      + (blockedByBase ? '' : `<button class="btn ${canAffordTier ? 'primary' : 'danger'}" style="width:100%;font-size:13px;" onclick="upgradeShip(${s2.id},'mineTier',1)" ${canAffordTier ? '' : 'disabled'}>⬆ UPGRADE T${nt} — <span style="color:#ffe066;">$${fmt(tCost)}</span></button>`)
       + '</div>'
     : '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:6px;margin-bottom:6px;font-size:11px;color:#ffe066;">★ MAX TIER</div>';
 
   const row = (label, lv, currentVal, nextVal, cost, chunk, stat) =>
     '<div class="upgrade-row">'
-    + '<span class="upgrade-label">Lv'+lv+' '+label+'</span>'
-    + '<span class="upgrade-val">'+currentVal+' <span style="color:#4a6a8a;">➜</span> <span style="color:#6fff9a;">'+nextVal+'</span></span>'
-    + '<span class="upgrade-cost">'+(chunk > 0 ? '$'+fmt(cost) : '—')+'</span>'
-    + '<button class="upgrade-btn" onclick="upgradeShip('+s2.id+',\''+stat+'\','+chunk+')" '+(chunk <= 0 || state.coins < cost ? 'disabled' : '')+'>'+(chunk <= 0 ? 'MAX' : chunk > 1 ? '×'+chunk : '↑')+'</button>'
+    + `<span class="upgrade-label">Lv${lv} ${label}</span>`
+    + `<span class="upgrade-val">${currentVal} <span style="color:#4a6a8a;">➜</span> <span style="color:#6fff9a;">${nextVal}</span></span>`
+    + `<span class="upgrade-cost">${chunk > 0 ? '$'+fmt(cost) : '—'}</span>`
+    + `<button class="upgrade-btn" onclick="upgradeShip(${s2.id},'${stat}',${chunk})" ${chunk <= 0 || state.coins < cost ? 'disabled' : ''}>${chunk <= 0 ? 'MAX' : chunk > 1 ? '×'+chunk : '↑'}</button>`
     + '</div>';
 
-  const canMine2 = (s2.mineSpeed || 0) > 0;
+  let rows = '';
 
+  if (role === 'mining') {
+    const capAtM   = s2.capacityLevel  >= cap;
+    const flyAtM   = s2.flySpeedLevel  >= cap;
+    const mineAtM  = s2.mineSpeedLevel >= cap;
+    const capChk   = capAtM  ? 0 : 1;
+    const flyChk   = flyAtM  ? 0 : 1;
+    const mineChk  = mineAtM ? 0 : 1;
+    const capCost  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  capChk)  : 0;
+    const flyCost  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  flyChk)  : 0;
+    const mineCost = mineChk > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', mineChk) : 0;
+    const nextCap  = capChk  > 0 ? capacityFromTierAndLevel(s2.type, s2.mineTier, s2.capacityLevel  + 1, s2.capacity) : 'MAX';
+    const nextFly  = flyChk  > 0 ? formatFlySpeed(flySpeedFromLevel(s2.type, s2.flySpeedLevel + 1))                   : 'MAX';
+    const nextMine = mineChk > 0 ? formatMineSpeedPercent(mineSpeedFromLevel(s2.type, s2.mineSpeedLevel + 1))         : 'MAX';
+    rows  = row('CARGO',    s2.capacityLevel,  s2.capacity,                           nextCap,  capCost,  capChk,  'capacity')
+          + row('FLY SPD',  s2.flySpeedLevel,  formatFlySpeed(s2.flySpeed),            nextFly,  flyCost,  flyChk,  'flySpeed')
+          + row('MINE SPD', s2.mineSpeedLevel, formatMineSpeedPercent(s2.mineSpeed),   nextMine, mineCost, mineChk, 'mineSpeed');
+
+  } else if (role === 'transport') {
+    const loadLv   = s2.loadSpeedLevel || 0;
+    const capAtM   = s2.capacityLevel >= cap;
+    const flyAtM   = s2.flySpeedLevel >= cap;
+    const loadAtM  = loadLv >= cap;
+    const capChk   = capAtM  ? 0 : 1;
+    const flyChk   = flyAtM  ? 0 : 1;
+    const loadChk  = loadAtM ? 0 : 1;
+    const capCost  = capChk  > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  capChk)  : 0;
+    const flyCost  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  flyChk)  : 0;
+    const loadCost = loadChk > 0 ? upgradeTotalCost(UPGRADE_LOAD_COST, s2, 'loadSpeed', loadChk) : 0;
+    const nextCap  = capChk  > 0 ? capacityFromTierAndLevel(s2.type, s2.mineTier, s2.capacityLevel  + 1, s2.capacity) : 'MAX';
+    const nextFly  = flyChk  > 0 ? formatFlySpeed(flySpeedFromLevel(s2.type, s2.flySpeedLevel + 1))                   : 'MAX';
+    const nextLoad = loadChk > 0 ? formatLoadSpeedPercent(loadSpeedFromLevel(s2.type, loadLv + 1))                    : 'MAX';
+    rows  = row('CARGO',    s2.capacityLevel, s2.capacity,                          nextCap,  capCost,  capChk,  'capacity')
+          + row('FLY SPD',  s2.flySpeedLevel, formatFlySpeed(s2.flySpeed),           nextFly,  flyCost,  flyChk,  'flySpeed')
+          + row('LOAD SPD', loadLv,           formatLoadSpeedPercent(s2.loadSpeed||0), nextLoad, loadCost, loadChk, 'loadSpeed');
+
+  } else if (role === 'combat') {
+    const hpLv     = s2.hpLevel      || 0;
+    const atkLv    = s2.attackLevel  || 0;
+    const rateLv   = s2.atkRateLevel || 0;
+    const flyAtM   = s2.flySpeedLevel >= cap;
+    const hpAtM    = hpLv   >= cap;
+    const atkAtM   = atkLv  >= cap;
+    const rateAtM  = rateLv >= cap;
+    const flyChk   = flyAtM  ? 0 : 1;
+    const hpChk    = hpAtM   ? 0 : 1;
+    const atkChk   = atkAtM  ? 0 : 1;
+    const rateChk  = rateAtM ? 0 : 1;
+    const flyCost  = flyChk  > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,      s2, 'flySpeed', flyChk)  : 0;
+    const hpCost   = hpChk   > 0 ? upgradeTotalCost(UPGRADE_HP_COST,       s2, 'hp',       hpChk)   : 0;
+    const atkCost  = atkChk  > 0 ? upgradeTotalCost(UPGRADE_ATTACK_COST,   s2, 'attack',   atkChk)  : 0;
+    const rateCost = rateChk > 0 ? upgradeTotalCost(UPGRADE_ATK_RATE_COST, s2, 'atkRate',  rateChk) : 0;
+    const nextFly  = flyChk  > 0 ? formatFlySpeed(flySpeedFromLevel(s2.type, s2.flySpeedLevel + 1))           : 'MAX';
+    const nextHp   = hpChk   > 0 ? String(hpFromLevel(s2.type, hpLv + 1).toLocaleString())                    : 'MAX';
+    const nextAtk  = atkChk  > 0 ? String(attackFromLevel(s2.type, atkLv + 1))                                : 'MAX';
+    const nextRate = rateChk > 0 ? formatAtkRatePercent(atkRateFromLevel(s2.type, rateLv + 1))                 : 'MAX';
+    rows  = row('HP',       hpLv,              (s2.hp||0).toLocaleString(),           nextHp,   hpCost,   hpChk,   'hp')
+          + row('ATTACK',   atkLv,             String(s2.attack||0),                   nextAtk,  atkCost,  atkChk,  'attack')
+          + row('ATK RATE', rateLv,            formatAtkRatePercent(s2.attackSpeed||0), nextRate, rateCost, rateChk, 'atkRate')
+          + row('FLY SPD',  s2.flySpeedLevel,  formatFlySpeed(s2.flySpeed),            nextFly,  flyCost,  flyChk,  'flySpeed');
+
+  } else {
+    // Garrison or other — just fly speed
+    const flyAtM  = s2.flySpeedLevel >= cap;
+    const flyChk  = flyAtM ? 0 : 1;
+    const flyCost = flyChk > 0 ? upgradeTotalCost(UPGRADE_FLY_COST, s2, 'flySpeed', flyChk) : 0;
+    const nextFly = flyChk > 0 ? formatFlySpeed(flySpeedFromLevel(s2.type, s2.flySpeedLevel + 1)) : 'MAX';
+    rows = row('FLY SPD', s2.flySpeedLevel, formatFlySpeed(s2.flySpeed), nextFly, flyCost, flyChk, 'flySpeed');
+  }
+
+  // All-upgrade buttons
   function allCost(levels) {
-    const c = levels === 'max' ? cap2 - s2.capacityLevel  : Math.min(levels, cap2 - s2.capacityLevel);
-    const f = levels === 'max' ? cap2 - s2.flySpeedLevel  : Math.min(levels, cap2 - s2.flySpeedLevel);
-    const m = canMine2 ? (levels === 'max' ? cap2 - s2.mineSpeedLevel : Math.min(levels, cap2 - s2.mineSpeedLevel)) : 0;
-    const cc = c > 0 ? upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  c) : 0;
-    const fc = f > 0 ? upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  f) : 0;
-    const mc = m > 0 ? upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', m) : 0;
-    return cc + fc + mc;
+    const n = levels === 'max';
+    let total = 0;
+    if (role === 'mining') {
+      const c = n ? cap - s2.capacityLevel  : Math.min(levels, cap - s2.capacityLevel);
+      const f = n ? cap - s2.flySpeedLevel  : Math.min(levels, cap - s2.flySpeedLevel);
+      const m = n ? cap - s2.mineSpeedLevel : Math.min(levels, cap - s2.mineSpeedLevel);
+      if (c > 0) total += upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  c);
+      if (f > 0) total += upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  f);
+      if (m > 0) total += upgradeTotalCost(UPGRADE_MINE_COST, s2, 'mineSpeed', m);
+    } else if (role === 'transport') {
+      const c = n ? cap - s2.capacityLevel           : Math.min(levels, cap - s2.capacityLevel);
+      const f = n ? cap - s2.flySpeedLevel           : Math.min(levels, cap - s2.flySpeedLevel);
+      const l = n ? cap - (s2.loadSpeedLevel||0)     : Math.min(levels, cap - (s2.loadSpeedLevel||0));
+      if (c > 0) total += upgradeTotalCost(UPGRADE_CAP_COST,  s2, 'capacity',  c);
+      if (f > 0) total += upgradeTotalCost(UPGRADE_FLY_COST,  s2, 'flySpeed',  f);
+      if (l > 0) total += upgradeTotalCost(UPGRADE_LOAD_COST, s2, 'loadSpeed', l);
+    } else if (role === 'combat') {
+      const f = n ? cap - s2.flySpeedLevel           : Math.min(levels, cap - s2.flySpeedLevel);
+      const h = n ? cap - (s2.hpLevel||0)            : Math.min(levels, cap - (s2.hpLevel||0));
+      const a = n ? cap - (s2.attackLevel||0)        : Math.min(levels, cap - (s2.attackLevel||0));
+      const r = n ? cap - (s2.atkRateLevel||0)       : Math.min(levels, cap - (s2.atkRateLevel||0));
+      if (f > 0) total += upgradeTotalCost(UPGRADE_FLY_COST,      s2, 'flySpeed', f);
+      if (h > 0) total += upgradeTotalCost(UPGRADE_HP_COST,       s2, 'hp',       h);
+      if (a > 0) total += upgradeTotalCost(UPGRADE_ATTACK_COST,   s2, 'attack',   a);
+      if (r > 0) total += upgradeTotalCost(UPGRADE_ATK_RATE_COST, s2, 'atkRate',  r);
+    }
+    return total;
   }
 
   function allBtn(levels, label) {
@@ -562,16 +734,12 @@ function buildUpgradesSection(shipId) {
   }
 
   const allRow = '<div style="display:flex;gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid #1a3560;">'
-    + allBtn(5,   '+5 ALL')
-    + allBtn(10,  '+10 ALL')
+    + allBtn(5,     '+5 ALL')
+    + allBtn(10,    '+10 ALL')
     + allBtn('max', 'MAX ALL')
     + '</div>';
 
-  return tierBlock
-    + row('Cargo Cap',  s2.capacityLevel,  s2.capacity,                nextCapacity,  capCost2,  capChk,  'capacity')
-    + row('Fly Speed',  s2.flySpeedLevel,  formatFlySpeed(s2.flySpeed), nextFlySpeed,  flyCost2,  flyChk,  'flySpeed')
-    + (canMine2 ? row('Mine Speed', s2.mineSpeedLevel, formatMineSpeedPercent(s2.mineSpeed), nextMineSpeed, mineCost2, mineChk, 'mineSpeed') : '')
-    + allRow;
+  return tierBlock + rows + allRow;
 }
 
 export function renderTab() {
@@ -582,10 +750,10 @@ export function renderTab() {
       content.innerHTML = `<div style="margin-top:10px;padding:14px;background:rgba(10,25,60,0.5);border:1px solid #1a3a6e;border-radius:4px;text-align:center;color:#3a5a7a;font-size:13px;line-height:1.7">⏳ Waiting for resources...<br><span style="font-size:11px;color:#2a4060">Assign a ship to start mining.</span></div>`;
       return;
     }
+    const boostMult = state.marketBoost?.multiplier ?? 1.5;
     let html = '';
     if (state.marketBoost) {
       const bd = RESOURCE_DEFS[state.marketBoost.type];
-      const boostMult = state.marketBoost.multiplier ?? 1.5;
       html += `<div style="font-size:14px;background:rgba(20,60,10,0.6);border:1px solid #4a8020;border-radius:4px;padding:8px 10px;margin-bottom:8px;text-align:center;line-height:1.25">
         <span style="font-weight:bold;color:${bd.color}">${bd.label}</span> <span style="color:#cde">in demand!</span>
         <span style="color:#ffe066;font-weight:bold"> · ${boostMult}× this SOL</span>

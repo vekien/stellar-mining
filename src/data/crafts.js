@@ -47,11 +47,7 @@ export const CRAFTS = {
       reqs: { iron: 60, copper: 40, oxygen: 40, nickel: 30 },
     },
     {
-      id: 'bulk_carrier', name: 'Bulk Carrier', desc: 'High-volume, stripped of speed',
-      reqs: { iron: 120, silicon: 80, titanium: 60, aluminum: 50 },
-    },
-    {
-      id: 'deep_hauler', name: 'Deep Space Hauler', desc: 'Colossal cargo, built for long hauls',
+      id: 'deep_hauler', name: 'Titan', desc: 'Colossal cargo, built for long hauls',
       reqs: { titanium: 150, aluminum: 120, chromium: 60, gold: 40, iron: 200 },
     },
 
