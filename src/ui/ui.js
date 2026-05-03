@@ -25,7 +25,7 @@ export function updateHeaderShips() {
   setIfChanged('hdr-ships', `${state.ships.length}/${maxShips}`);
 }
 export function updateHeaderRP() {
-  const rpCap = 2 + (state.base.level - 1);
+  const rpCap = state.base.level * (state.base.level + 1) / 2;
   setIfChanged('hdr-rp', `${state.rp}/${rpCap}`);
 }
 export function updateHeader() {

@@ -113,7 +113,7 @@
     background: linear-gradient(160deg,#0a1428 0%,#060c1a 100%);
     border: 1px solid #1a4080;
     border-radius: 6px;
-    width: 900px; max-height: 75vh;
+    width: 720px; max-height: 75vh;
     display: flex; flex-direction: column;
     box-shadow: 0 8px 40px rgba(0,0,0,0.8);
     pointer-events: all;
@@ -152,6 +152,20 @@
   .codex-bio { font-size: 14px; color: #7a9ab8; line-height: 1.25; }
   .codex-group-label { font-family: 'Orbitron',sans-serif; font-size: 14px; letter-spacing: 2px; color: #4af; padding: 10px 0 6px; border-bottom: 1px solid #1a3a6e; margin-bottom: 4px; }
   .codex-group-label:not(:first-child) { margin-top: 8px; }
+
+  /* codex > ships */
+  .codex-ships-group-header { font-family: 'Orbitron',sans-serif; font-size: 10px; letter-spacing: 2px; margin: 14px 0 7px; padding-bottom: 5px; }
+  .codex-ships-table { width: 100%; border-collapse: collapse; background: rgba(10,20,50,0.4); border: 1px solid #1a3a6e; border-radius: 4px; overflow: hidden; margin-bottom: 4px; table-layout: fixed; }
+  .codex-ships-table colgroup .col-ship  { width: 34%; }
+  .codex-ships-table colgroup .col-tier  { width: 10%; }
+  .codex-ships-th { text-align: left; padding: 6px 8px; font-size: 11px; letter-spacing: 1.5px; border-bottom: 1px solid #1a3a6e; }
+  .codex-ships-td { padding: 7px 8px; border-bottom: 1px solid rgba(26,58,110,0.4); }
+  .codex-ships-td-stat { color: #cde; font-family: 'Share Tech Mono',monospace; }
+  .codex-ships-name { color: #e8eef8; font-family: 'Orbitron',sans-serif; font-size: 12px; letter-spacing: 1px; }
+  .codex-ships-name-arrow { margin-right: 5px; }
+  .codex-ships-desc { color: #5a7a9a; font-size: 12px; font-style: italic; margin-top: 2px; }
+  .codex-ships-tier-pill { font-size: 13px; padding: 2px 7px; border-radius: 3px; font-family: 'Cinzel',serif; font-weight: 600; }
+  .codex-ships-max { color: #4dff8a; font-size: 12px; }
 
   #header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 

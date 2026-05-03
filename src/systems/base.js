@@ -2,7 +2,7 @@
 // BASE SYSTEM — repair, upgrade
 // ============================================================
 import { state } from '../state.js';
-import { BASE_UPGRADE_COSTS, BASE_RANGE, BASE_MAX_SHIPS } from '../data/base.js';
+import { BASE_UPGRADE_COSTS, BASE_RANGE, BASE_MAX_SHIPS, BASE_TIER_REQS } from '../data/base.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
@@ -34,12 +34,21 @@ window.upgradeBase = function() {
   const bl = state.base.level;
   const cost = BASE_UPGRADE_COSTS[bl];
   if (!cost || state.coins < cost) return;
+  const resReqs = BASE_TIER_REQS[bl + 1];
+  if (resReqs) {
+    for (const [r, n] of Object.entries(resReqs)) {
+      if ((state.resources[r] || 0) < n) return;
+    }
+  }
   spendCoins(cost);
+  if (resReqs) {
+    for (const [r, n] of Object.entries(resReqs)) state.resources[r] -= n;
+  }
   state.base.level++;
   const hpBoostBonus = (state.hpBoostCount || 0) * 2500;
   state.base.maxHealth = 10000 + (state.base.level - 1) * 10000 + hpBoostBonus;
   state.base.health = state.base.maxHealth;
-  const rpCap = 2 + (state.base.level - 1);
+  const rpCap = state.base.level * (state.base.level + 1) / 2;
   state.rp = Math.min(state.rp + 1, rpCap);
   updateHeaderRP();
   updateHeaderShips();
@@ -49,7 +58,7 @@ window.upgradeBase = function() {
     node.fadeAge = 0; node.fadeDuration = 1.2;
     setTimeout(() => spawnNodeUnlock(node), 300 + i * 200);
   });
-  addLog(`⬆ Base upgraded to Level ${state.base.level}!`);
+  addLog(`⬆ Base upgraded to Tier ${state.base.level}!`);
 
   if (state.base.level === 2) {
     setTimeout(() => showOnce('juno_base_lv2_upgrade', NPCS.juno.transmissionLines.base_lv2_upgrade, 28, 'juno'), 900);

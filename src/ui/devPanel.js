@@ -5,14 +5,14 @@ const DEBUG = true;
 
 import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
-import { BASE_UPGRADE_COSTS } from '../data/base.js';
+import { BASE_UPGRADE_COSTS, BASE_TIER_REQS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import {
   SHIP_DEFS, TIER_UPGRADE_CAP, capacityFromTierAndLevel,
   flySpeedFromLevel, mineSpeedFromLevel, loadSpeedFromLevel,
   hpFromLevel, attackFromLevel, atkRateFromLevel,
 } from '../data/ships.js';
-import { MAX_COINS } from '../helpers.js';
+import { MAX_COINS, RESOURCE_CAP } from '../helpers.js';
 import { showTransmissionMessage } from './transmissions.js';
 import { refresh } from './refresh.js';
 import { updateHeader } from './ui.js';
@@ -35,7 +35,7 @@ function devAddCoins() {
 }
 
 function devAddRP() {
-  const rpCap = 2 + (state.base.level - 1);
+  const rpCap = state.base.level * (state.base.level + 1) / 2;
   state.rp = Math.min(state.rp + 1, rpCap);
   updateHeader();
   if (refresh.ui) refresh.ui();
@@ -43,7 +43,7 @@ function devAddRP() {
 
 function devAddResources() {
   for (const key of Object.keys(RESOURCE_DEFS)) {
-    state.resources[key] = (state.resources[key] || 0) + 100;
+    state.resources[key] = Math.min(RESOURCE_CAP, (state.resources[key] || 0) + 99999);
   }
   if (refresh.ui) refresh.ui();
 }
@@ -94,11 +94,20 @@ function devAddUniqueShips() {
 }
 
 function devUpgradeBase() {
-  const cost = BASE_UPGRADE_COSTS[state.base.level];
-  const prev = state.coins;
+  const bl = state.base.level;
+  const cost = BASE_UPGRADE_COSTS[bl];
+  const resReqs = BASE_TIER_REQS[bl + 1];
+  const prevCoins = state.coins;
+  const prevRes = {};
   if (cost && state.coins < cost) state.coins = cost;
+  if (resReqs) {
+    for (const [r, n] of Object.entries(resReqs)) {
+      prevRes[r] = state.resources[r] || 0;
+      if ((state.resources[r] || 0) < n) state.resources[r] = n;
+    }
+  }
   window.upgradeBase?.();
-  if (cost && state.coins < prev) state.coins = prev;
+  if (cost && state.coins < prevCoins) state.coins = prevCoins;
 }
 
 function devAssignAllRandom() {

@@ -4,6 +4,7 @@
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
 import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS } from './camera.js';
 import { BASE_RANGE } from '../data/base.js';
+import { toRoman } from '../data/ships.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
 import { hexToRgb } from '../helpers.js';
 import { state } from '../state.js';
@@ -186,7 +187,7 @@ export function drawBase(col, row) {
 
   if (baseHovered) {
     const baseName = state.base.name || 'Base Station';
-    const label = `${baseName} - LV ${state.base.level}`;
+    const label = `${baseName} — TIER ${toRoman(state.base.level)}`;
     const labelY = cy-th-36;
     ctx.font = 'bold 11px Orbitron,monospace';
     const tw2 = ctx.measureText(label).width;

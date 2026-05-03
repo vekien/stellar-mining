@@ -43,55 +43,55 @@ export function roundUpTo2(n) {
 
 // ── Stat profiles ──────────────────────────────────────────────────────────
 // min = value at level 0 · max = value at level 100 · p = curve exponent
-// p > 1 → slow gains early, large gains at high levels (as requested)
+// p = 1.0 → linear scaling (equal gains per level)
 
 export const CARGO_PROFILE = {
-  scout:       { min: 12,   max: 400,  p: 1.5 },
-  swift:       { min: 6,    max: 120,  p: 1.5 },
-  hauler:      { min: 50,   max: 700,  p: 1.5 },
-  freighter:   { min: 100,  max: 1000, p: 1.5 },
-  courier:     { min: 500,  max: 2000, p: 1.5 },
-  deep_hauler: { min: 1000, max: 5000, p: 1.5 },
+  scout:       { min: 12,   max: 500,  p: 1.0 },
+  swift:       { min: 6,    max: 120,  p: 1.0 },
+  hauler:      { min: 50,   max: 700,  p: 1.0 },
+  freighter:   { min: 100,  max: 1000, p: 1.0 },
+  courier:     { min: 500,  max: 2000, p: 1.0 },
+  deep_hauler: { min: 1000, max: 5000, p: 1.0 },
 };
 
 export const FLY_SPEED_PROFILE = {
-  scout:       { min: 140, max: 400,  p: 1.5 },
-  swift:       { min: 220, max: 650,  p: 1.5 },
-  hauler:      { min: 60,  max: 300,  p: 1.5 },
-  freighter:   { min: 60,  max: 200,  p: 1.5 },
-  courier:     { min: 200, max: 800,  p: 1.5 },
-  deep_hauler: { min: 200, max: 1000, p: 1.5 },
-  viper:       { min: 200, max: 800,  p: 1.5 },
-  interceptor: { min: 200, max: 600,  p: 1.5 },
-  destroyer:   { min: 100, max: 300,  p: 1.5 },
+  scout:       { min: 140, max: 520,  p: 1.0 },
+  swift:       { min: 220, max: 650,  p: 1.0 },
+  hauler:      { min: 60,  max: 300,  p: 1.0 },
+  freighter:   { min: 60,  max: 200,  p: 1.0 },
+  courier:     { min: 200, max: 800,  p: 1.0 },
+  deep_hauler: { min: 200, max: 1000, p: 1.0 },
+  viper:       { min: 200, max: 800,  p: 1.0 },
+  interceptor: { min: 200, max: 600,  p: 1.0 },
+  destroyer:   { min: 100, max: 300,  p: 1.0 },
 };
 
 export const MINE_SPEED_PROFILE = {
-  scout:     { min: 2.5, max: 30,  p: 1.5 },  // 25% → 300%
-  swift:     { min: 2.5, max: 50,  p: 1.5 },  // 25% → 500%
-  hauler:    { min: 2.5, max: 30,  p: 1.5 },  // 25% → 300%
-  freighter: { min: 2.5, max: 40,  p: 1.5 },  // 25% → 400%
+  scout:     { min: 2.5, max: 30,  p: 1.0 },  // 25% → 300%
+  swift:     { min: 2.5, max: 50,  p: 1.0 },  // 25% → 500%
+  hauler:    { min: 2.5, max: 30,  p: 1.0 },  // 25% → 300%
+  freighter: { min: 2.5, max: 40,  p: 1.0 },  // 25% → 400%
 };
 
 export const LOAD_SPEED_PROFILE = {
-  courier:     { min: 5, max: 100, p: 1.5 },  // 50% → 1000%
-  deep_hauler: { min: 5, max: 100, p: 1.5 },  // 50% → 1000%
+  courier:     { min: 5, max: 100, p: 1.0 },  // 50% → 1000%
+  deep_hauler: { min: 5, max: 100, p: 1.0 },  // 50% → 1000%
 };
 
 export const HP_PROFILE = {
-  viper:       { min: 800,  max: 2000,  p: 1.5 },
-  interceptor: { min: 2500, max: 6000,  p: 1.5 },
-  destroyer:   { min: 5000, max: 20000, p: 1.5 },
+  viper:       { min: 800,  max: 2000,  p: 1.0 },
+  interceptor: { min: 2500, max: 6000,  p: 1.0 },
+  destroyer:   { min: 5000, max: 20000, p: 1.0 },
 };
 export const ATTACK_PROFILE = {
-  viper:       { min: 45,  max: 120, p: 1.5 },
-  interceptor: { min: 60,  max: 200, p: 1.5 },
-  destroyer:   { min: 100, max: 320, p: 1.5 },
+  viper:       { min: 45,  max: 120, p: 1.0 },
+  interceptor: { min: 60,  max: 200, p: 1.0 },
+  destroyer:   { min: 100, max: 320, p: 1.0 },
 };
 export const ATK_RATE_PROFILE = {
-  viper:       { min: 1.8, max: 3.2, p: 1.5 },
-  interceptor: { min: 1.2, max: 2.5, p: 1.5 },
-  destroyer:   { min: 0.4, max: 1.0, p: 1.5 },
+  viper:       { min: 1.8, max: 3.2, p: 1.0 },
+  interceptor: { min: 1.2, max: 2.5, p: 1.0 },
+  destroyer:   { min: 0.4, max: 1.0, p: 1.0 },
 };
 
 // ── Profile stat compute ──────────────────────────────────────────────────

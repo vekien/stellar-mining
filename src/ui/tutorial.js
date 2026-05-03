@@ -85,29 +85,26 @@ const TUTORIAL_DEFS = [
   {
     id: 'tut-ptr-base',
     condition: s => s.tutStep === 5,
-    text: '⬡ SELECT YOUR BASE',
-    placement: 'above',
-    getPos: () => {
-      const bw = gridToWorld(BASE_COL, BASE_ROW);
-      return canvasPos(bw.x, bw.y + TILE_H / 2);
-    },
+    text: '⬡ OPEN CRAFT MENU',
+    placement: 'below',
+    getEl: () => Array.from(document.querySelectorAll('.hdr-btn'))
+      .find(el => el.querySelector('.label')?.textContent === 'CRAFT') || null,
   },
 
   {
     id: 'tut-ptr-ships-tab',
-    condition: s => s.tutStep === 6,
+    condition: s => s.tutStep === 6 && window._hdrPanelOpen === 'craft',
     text: 'SHIPS TAB',
-    placement: 'above',
-    getEl: () => Array.from(document.querySelectorAll('.bp-tab'))
-      .find(el => el.textContent.trim() === 'SHIPS') || null,
+    placement: 'below',
+    getEl: () => document.getElementById('craft-tab-ships'),
   },
 
   {
     id: 'tut-ptr-scout',
-    condition: s => s.tutStep === 7,
+    condition: s => s.tutStep === 7 && window._hdrPanelOpen === 'craft',
     text: '🚀 BUILD SCOUT SHIP',
     placement: 'below',
-    getEl: () => document.querySelector('.bp-craft-item .btn'),
+    getEl: () => document.querySelector('#hdr-modal-body .bp-craft-item .btn'),
   },
 
   {

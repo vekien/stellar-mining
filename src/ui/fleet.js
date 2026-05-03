@@ -13,6 +13,7 @@ import {
   capacityFromTierAndLevel, flySpeedFromLevel, mineSpeedFromLevel,
   loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel,
 } from '../data/ships.js';
+import { SHIP_TIER_REQS } from '../data/base.js';
 import { BASE_POS, cam, ZOOM_MAX_V } from '../render/camera.js';
 import { TILE_H } from '../constants.js';
 import { fmt, addLog } from '../helpers.js';
@@ -603,6 +604,20 @@ function buildUpgradesSection(shipId) {
   const canAffordTier = nt && state.coins >= tCost;
   const cap  = TIER_UPGRADE_CAP[st];
 
+  const tierResReqs = nt ? (SHIP_TIER_REQS[nt] || null) : null;
+  const tierResMet  = tierResReqs ? Object.entries(tierResReqs).every(([r, n]) => (state.resources[r] || 0) >= n) : true;
+  const canUpgradeTier = !blockedByBase && canAffordTier && tierResMet;
+
+  let tierReqsHtml = '';
+  if (nt && tierResReqs) {
+    tierReqsHtml = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;justify-content:center;">';
+    for (const [r, n] of Object.entries(tierResReqs)) {
+      const met = (state.resources[r] || 0) >= n;
+      tierReqsHtml += `<span style="font-size:11px;padding:1px 5px;border-radius:3px;border:1px solid ${met?'#2a6040':'#802020'};background:${met?'rgba(20,60,30,0.4)':'rgba(60,10,10,0.35)'};color:${met?'#4d8':'#f88'};">${RESOURCE_DEFS[r]?.label ?? r}: ${n}</span>`;
+    }
+    tierReqsHtml += '</div>';
+  }
+
   const tierBlock = nt
     ? '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:8px;margin-bottom:6px;">'
       + '<div style="font-size:9px;letter-spacing:2px;color:#4a7aaa;margin-bottom:4px;font-family:Orbitron,sans-serif;">SHIP TIER</div>'
@@ -610,8 +625,9 @@ function buildUpgradesSection(shipId) {
       + `<span style="font-size:14px;font-weight:bold;color:${tc}">${td.label}</span>`
       + '<span style="color:#7aa7d8;font-size:13px;line-height:1;">➜</span>'
       + `<span style="font-size:14px;font-weight:bold;color:${TIER_COLORS[nt]}">${MINE_TIERS[nt].label}</span></div>`
-      + (blockedByBase ? `<div style="font-size:13px;color:#fa8;margin-bottom:6px;">MAX BASE LV${state.base.level}</div>` : '')
-      + (blockedByBase ? '' : `<button class="btn ${canAffordTier ? 'primary' : 'danger'}" style="width:100%;font-size:13px;" onclick="upgradeShip(${s2.id},'mineTier',1)" ${canAffordTier ? '' : 'disabled'}>⬆ UPGRADE T${nt} — <span style="color:#ffe066;">$${fmt(tCost)}</span></button>`)
+      + tierReqsHtml
+      + (blockedByBase ? `<div style="font-size:13px;color:#fa8;margin-bottom:6px;">Requires Base Tier ${nt}</div>` : '')
+      + (blockedByBase ? '' : `<button class="btn ${canUpgradeTier ? 'primary' : 'danger'}" style="width:100%;font-size:13px;" onclick="upgradeShip(${s2.id},'mineTier',1)" ${canUpgradeTier ? '' : 'disabled'}>⬆ UPGRADE T${nt} — <span style="color:#ffe066;">$${fmt(tCost)}</span></button>`)
       + '</div>'
     : '<div style="text-align:center;background:rgba(10,25,60,0.6);border:1px solid #2a5090;border-radius:5px;padding:6px;margin-bottom:6px;font-size:11px;color:#ffe066;">★ MAX TIER</div>';
 

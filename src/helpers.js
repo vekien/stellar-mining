@@ -14,6 +14,7 @@ export function hexToRgb(hex) {
 export function fmt(n) { return Math.floor(n).toLocaleString(); }
 
 export const MAX_COINS = 999_999_999;
+export const RESOURCE_CAP = 999_999_999;
 
 export function clampCoins(n) {
   if (!Number.isFinite(n)) return 0;

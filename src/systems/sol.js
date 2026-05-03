@@ -41,7 +41,7 @@ export function tickSOL(dt) {
     state.sol++;
 
     // Earn 1 RP per SOL, capped
-    const rpCap = 2 + (state.base.level - 1);
+    const rpCap = state.base.level * (state.base.level + 1) / 2;
     if (state.rp < rpCap) { state.rp++; updateHeaderRP(); addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
 
     // Random in-demand resource

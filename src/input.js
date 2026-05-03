@@ -213,7 +213,6 @@ function handleCanvasClick(canvas, clientX, clientY) {
     state.basePanelOpen = !state.basePanelOpen;
     if (state.basePanelOpen) {
       focusOnBase(cam.zoom);
-      if (state.tutStep === 5) state.tutStep = 6;
     }
     renderBasePanel();
     renderTutPointers();

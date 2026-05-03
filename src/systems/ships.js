@@ -14,9 +14,9 @@ import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
           capacityFromTierAndLevel, flySpeedFromLevel, mineSpeedFromLevel,
           loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel,
           formatMineSpeedPercent } from '../data/ships.js';
-import { BASE_MAX_SHIPS } from '../data/base.js';
+import { BASE_MAX_SHIPS, SHIP_TIER_REQS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
-import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
+import { addLog, fmt, addCoins, spendCoins, RESOURCE_CAP } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { BASE_POS, gridToWorld, nodeWorldPos } from '../render/camera.js';
 import { spawnFloatie } from '../render/animations.js';
@@ -51,6 +51,7 @@ function completeCraftShip(recipeId) {
   }, 3050);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
 }
 
 function scheduleCraftCompletion(recipeId, endsAt) {
@@ -361,6 +362,7 @@ window.startCraftShip = function(recipeId) {
   scheduleCraftCompletion(recipeId, now + durationMs);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
 };
 
 window.syncShipCraftTimers = function() {
@@ -440,7 +442,17 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
   } else if (stat === 'mineTier') {
     const nextTier = ship.mineTier + 1; if (nextTier > 10) return;
     const cost = SHIP_TIER_COSTS[nextTier]; if (!cost || state.coins < cost) return;
-    spendCoins(cost); ship.mineTier = nextTier;
+    const resReqs = SHIP_TIER_REQS[nextTier];
+    if (resReqs) {
+      for (const [r, n] of Object.entries(resReqs)) {
+        if ((state.resources[r] || 0) < n) return;
+      }
+    }
+    spendCoins(cost);
+    if (resReqs) {
+      for (const [r, n] of Object.entries(resReqs)) state.resources[r] -= n;
+    }
+    ship.mineTier = nextTier;
     addLog(`⬆ ${ship.name} upgraded to ${MINE_TIERS[nextTier].label}!`);
   }
 
@@ -529,7 +541,7 @@ export function flushTickEvents(canvas) {
   for (const ev of tickEvents) {
     if (ev.type === 'deposit') {
       console.log(`[deposit] ${ev.name} depositing ${ev.amount}x ${ev.cargoResource}`);
-      state.resources[ev.cargoResource] += ev.amount;
+      state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
       state.trips++;
       state.solStarted = true;
       addLog(`📦 ${ev.name} returned with ${ev.amount} ${RESOURCE_DEFS[ev.cargoResource].label}`);
