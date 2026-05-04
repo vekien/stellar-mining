@@ -47,6 +47,7 @@ function completeCraftShip(recipeId) {
     if (state.shipCraftNotices?.[recipeId] && Date.now() >= state.shipCraftNotices[recipeId]) {
       delete state.shipCraftNotices[recipeId];
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+      if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
     }
   }, 3050);
   if (refresh.ui) refresh.ui();
@@ -94,6 +95,7 @@ export function spawnShip(type = 'scout') {
     cargo:0, cargoResource:null,
     status:'idle', targetNode:null,
     heading: Math.random() * Math.PI * 2,
+    turnRadiusRandomness: (Math.random() - 0.5) * 2, // -1..1, gives each ship a unique arc width
     x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0,
   };
   state.ships.push(ship);
@@ -148,6 +150,7 @@ export let tickEvents = [];
 
 export function tickShip(ship, dt) {
   const FLY_SPEED = 80 * flySpeedToMultiplier(ship.flySpeed);
+
   if (ship.status==='flying'||ship.status==='returning') {
     // Trail: record world position every frame, keep last 28 points
     if (!ship.trail) ship.trail = [];
@@ -156,18 +159,21 @@ export function tickShip(ship, dt) {
 
     const dx = ship.destX-ship.x, dy = ship.destY-ship.y;
     const dist = Math.sqrt(dx*dx+dy*dy);
+
     if (dist < 6) {
       ship.x = ship.destX; ship.y = ship.destY;
       if (ship.status==='flying') {
         ship.status='mining'; ship.mineTimer=0;
         if (state.tutStep === 2) state.tutStep = 3;
       } else {
-        // Arrived at base
-        console.log(`[return] ${ship.name} arrived at base | cargo=${ship.cargo} cargoResource=${ship.cargoResource}`);
+        
         if (ship.cargo>0 && ship.cargoResource && RESOURCE_DEFS[ship.cargoResource]) {
           tickEvents.push({ type:'deposit', name:ship.name, cargoResource:ship.cargoResource, amount:ship.cargo });
         }
-        ship.cargo=0; ship.cargoResource=null;
+
+        ship.cargo=0;
+        ship.cargoResource=null;
+
         if (ship.targetNode !== null) {
           const node = state.nodes.find(n => n.id === ship.targetNode);
           if (node) { ship.status='pausing'; ship.pauseTimer=0.4; }
@@ -178,12 +184,12 @@ export function tickShip(ship, dt) {
         }
       }
     } else {
-      // Turn rate from ship def — dynamically tighten turning when close to destination.
-      const baseTurnRadius = SHIP_DEFS[ship.type]?.turnRadius ?? 1.0;
-      const CLOSE_TURN_DIST = 80;
-      const closeRatio = Math.max(0, Math.min(1, dist / CLOSE_TURN_DIST));
-      const dynamicTurnRadius = baseTurnRadius * (0.15 + 0.85 * closeRatio);
-      const TURN_RATE = (Math.PI * 2) / dynamicTurnRadius;
+
+      // Smooth turn rate: wide arcs far out, tight near destination. No sudden jumps.
+      // Beyond 300 units, apply the ship's personal randomness so arcs vary in width.
+      const turnT = Math.max(0, Math.min(1, 1 - dist / 500));
+      const farVariance = dist > 300 ? ship.turnRadiusRandomness * 1.2 : 0;
+      const TURN_RATE = Math.max(1, 3 + (10 - 3) * turnT + farVariance);
       const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
       let da = targetAngle - ship.heading;
       while (da >  Math.PI) da -= Math.PI * 2;
@@ -191,31 +197,8 @@ export function tickShip(ship, dt) {
       const absDaBeforeTurn = Math.abs(da);
       ship.heading += Math.sign(da) * Math.min(Math.abs(da), TURN_RATE * dt);
 
-      // Move in the direction the ship is actually facing.
-      // Easing profile:
-      // 0%-5% progress: speed up from slow -> full speed
-      // 5%-95% progress: full speed
-      // 95%-100% progress: slow down slightly before arrival
-      const totalDist = Math.max(1, ship.flightTotalDist || dist);
-      const progress = Math.max(0, Math.min(1, 1 - (dist / totalDist)));
-      const START_ZONE = 0.05;
-      const END_ZONE = 0.95;
-      const START_MIN = 0.6;
-      const END_MIN = 0.55;
-      let easedFactor = 1;
-      if (progress < START_ZONE) {
-        const t = progress / START_ZONE;
-        easedFactor = START_MIN + (1 - START_MIN) * t;
-      } else if (progress > END_ZONE) {
-        const t = (progress - END_ZONE) / (1 - END_ZONE);
-        easedFactor = 1 - (1 - END_MIN) * t;
-      }
-
-      // Clamp to remaining distance so it can't overshoot.
-      const turnSlowdown = 0.35 + 0.65 * Math.max(0, Math.cos(absDaBeforeTurn));
       const moveAngle = ship.heading - Math.PI / 2;
-      const step = Math.min(FLY_SPEED * easedFactor * turnSlowdown * dt, dist);
-      // When very close, blend movement toward direct-to-target to prevent circling.
+      const step = Math.min(FLY_SPEED * dt, dist);
       const directBlend = Math.max(0, 1 - dist / 60);
       const hx = Math.cos(moveAngle), hy = Math.sin(moveAngle);
       const tx = dx / dist,           ty = dy / dist;

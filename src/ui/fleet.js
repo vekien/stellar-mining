@@ -14,7 +14,7 @@ import {
   loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel,
 } from '../data/ships.js';
 import { SHIP_TIER_REQS } from '../data/base.js';
-import { BASE_POS, cam, ZOOM_MAX_V } from '../render/camera.js';
+import { BASE_POS, cam, ZOOM_MAX_V, focusOn, gridToWorld } from '../render/camera.js';
 import { TILE_H } from '../constants.js';
 import { fmt, addLog } from '../helpers.js';
 import { refresh } from './refresh.js';
@@ -319,7 +319,14 @@ export function renderShipsList() {
       } else {
         cancelTurretPlacement();
         state.selectedShip = ship.id;
-        if (state.tutStep === 0) state.tutStep = 1;
+        if (state.tutStep === 0) {
+          state.tutStep = 1;
+          const ironNode = state.nodes.find(n => n.type === 'iron' && n.minLevel <= state.base.level);
+          if (ironNode) {
+            const w = gridToWorld(ironNode.gr[0], ironNode.gr[1]);
+            focusOn(w.x, w.y, cam.zoom);
+          }
+        }
         state.pendingAssign = ship.id; canvas.style.cursor = 'crosshair';
         showReassignTooltip(ship);
       }

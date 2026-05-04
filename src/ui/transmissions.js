@@ -21,6 +21,7 @@ export function showTransmissionMessage(text, duration = 10, npcId = 'juno') {
 }
 
 export function flushAdmiralQueue() {
+  if (admiralVisible) return; // a message is already running — don't reset it
   if (admiralQueue.length === 0) { admiralVisible = false; return; }
   admiralVisible = true;
   const msg = admiralQueue.shift();

@@ -17,6 +17,8 @@ import { showTransmissionMessage } from './transmissions.js';
 import { refresh } from './refresh.js';
 import { updateHeader } from './ui.js';
 import { assignShip, spawnShip } from '../systems/ships.js';
+import { BASE_MAX_SHIPS } from '../data/base.js';
+import { BASE_COL, BASE_ROW } from '../constants.js';
 
 const LOREM = `Transmission check — this is a test signal from sector relay delta-niner.<br><br>` +
   `All systems nominal. <strong>Fleet status confirmed.</strong> Resource extraction proceeding within expected parameters.<br><br>` +
@@ -129,6 +131,36 @@ function devAssignAllRandom() {
   }
 }
 
+const MINING_SHIP_TYPES = ['scout', 'swift', 'hauler', 'freighter'];
+
+function devFillMaxShips() {
+  const maxShips = BASE_MAX_SHIPS[(state.base.level - 1)] || 20;
+  while (state.ships.length < maxShips) {
+    const type = MINING_SHIP_TYPES[Math.floor(Math.random() * MINING_SHIP_TYPES.length)];
+    spawnShip(type);
+  }
+  if (refresh.ui) refresh.ui();
+}
+
+function devFloodIronNodes() {
+  const existingPositions = new Set(state.nodes.map(n => `${n.gr[0]},${n.gr[1]}`));
+  let nextId = state.nodes.reduce((max, n) => Math.max(max, n.id), -1) + 1;
+
+  for (let dc = -50; dc <= 50; dc++) {
+    for (let dr = -50; dr <= 50; dr++) {
+      const col = BASE_COL + dc;
+      const row = BASE_ROW + dr;
+      const key = `${col},${row}`;
+      if (existingPositions.has(key)) continue;
+      // Skip the base tile itself
+      if (dc === 0 && dr === 0) continue;
+      state.nodes.push({ id: nextId++, type: 'iron', gr: [col, row], minLevel: 1 });
+      existingPositions.add(key);
+    }
+  }
+  if (refresh.ui) refresh.ui();
+}
+
 export function initDevPanel() {
   const panel = document.getElementById('dev-panel');
   const menu  = document.getElementById('dev-menu');
@@ -150,4 +182,6 @@ export function initDevPanel() {
   document.getElementById('dev-btn-assign-random').addEventListener('click',  e => { e.stopPropagation(); devAssignAllRandom(); });
   document.getElementById('dev-btn-upgrade-base').addEventListener('click',   e => { e.stopPropagation(); devUpgradeBase(); });
   document.getElementById('dev-btn-unique-ships').addEventListener('click',   e => { e.stopPropagation(); devAddUniqueShips(); });
+  document.getElementById('dev-btn-max-ships').addEventListener('click',      e => { e.stopPropagation(); devFillMaxShips(); });
+  document.getElementById('dev-btn-flood-nodes').addEventListener('click',    e => { e.stopPropagation(); devFloodIronNodes(); });
 }

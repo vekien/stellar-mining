@@ -2,7 +2,7 @@
 // MAIN RENDERER — canvas drawing
 // ============================================================
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
-import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS } from './camera.js';
+import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS, tickCamera } from './camera.js';
 import { BASE_RANGE } from '../data/base.js';
 import { toRoman } from '../data/ships.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
@@ -34,6 +34,9 @@ export function initRenderer(mainCtx, w, h) {
 }
 
 export function resizeRenderer(w, h) { W = w; H = h; }
+
+let _onCameraMove = null;
+export function setOnCameraMove(fn) { _onCameraMove = fn; }
 
 export function drawTile(targetCtx, col, row, fill, stroke) {
   const {x,y} = gridToIso(col, row);
@@ -457,9 +460,12 @@ export function render(ts) {
   // Camera follow
   if (state.followShip) {
     const fs = state.ships.find(s => s.id === state.followShip);
-    if (fs) { cam.x = fs.x; cam.y = fs.y; }
+    if (fs) { cam.x = cam.targetX = fs.x; cam.y = cam.targetY = fs.y; }
     else { state.followShip = null; }
   }
+
+  const cameraMoving = tickCamera();
+  if (cameraMoving && _onCameraMove) _onCameraMove();
 
   if (state.settings?.showBackgroundStars !== false) drawStars(ts);
   ctx.clearRect(0,0,W,H);

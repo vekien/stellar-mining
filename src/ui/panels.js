@@ -632,7 +632,7 @@ export function openHdrPanel(type) {
           let reqsHtml = '';
           for (const [r, n] of Object.entries(recipe.reqs)) {
             const met = (state.resources[r] || 0) >= n;
-            reqsHtml += `<span class="bp-craft-req ${met?'met':'unmet'}" style="font-size:14px;">${RESOURCE_DEFS[r].label}: ${n}</span>`;
+            reqsHtml += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`;
           }
 
           const ic = 'color:#4a7aaa;';
@@ -737,8 +737,8 @@ export function openHdrPanel(type) {
         const canCoins = state.coins >= turretCraft.cost;
         const reqsMet  = Object.entries(turretCraft.reqs).map(([r, n]) => [(state.resources[r] || 0) >= n, r, n]);
         const canBuild = canCoins && reqsMet.every(([met]) => met);
-        const pill    = (met, label) => `<span class="bp-craft-req" style="font-size:14px;border-color:${met?'#7a6010':'#802020'};background:${met?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)'};color:${met?'#ffe066':'#f88'};">${label}</span>`;
-        const resPill = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}" style="font-size:14px;">${label}</span>`;
+        const pill    = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}">${label}</span>`;
+        const resPill = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}">${label}</span>`;
         const resPills = reqsMet.map(([met, r, n]) => resPill(met, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
         defHtml += `<div style="background:rgba(10,30,60,0.5);border:1px solid #2a4a7a;border-radius:5px;padding:10px;margin-bottom:8px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
@@ -996,7 +996,7 @@ export function openHdrPanel(type) {
         const boost = state.marketBoost && state.marketBoost.type === key;
         const mult = state.marketBoost?.multiplier ?? 1.5;
         const sellDisplay = boost ? `<span style="color:#ffe066;">$${Math.round(def.sellPrice * mult)} ★ BOOSTED</span>` : `<span class="codex-resources-sell">$${def.sellPrice}</span>`;
-        return `<div class="codex-resources-card" style="border-left: 8px solid ${def.color};">
+        return `<div class="codex-resources-card" style="border-left: 5px solid ${def.color};">
           <div class="codex-resources-header">
             <div class="codex-resources-dot" style="background:${def.color};box-shadow:0 0 8px ${def.color}88;"></div>
             <div class="codex-resources-name">${def.label}</div>
@@ -1118,6 +1118,13 @@ export function openHdrPanel(type) {
           </table>`;
       }).join('');
     } else if (_codexTab === 'upgrades') {
+      const rpCapTable = [1,3,6,10,15,21,28,36,45,55];
+      const rpCapRows = rpCapTable.map((cap, i) =>
+        `<tr>
+          <td class="codex-ships-td" style="color:${MINE_TIERS[i+1]?.color||'#8ab'};">Tier ${i+1}</td>
+          <td class="codex-ships-td codex-ships-td-stat">${cap} RP</td>
+        </tr>`
+      ).join('');
       tabContent = `<div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin:12px 0 8px;">◈ BASE UPGRADE COSTS</div>
         <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;overflow:hidden;">
           <thead>
@@ -1132,6 +1139,15 @@ export function openHdrPanel(type) {
               <td style="padding:6px 8px;text-align:right;color:#ffe066;font-weight:bold;border-bottom:1px solid rgba(26,58,110,0.4);">$${fmt(cost)}</td>
             </tr>`).join('')}
           </tbody>
+        </table>
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ RESEARCH POINT CAP PER BASE TIER</div>
+        <div style="font-size:13px;color:#6a8aaa;margin-bottom:10px;">You earn +1 Research Point per SOL. The cap increases as your base tier advances.</div>
+        <table class="codex-ships-table">
+          <thead><tr>
+            <th class="codex-ships-th" style="color:#4af;">BASE TIER</th>
+            <th class="codex-ships-th" style="color:#4af;">MAX RP</th>
+          </tr></thead>
+          <tbody>${rpCapRows}</tbody>
         </table>`;
     } else {
       // Events tab
@@ -1172,13 +1188,6 @@ export function openHdrPanel(type) {
 
     // ── RESEARCH ────────────────────────────────────────────────
     if (_codexTab === 'research') {
-      const rpCapTable = [1,3,6,10,15,21,28,36,45,55];
-      const rpCapRows = rpCapTable.map((cap, i) =>
-        `<tr>
-          <td class="codex-ships-td" style="color:${MINE_TIERS[i+1]?.color||'#8ab'};">Tier ${i+1}</td>
-          <td class="codex-ships-td codex-ships-td-stat">${cap} RP</td>
-        </tr>`
-      ).join('');
 
       const researchItems = [
         {
@@ -1203,29 +1212,20 @@ export function openHdrPanel(type) {
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
             <span style="font-size:24px;line-height:1;">${r.icon}</span>
             <div style="flex:1;">
-              <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${r.name}</div>
-              <div style="font-size:11px;color:#4a7aaa;margin-top:1px;letter-spacing:1px;">${r.tier}</div>
+              <div style="font-family:'Orbitron',sans-serif;font-size:15px;color:#cde;letter-spacing:1px;">${r.name}</div>
+              <div style="font-size:13px;color:#4a7aaa;margin-top:1px;letter-spacing:1px;">${r.tier}</div>
             </div>
             <div style="text-align:right;">
-              <div style="font-size:11px;color:#ffe066;">${r.cost}</div>
-              <div style="font-size:10px;color:#4a6a8a;margin-top:1px;">${r.max}</div>
+              <div style="font-size:13px;color:#ffe066;">${r.cost}</div>
+              <div style="font-size:12px;color:#4a6a8a;margin-top:1px;">${r.max}</div>
             </div>
           </div>
-          <div style="font-size:13px;color:#6a8aaa;line-height:1.4;border-top:1px solid #1a3a5a;padding-top:8px;">${r.purpose}</div>
+          <div style="font-size:15px;color:#6a8aaa;line-height:1.4;border-top:1px solid #1a3a5a;padding-top:8px;">${r.purpose}</div>
         </div>`).join('');
 
       tabContent = `
         <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:10px;">◈ RESEARCH TREE</div>
-        ${itemCards}
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ RESEARCH POINT CAP PER BASE TIER</div>
-        <div style="font-size:13px;color:#6a8aaa;margin-bottom:10px;">You earn +1 Research Point per SOL. The cap increases as your base tier advances.</div>
-        <table class="codex-ships-table">
-          <thead><tr>
-            <th class="codex-ships-th" style="color:#4af;">BASE TIER</th>
-            <th class="codex-ships-th" style="color:#4af;">MAX RP</th>
-          </tr></thead>
-          <tbody>${rpCapRows}</tbody>
-        </table>`;
+        ${itemCards}`;
 
     // ── SECTOR ────────────────────────────────────────────────
     } else if (_codexTab === 'sector') {

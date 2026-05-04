@@ -9,7 +9,7 @@ import { BASE_COL, BASE_ROW } from './constants.js';
 import { SOL_DURATION, MARKET_BOOST_MIN, MARKET_BOOST_MAX } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
-import { initRenderer, resizeRenderer, render, W, H } from './render/renderer.js';
+import { initRenderer, resizeRenderer, render, setOnCameraMove, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
 import {
   tickFloaties, tickSolarFlare, tickComet,
@@ -54,6 +54,7 @@ initStars(starsCtx, canvas.width, canvas.height);
 initRefresh();
 initInput(canvas);
 initDevPanel();
+setOnCameraMove(renderTutPointers);
 
 // ── Node init ─────────────────────────────────────────────────
 function initNodes() {

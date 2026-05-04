@@ -40,8 +40,8 @@ export function initInput(canvas) {
     if (!isPanning) return;
     const dx = e.clientX - mouseDownX, dy = e.clientY - mouseDownY;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) { didPan = true; state.followShip = null; }
-    cam.x = panCamX - (e.clientX - panStartX) / cam.zoom;
-    cam.y = panCamY - (e.clientY - panStartY) / cam.zoom;
+    cam.x = cam.targetX = panCamX - (e.clientX - panStartX) / cam.zoom;
+    cam.y = cam.targetY = panCamY - (e.clientY - panStartY) / cam.zoom;
   });
 
   window.addEventListener('mouseup', e => {
@@ -68,8 +68,8 @@ export function initInput(canvas) {
 
   canvas.addEventListener('touchmove', e => {
     if (e.touches.length === 1 && isPanning) {
-      cam.x = panCamX - (e.touches[0].clientX - panStartX) / cam.zoom;
-      cam.y = panCamY - (e.touches[0].clientY - panStartY) / cam.zoom;
+      cam.x = cam.targetX = panCamX - (e.touches[0].clientX - panStartX) / cam.zoom;
+      cam.y = cam.targetY = panCamY - (e.touches[0].clientY - panStartY) / cam.zoom;
     }
     if (e.touches.length === 2 && lastTouchDist) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -90,8 +90,8 @@ export function initInput(canvas) {
     const wb = screenToWorld(mx, my, W, H);
     cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cam.zoom + (e.deltaY < 0 ? 0.1 : -0.1)));
     const wa = screenToWorld(mx, my, W, H);
-    cam.x += wb.x - wa.x;
-    cam.y += wb.y - wa.y;
+    cam.x = cam.targetX += wb.x - wa.x;
+    cam.y = cam.targetY += wb.y - wa.y;
   }, { passive: false });
 
   // ── CANVAS HOVER ────────────────────────────────────────────

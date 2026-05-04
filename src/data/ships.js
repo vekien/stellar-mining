@@ -151,66 +151,66 @@ export const SHIP_DEFS = {
 
   // ── Mining ─────────────────────────────────────────────────────
   scout: {
-    role: 'mining', capacity: 12,  flySpeed: 140, mineSpeed: 2.5, mineTier: 1, turnRadius: 1.0,
+    role: 'mining', capacity: 12,  flySpeed: 140, mineSpeed: 2.5, mineTier: 1,
   },
   swift: {
-    role: 'mining', capacity: 6,   flySpeed: 220, mineSpeed: 2.5, mineTier: 1, turnRadius: 0.8,
+    role: 'mining', capacity: 6,   flySpeed: 220, mineSpeed: 2.5, mineTier: 1,
   },
   hauler: {
-    role: 'mining', capacity: 50,  flySpeed: 60,  mineSpeed: 2.5, mineTier: 2, turnRadius: 1.2,
+    role: 'mining', capacity: 50,  flySpeed: 60,  mineSpeed: 2.5, mineTier: 2,
   },
   freighter: {
-    role: 'mining', capacity: 100, flySpeed: 60,  mineSpeed: 2.5, mineTier: 3, turnRadius: 1.8,
+    role: 'mining', capacity: 100, flySpeed: 60,  mineSpeed: 2.5, mineTier: 3,
   },
 
   // ── Cargo Transport ────────────────────────────────────────────
   courier: {
-    role: 'transport', capacity: 500,  flySpeed: 200, mineSpeed: 0, loadSpeed: 5, mineTier: 2, turnRadius: 1.1,
+    role: 'transport', capacity: 500,  flySpeed: 200, mineSpeed: 0, loadSpeed: 5, mineTier: 2,
   },
   deep_hauler: {
-    role: 'transport', capacity: 1000, flySpeed: 200, mineSpeed: 0, loadSpeed: 5, mineTier: 4, turnRadius: 3.2,
+    role: 'transport', capacity: 1000, flySpeed: 200, mineSpeed: 0, loadSpeed: 5, mineTier: 4,
   },
 
   // ── Combat ─────────────────────────────────────────────────────
   viper: {
-    role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4, turnRadius: 0.6,
+    role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4,
     hp: 800,  attack: 45,  attackSpeed: 1.8,
   },
   interceptor: {
-    role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4, turnRadius: 0.9,
+    role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4,
     hp: 2500, attack: 60,  attackSpeed: 1.2,
   },
   destroyer: {
-    role: 'combat', capacity: 0, flySpeed: 100, mineSpeed: 0, mineTier: 5, turnRadius: 1.6,
+    role: 'combat', capacity: 0, flySpeed: 100, mineSpeed: 0, mineTier: 5,
     hp: 5000, attack: 100, attackSpeed: 0.4,
   },
 
   // ── Garrison ───────────────────────────────────────────────────
   bulwark: {
-    role: 'garrison', capacity: 0, flySpeed: 12, mineSpeed: 0, mineTier: 4, turnRadius: 3.5,
+    role: 'garrison', capacity: 0, flySpeed: 12, mineSpeed: 0, mineTier: 4,
     hp: 18000, attack: 400, attackSpeed: 0.7, range: 8,
   },
   colossus: {
-    role: 'garrison', capacity: 0, flySpeed: 5, mineSpeed: 0, mineTier: 5, turnRadius: 5.0,
+    role: 'garrison', capacity: 0, flySpeed: 5, mineSpeed: 0, mineTier: 5,
     hp: 50000, attack: 900, attackSpeed: 0.3, range: 14,
   },
 
   // ── Unique / Legendary ─────────────────────────────────────────
   // Acquired through events — always Tier 10, stats are final (no upgrade range)
   sentinel: {
-    role: 'unique', unique: true, capacity: 25,  flySpeed: 380, mineSpeed: 1.0, mineTier: 10, turnRadius: 0.5,
+    role: 'unique', unique: true, capacity: 25,  flySpeed: 380, mineSpeed: 1.0, mineTier: 10,
     hp: 30000, attack: 600,
   },
   serenity: {
-    role: 'unique', unique: true, capacity: 220, flySpeed: 160, mineSpeed: 1.6, mineTier: 10, turnRadius: 1.3,
+    role: 'unique', unique: true, capacity: 220, flySpeed: 160, mineSpeed: 1.6, mineTier: 10,
     hp: 14000, attack: 180,
   },
   normandy: {
-    role: 'unique', unique: true, capacity: 35,  flySpeed: 450, mineSpeed: 0,   mineTier: 10, turnRadius: 0.4,
+    role: 'unique', unique: true, capacity: 35,  flySpeed: 450, mineSpeed: 0,   mineTier: 10,
     hp: 22000, attack: 750,
   },
   ebon_hawk: {
-    role: 'unique', unique: true, capacity: 80,  flySpeed: 320, mineSpeed: 0.6, mineTier: 10, turnRadius: 0.7,
+    role: 'unique', unique: true, capacity: 80,  flySpeed: 320, mineSpeed: 0.6, mineTier: 10,
     hp: 16000, attack: 280,
   },
 

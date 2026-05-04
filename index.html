@@ -27,6 +27,21 @@
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('codex')"><span class="label">CODEX</span></button>
     <div id="header-right">
+      <div id="dev-panel" class="btn-about">⚙ DEV
+        <div id="dev-menu">
+          <button id="dev-btn-coins">Max: Money</button>
+          <button id="dev-btn-resources">Max: Resources</button>
+          <button id="dev-btn-rp">Max: Research Points</button>
+          <button id="dev-btn-max-ships">Max: Ships</button>
+          <button id="dev-btn-upgrade-base">Upgrade: Base</button>
+          <button id="dev-btn-max-upgrades">Upgrade: All Ships</button>
+          <button id="dev-btn-unique-ships">Ships: Add Unique</button>
+          <button id="dev-btn-assign-random">Ships: Assign Random</button>
+          <button id="dev-btn-sol">World: Next Sol</button>
+          <button id="dev-btn-flood-nodes">World: Iron Flood</button>
+          <button id="dev-btn-transmission">UI: Test Transmission</button>
+        </div>
+      </div>
       <button class="btn-about" onclick="openAbout()">? ABOUT</button>
       <button class="btn-about" onclick="openSettings()">⚙ SETTINGS</button>
       <button class="btn-new-game" onclick="promptNewGame()">⟳ NEW GAME</button>
@@ -220,20 +235,6 @@
   </div>
 </div>
 
-<div id="dev-panel">
-  DEVELOPER
-  <div id="dev-menu">
-    <button id="dev-btn-transmission">Test Transmission</button>
-    <button id="dev-btn-coins">Max Money</button>
-    <button id="dev-btn-rp">Add Research Point</button>
-    <button id="dev-btn-resources">Add 99999 All Resources</button>
-    <button id="dev-btn-sol">Next Sol Day</button>
-    <button id="dev-btn-max-upgrades">Max All Ship Upgrades</button>
-    <button id="dev-btn-assign-random">Assign All Ships Random</button>
-    <button id="dev-btn-upgrade-base">Upgrade Base</button>
-    <button id="dev-btn-unique-ships">Add All Unique Ships</button>
-  </div>
-</div>
 
 <script type="module" src="src/main.js"></script>
 </body>

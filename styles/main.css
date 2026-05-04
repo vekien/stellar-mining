@@ -154,7 +154,7 @@
   .codex-group-label:not(:first-child) { margin-top: 8px; }
 
   /* codex > resources */
-  .codex-resources-card { background: rgba(10,20,50,0.5); border: 1px solid #1e3a6e; border-radius: 5px; padding: 12px 14px; margin-bottom: 8px; }
+  .codex-resources-card { background: rgba(10,20,50,0.5); border: 1px solid #1e3a6e; border-left: 5px solid #1e3a6e; border-radius: 5px; padding: 12px 14px; margin-bottom: 8px; }
   .codex-resources-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .codex-resources-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
   .codex-resources-name { font-family: 'Orbitron',sans-serif; font-size: 13px; font-weight: 700; color: #e8eef8; letter-spacing: 1px; flex: 1; }
@@ -1140,7 +1140,7 @@
   }
   .bp-craft-item:hover { border-color: #3a6aaa; }
   .bp-craft-reqs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-  .bp-craft-req { font-size: 12px; padding: 2px 6px; border-radius: 3px; border: 1px solid; }
+  .bp-craft-req { font-size: 14px; line-height: 1.5; padding: 2px 6px; border-radius: 3px; border: 1px solid; }
 
   #base-panel .btn { font-size: 15px; }
   .bp-craft-req.met   { color: #4d8; border-color: #2a6040; background: rgba(20,60,30,0.4); }
@@ -1237,17 +1237,14 @@
 
   /* Dev panel */
   #dev-panel {
-    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    position: relative;
     z-index: 9999;
-    font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 2px;
-    color: #3a5a3a; background: rgba(5,15,5,0.7); border: 1px solid #1a3a1a;
-    border-radius: 4px; padding: 5px 12px; cursor: pointer;
-    user-select: none; transition: color 0.15s, border-color 0.15s;
+    cursor: pointer;
+    user-select: none;
   }
-  #dev-panel:hover { color: #6aaa6a; border-color: #2a6a2a; }
   #dev-menu {
     display: none; flex-direction: column; gap: 4px;
-    position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    position: absolute; top: calc(100% + 8px); right: 0;
     background: rgba(5,15,5,0.95); border: 1px solid #2a5a2a;
     border-radius: 6px; padding: 8px; min-width: 200px;
   }

@@ -73,7 +73,7 @@ export function renderBasePanel() {
     }
 
     const upgradeBtn = nextCost
-      ? `<button class="btn${canUpgrade?' primary':''}" style="font-size:13px;padding:6px 14px;white-space:nowrap;" onclick="upgradeBase()" ${canUpgrade?'':'disabled'}>⬆ UPGRADE</button>`
+      ? `<button class="btn${canUpgrade?' primary':''}" style="font-size:18px;padding:6px 14px;white-space:nowrap;line-height:1.5;" onclick="upgradeBase()" ${canUpgrade?'':'disabled'}>⬆ UPGRADE</button>`
       : `<span style="font-size:13px;color:#ffe066">★ MAX TIER</span>`;
 
     body = `
@@ -123,26 +123,27 @@ export function renderBasePanel() {
       <div style="background:rgba(8,22,46,0.55);border:1px solid #23426f;border-radius:5px;padding:10px;margin-top:8px;">
         <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#8fc3ff;letter-spacing:1.4px;margin-bottom:7px;">◈ INSTALLED UPGRADES</div>
         ${installedUpgrades.length
-          ? installedUpgrades.map(upg => `<div style="display:flex;align-items:center;gap:8px;padding:7px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;margin-bottom:6px;">
-              <span style="font-size:16px;line-height:1;">${upg.icon}</span>
-              <div style="flex:1;min-width:0;">
-                <div style="display:flex;align-items:center;gap:6px;">
-                  <span style="font-family:'Orbitron',sans-serif;font-size:12px;color:#cde;letter-spacing:1px;">${upg.name}</span>
-                  ${upg.qty ? `<span style="font-size:10px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${upg.qty}</span>` : ''}
-                </div>
-                <div style="font-size:12px;color:#6f97bc;margin-top:1px;">${upg.detail}</div>
-              </div>
-            </div>`).join('')
+          ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              ${installedUpgrades.map(upg => `
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;text-align:center;">
+                  <span style="font-size:22px;line-height:1;">${upg.icon}</span>
+                  <div style="display:flex;align-items:center;gap:5px;justify-content:center;flex-wrap:wrap;">
+                    <span style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${upg.name}</span>
+                    ${upg.qty ? `<span style="font-size:11px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${upg.qty}</span>` : ''}
+                  </div>
+                  <div style="font-size:13px;color:#6f97bc;">${upg.detail}</div>
+                </div>`).join('')}
+            </div>`
           : '<div style="font-size:14px;color:#4a6a8a;">No tower upgrades installed yet.</div>'}
       </div>
       <div class="bp-divider"></div>
       ${nextCost ? (() => {
         const ntColor = MINE_TIERS[bl+1]?.color || '#8ab';
-        let reqPills = `<span style="font-size:13px;padding:2px 6px;border-radius:3px;border:1px solid ${state.coins>=nextCost?'#2a6040':'#802020'};background:${state.coins>=nextCost?'rgba(20,60,30,0.4)':'rgba(60,10,10,0.35)'};color:${state.coins>=nextCost?'#4d8':'#f88'};">$${fmt(nextCost)}</span>`;
+        let reqPills = `<span class="bp-craft-req ${state.coins>=nextCost?'met':'unmet'}">$${fmt(nextCost)}</span>`;
         if (nextResReqs) {
           for (const [r, n] of Object.entries(nextResReqs)) {
             const met = (state.resources[r] || 0) >= n;
-            reqPills += `<span style="font-size:13px;padding:2px 6px;border-radius:3px;border:1px solid ${met?'#2a6040':'#802020'};background:${met?'rgba(20,60,30,0.4)':'rgba(60,10,10,0.35)'};color:${met?'#4d8':'#f88'};">${RESOURCE_DEFS[r]?.label??r}: ${n}</span>`;
+            reqPills += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r]?.label??r}: ${n}</span>`;
           }
         }
         return `<div style="background:rgba(8,18,42,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:10px;">

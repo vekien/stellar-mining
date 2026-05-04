@@ -73,8 +73,8 @@ export function renderTurretModal() {
       ${(() => {
         const c1 = state.coins >= upgCost.coins;
         const reqEntries = Object.entries(upgCost.reqs);
-        const pill  = (met, label) => '<span class="bp-craft-req '+(met?'met':'unmet')+'" style="font-size:12px;">'+label+'</span>';
-        const cpill = (met, label) => '<span class="bp-craft-req" style="font-size:12px;border-color:'+(met?'#7a6010':'#802020')+';background:'+(met?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)')+';color:'+(met?'#ffe066':'#f88')+';">'+label+'</span>';
+        const pill  = (met, label) => '<span class="bp-craft-req '+(met?'met':'unmet')+'">'+label+'</span>';
+        const cpill = (met, label) => '<span class="bp-craft-req" style="border-color:'+(met?'#7a6010':'#802020')+';background:'+(met?'rgba(60,45,0,0.4)':'rgba(60,10,10,0.4)')+';color:'+(met?'#ffe066':'#f88')+';">'+label+'</span>';
         return cpill(c1, '$'+upgCost.coins) + reqEntries.map(([r, n]) => pill((state.resources[r]||0) >= n, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
       })()}
     </div>

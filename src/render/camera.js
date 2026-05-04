@@ -7,7 +7,7 @@ import { BASE_COL, BASE_ROW } from '../constants.js';
 export const ZOOM_MIN_V = 0.35;
 export const ZOOM_MAX_V = 3.0;
 
-export const cam = { x:0, y:0, zoom:2.0 };
+export const cam = { x:0, y:0, zoom:2.0, targetX:0, targetY:0 };
 
 export function gridToWorld(col, row) {
   return { x:(col-row)*(TILE_W/2), y:(col+row)*(TILE_H/2) };
@@ -27,21 +27,36 @@ export function nodeWorldPos(node) {
 }
 
 export function focusOn(wx, wy, zoom) {
-  cam.x = wx;
-  cam.y = wy;
+  cam.targetX = wx;
+  cam.targetY = wy;
   if (zoom !== undefined) cam.zoom = Math.max(ZOOM_MIN_V, Math.min(ZOOM_MAX_V, zoom));
+}
+
+export function snapTo(wx, wy, zoom) {
+  cam.x = cam.targetX = wx;
+  cam.y = cam.targetY = wy;
+  if (zoom !== undefined) cam.zoom = Math.max(ZOOM_MIN_V, Math.min(ZOOM_MAX_V, zoom));
+}
+
+export function tickCamera() {
+  const LERP = 0.4;
+  const dx = cam.targetX - cam.x;
+  const dy = cam.targetY - cam.y;
+  cam.x += dx * LERP;
+  cam.y += dy * LERP;
+  return Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1; // true while still moving
 }
 
 export function focusOnBase(zoom) {
   const base = gridToWorld(BASE_COL, BASE_ROW);
-  focusOn(base.x, base.y, zoom);
+  snapTo(base.x, base.y, zoom);
 }
 
 export function adjustZoom(d) {
   cam.zoom = Math.max(ZOOM_MIN_V, Math.min(ZOOM_MAX_V, cam.zoom + d));
 }
 
-export function resetView() { focusOnBase(2.0); }
+export function resetView() { snapTo(gridToWorld(BASE_COL, BASE_ROW).x, gridToWorld(BASE_COL, BASE_ROW).y, 2.0); }
 
 // Expose for HTML onclick handlers
 window.adjustZoom = adjustZoom;
