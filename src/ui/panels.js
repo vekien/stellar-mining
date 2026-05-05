@@ -14,7 +14,7 @@ import {
 import { NODE_BANDS } from '../data/nodes.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
-import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax } from '../data/research.js';
+import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
 import { fmt } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
@@ -27,13 +27,21 @@ setInterval(() => {
   if (window._hdrPanelOpen !== 'craft') return;
   const overlay = document.getElementById('hdr-modal-overlay');
   if (!overlay?.classList.contains('open')) return;
-  if (!state.shipCraftTimers) return;
-  for (const [recipeId, timer] of Object.entries(state.shipCraftTimers)) {
+  for (const [recipeId, timer] of Object.entries(state.shipCraftTimers || {})) {
     if (!timer || Date.now() >= timer.endsAt) continue;
     const remainMs = Math.max(0, timer.endsAt - Date.now());
     const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
     const fillEl  = document.getElementById(`craft-fill-${recipeId}`);
     const labelEl = document.getElementById(`craft-label-${recipeId}`);
+    if (fillEl)  fillEl.style.width = `${pct}%`;
+    if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
+  }
+  for (const [turretType, timer] of Object.entries(state.turretCraftTimers || {})) {
+    if (!timer || Date.now() >= timer.endsAt) continue;
+    const remainMs = Math.max(0, timer.endsAt - Date.now());
+    const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
+    const fillEl  = document.getElementById(`craft-turret-fill-${turretType}`);
+    const labelEl = document.getElementById(`craft-turret-label-${turretType}`);
     if (fillEl)  fillEl.style.width = `${pct}%`;
     if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
   }
@@ -87,6 +95,7 @@ export function refreshHdrPanelIfOpen() {
   if (_hdrPanelOpen === 'research') return;
   if (_hdrPanelOpen === 'stats') return;
   if (_hdrPanelOpen === 'resources') return;
+  if (_hdrPanelOpen === 'market') return;
   if (_hdrPanelOpen === 'fleet') {
     refreshFleetPanelPartial();
     return;
@@ -192,18 +201,18 @@ function sortArrowFor(key) {
 }
 
 function fleetHeaderCell(label, key) {
-  return `<th onclick="sortFleetManifest('${key}')" style="cursor:pointer;user-select:none;white-space:nowrap;">${label} <span style="color:${_fleetSortKey===key?'#8fc3ff':'#4a6a8a'};font-size:11px;">${sortArrowFor(key)}</span></th>`;
+  return `<th class="ships-sort-head" onclick="sortFleetManifest('${key}')">${label} <span class="ships-sort-arrow${_fleetSortKey===key?' active':''}">${sortArrowFor(key)}</span></th>`;
 }
 
 function buildFleetCompositionHtml(typeCounts, shipCount, maxShips) {
   const compositionHeaders = Object.keys(typeCounts);
   const compositionValues = compositionHeaders.map((key) => typeCounts[key]);
-  if (!compositionHeaders.length) return '<div style="font-size:13px;color:#3a5a7a;margin-bottom:12px;">No ships in fleet yet.</div>';
+  if (!compositionHeaders.length) return '<div class="ships-empty">No ships in fleet yet.</div>';
   const countStr = (shipCount !== undefined && maxShips !== undefined) ? `${shipCount}/${maxShips} SHIPS — ` : '';
-  return `<div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ ${countStr}FLEET COMPOSITION</div>
-    <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #3a6aa8;border-radius:4px;overflow:hidden;margin-bottom:12px;box-shadow:0 0 0 1px rgba(110,170,255,0.18) inset;">
-      <tr>${compositionHeaders.map(name => `<td style="padding:8px 10px;color:#8ab;font-size:13px;border-bottom:1px solid #2a4f80;">${name}</td>`).join('')}</tr>
-      <tr>${compositionValues.map(value => `<td style="padding:8px 10px;color:#cde;font-size:18px;font-weight:bold;">${value}</td>`).join('')}</tr>
+  return `<div class="ships-comp-title">◈ ${countStr}FLEET COMPOSITION</div>
+    <table class="ships-comp-table">
+      <tr>${compositionHeaders.map(name => `<td class="ships-comp-head">${name}</td>`).join('')}</tr>
+      <tr>${compositionValues.map(value => `<td class="ships-comp-val">${value}</td>`).join('')}</tr>
     </table>`;
 }
 
@@ -321,9 +330,9 @@ function buildStatsHtml() {
   const { maxShips, assigned, idle, totalNodes, occupiedNodes, nodesByType } = buildStatsData();
 
   const statCard = (label, value, color = '#ffe066') =>
-    `<div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:10px 14px;flex:1;min-width:0;text-align:center;">
-      <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4a6a8a;margin-bottom:6px;">${label}</div>
-      <div style="font-size:20px;font-weight:bold;color:${color};font-family:'Share Tech Mono',monospace;" id="stat-${label.replace(/\s/g,'_')}">${value}</div>
+    `<div class="resources-stat-card">
+      <div class="resources-stat-label">${label}</div>
+      <div class="resources-stat-value" style="color:${color};" id="stat-${label.replace(/\s/g,'_')}">${value}</div>
     </div>`;
 
   const nodeRows = Object.entries(nodesByType).map(([type, d]) => {
@@ -366,44 +375,44 @@ function buildStatsHtml() {
       const alert = noShips
         ? `<span id="stockpile-alert-${k}" style="color:#f44;font-size:14px;margin-left:4px;cursor:help;" onmouseover="showHintTooltip(event,'No ships assigned — this resource is not being mined')" onmouseout="hideTooltip()">⚠</span>`
         : `<span id="stockpile-alert-${k}" style="display:none;"></span>`;
-      return `<div id="stockpile-card-${k}" style="border:1px solid #1a3a6e;border-left:5px solid ${def.color};border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px;${cardBg}${cardBorder}">
-        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${def.color};flex-shrink:0;box-shadow:0 0 6px ${def.color}99;"></span>
-        <span style="font-family:'Orbitron',sans-serif;font-size:12px;color:#cde;letter-spacing:1px;flex:1;">${def.label}${alert}</span>
-        <span id="stockpile-val-${k}" style="font-size:15px;font-weight:bold;color:${v===0?'#4a6a8a':'#ffe066'};font-family:'Share Tech Mono',monospace;">${fmt(v)}</span>
-        <span style="margin-left:6px;font-size:11px;color:#cde;">(${d.total} Nodes)</span>
+      return `<div id="stockpile-card-${k}" class="resources-stock-card${noShips?' no-ships':''}" style="border-left-color:${def.color};">
+        <span class="resources-stock-dot" style="background:${def.color};box-shadow:0 0 6px ${def.color}99;"></span>
+        <span class="resources-stock-name">${def.label}${alert}</span>
+        <span id="stockpile-val-${k}" class="resources-stock-value" style="color:${v===0?'#4a6a8a':'#ffe066'};">${fmt(v)}</span>
+        <span class="resources-stock-nodes">(${d.total} Nodes)</span>
       </div>`;
     }).filter(Boolean).join('');
     if (!cards) return '';
-    return `<div style="margin-bottom:14px;">
-      <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:${tierInfo.color};margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid ${tierInfo.color}55;">${tierInfo.label}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">${cards}</div>
+    return `<div class="resources-tier-wrap">
+      <div class="resources-tier-title" style="color:${tierInfo.color};border-bottom:1px solid ${tierInfo.color}55;">${tierInfo.label}</div>
+      <div class="resources-grid">${cards}</div>
     </div>`;
   }).join('');
 
   return `
-    <div style="display:flex;gap:8px;margin-bottom:16px;">
+    <div class="resources-stats-row">
       ${statCard('SHIPS', `${state.ships.length}/${maxShips}`)}
       ${statCard('ASSIGNED', assigned, assigned > 0 ? '#4d8' : '#f88')}
       ${statCard('IDLE', idle, idle > 0 ? '#f88' : '#4d8')}
       ${statCard('NODES', `${occupiedNodes}/${totalNodes}`, occupiedNodes === totalNodes ? '#4d8' : '#ffe066')}
     </div>
-    <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:10px;">◈ RESOURCE STOCKPILE</div>
-    ${stockpileSections || '<div style="padding:10px;color:#3a5a7a;font-size:14px;">No accessible nodes yet.</div>'}
-    <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:8px;margin-top:4px;">◈ YIELD RATE</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;" id="stats-yield-list">
+    <div class="resources-section-title">◈ RESOURCE STOCKPILE</div>
+    ${stockpileSections || '<div class="resources-empty">No accessible nodes yet.</div>'}
+    <div class="resources-section-title yield">◈ YIELD RATE</div>
+    <div class="resources-yield-list" id="stats-yield-list">
       ${buildYieldHtml(nodesByType)}
     </div>`;
 }
 
 function buildYieldHtml(nodesByType) {
   const entries = Object.entries(nodesByType).filter(([,d]) => d.yield > 0);
-  if (!entries.length) return '<div style="color:#3a5a7a;font-size:14px;padding:4px 0;">No active mining.</div>';
+  if (!entries.length) return '<div class="resources-yield-empty">No active mining.</div>';
   return entries.map(([type, d]) => {
     const def = RESOURCE_DEFS[type];
-    return `<div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:8px 14px;display:flex;align-items:center;gap:8px;">
-      <div style="width:8px;height:8px;border-radius:50%;background:${def.color};"></div>
-      <span style="color:#8ab;font-size:13px;">${def.label}</span>
-      <span style="color:#ffe066;font-weight:bold;font-size:14px;" id="stats-yield-${type}">${Math.round(d.yield)}/m</span>
+    return `<div class="resources-yield-pill">
+      <div class="resources-yield-dot" style="background:${def.color};"></div>
+      <span class="resources-yield-name">${def.label}</span>
+      <span class="resources-yield-val" id="stats-yield-${type}">${Math.round(d.yield)}/m</span>
     </div>`;
   }).join('');
 }
@@ -424,9 +433,8 @@ function patchStockpileCards(nodesByType) {
     const card = document.getElementById(`stockpile-card-${k}`);
     if (!card) continue;
     const noShips = d.occupied === 0;
-    card.style.borderColor = noShips ? '#803020' : '#1a3a6e';
+    card.classList.toggle('no-ships', noShips);
     card.style.borderLeftColor = noShips ? '#f44' : def.color;
-    card.style.background = noShips ? 'rgba(60,10,10,0.45)' : 'rgba(10,20,50,0.6)';
     const alertEl = document.getElementById(`stockpile-alert-${k}`);
     if (alertEl) alertEl.style.display = noShips ? '' : 'none';
     const valEl = document.getElementById(`stockpile-val-${k}`);
@@ -472,12 +480,12 @@ export function patchStatsPanel() {
   }
 }
 
-export function openHdrPanel(type) {
+export function openHdrPanel(type, options = {}) {
   const overlay = document.getElementById('hdr-modal-overlay');
   const heading = document.getElementById('hdr-modal-heading');
   const body    = document.getElementById('hdr-modal-body');
 
-  if (_hdrPanelOpen === type && overlay.classList.contains('open')) {
+  if (_hdrPanelOpen === type && overlay.classList.contains('open') && !options.refresh) {
     overlay.classList.remove('open');
     _hdrPanelOpen = null;
     return;
@@ -499,7 +507,7 @@ export function openHdrPanel(type) {
   _hdrPanelOpen = type;
   overlay.classList.add('open');
   const _modalBody = document.getElementById('hdr-modal-body');
-  if (_modalBody) _modalBody.scrollTop = 0;
+  if (_modalBody && !options.preserveScroll) _modalBody.scrollTop = 0;
   const MODAL_WIDTHS = { fleet: '1100px', codex: '1200px' };
   document.getElementById('hdr-modal').style.width = MODAL_WIDTHS[type] || '';
 
@@ -516,33 +524,32 @@ export function openHdrPanel(type) {
     const basePow   = state.base.level || 1;
     const fleetPower = shipPow + turretPow + basePow;
     body.innerHTML = `
-      <div style="margin-bottom:14px;padding:10px 12px;background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;">
-        <div style="font-family:'Orbitron',sans-serif;font-size:28px;font-weight:800;letter-spacing:5px;color:#b060ff;text-shadow:0 0 24px #9030ffaa,0 0 8px #6010cc88;margin-top:-8px;">ANDROMEDA</div>
-        <div id="sol-sector-label" style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ KEPLER-7 SECTOR — SOL ${state.sol}</div>
-        <div style="font-size:14px;color:#5a8aaa;line-height:1.25;margin-bottom:8px;">Deep in the outer rim, where stellar winds thin and ancient ore drifts unclaimed — your operation pushes further each cycle.</div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#4af;letter-spacing:1px;">1 SOL = 3 EARTH MINUTES</div>
+      <div class="overview-hero">
+        <div class="overview-galaxy">ANDROMEDA</div>
+        <div id="sol-sector-label" class="overview-sector">◈ KEPLER-7 SECTOR — SOL ${state.sol}</div>
+        <div class="overview-blurb">Deep in the outer rim, where stellar winds thin and ancient ore drifts unclaimed — your operation pushes further each cycle.</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
-        <div style="background:rgba(5,30,80,0.45);border:1px solid #1a5aaa;border-radius:5px;padding:10px 12px;">
-          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:4px;">◈ FLEET POWER</div>
-          <div id="sol-fleet-power" style="font-size:20px;font-weight:bold;color:#4af;line-height:1;">${fleetPower}</div>
-          <div id="sol-fleet-breakdown" style="font-size:10px;color:#3a6a9a;margin-top:4px;">SHP ${shipPow} · TUR ${turretPow} · BASE ${basePow}</div>
+      <div class="overview-grid">
+        <div class="overview-card power">
+          <div class="overview-card-label power">◈ FLEET POWER</div>
+          <div id="sol-fleet-power" class="overview-card-val power">${fleetPower}</div>
+          <div id="sol-fleet-breakdown" class="overview-breakdown">SHP ${shipPow} · TUR ${turretPow} · BASE ${basePow}</div>
         </div>
-        <div style="background:rgba(80,10,10,0.35);border:1px solid #802030;border-radius:5px;padding:10px 12px;">
-          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#f88;margin-bottom:4px;">⚑ PIRATE STATUS</div>
-          <div style="font-size:15px;font-weight:bold;color:#f88;">Unknown</div>
+        <div class="overview-card pirate">
+          <div class="overview-card-label pirate">⚑ PIRATE STATUS</div>
+          <div class="overview-card-val pirate">Unknown</div>
         </div>
-        <div style="background:rgba(80,50,0,0.35);border:1px solid #805020;border-radius:5px;padding:10px 12px;">
-          <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#fa8;margin-bottom:4px;">⬡ THREAT LEVEL</div>
-          <div style="font-size:15px;font-weight:bold;color:#fa8;">Moderate</div>
+        <div class="overview-card threat">
+          <div class="overview-card-label threat">⬡ THREAT LEVEL</div>
+          <div class="overview-card-val threat">Moderate</div>
         </div>
       </div>
-      <div style="border-top:1px solid #1a3a6e;padding-top:14px;margin-top:2px;">
-        <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:10px;">◈ GALAXY PROBE — COMING SOON</div>
-        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:14px;text-align:center;opacity:0.5;">
-          <div style="font-size:22px;margin-bottom:6px;">🛸</div>
-          <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:4px;">DEEP SPACE PROBES</div>
-          <div style="font-size:12px;color:#4a6a8a;">Launch probes to distant systems to discover rare resources, anomalies, and uncharted territories.</div>
+      <div class="overview-probe-wrap">
+        <div class="overview-probe-title">◈ GALAXY PROBE — COMING SOON</div>
+        <div class="overview-probe-card">
+          <div class="overview-probe-icon">🛸</div>
+          <div class="overview-probe-name">DEEP SPACE PROBES</div>
+          <div class="overview-probe-desc">Launch probes to distant systems to discover rare resources, anomalies, and uncharted territories.</div>
         </div>
       </div>`;
   }
@@ -557,7 +564,7 @@ export function openHdrPanel(type) {
       { id: 'rep',      label: 'REP',      icon: '★' },
     ];
     const activeCmd = body.dataset.cmdTab || 'missions';
-    const tabBar = cmdTabs.map(t => `<button onclick="setCmdTab('${t.id}')" style="flex:1;padding:8px 4px;background:${activeCmd===t.id?'rgba(30,60,120,0.7)':'transparent'};border:none;border-bottom:2px solid ${activeCmd===t.id?'#4af':'transparent'};color:${activeCmd===t.id?'#4af':'#4a6a8a'};font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:1px;cursor:pointer;">${t.icon} ${t.label}</button>`).join('');
+    const tabBar = cmdTabs.map(t => `<button class="command-tab${activeCmd===t.id?' active':''}" onclick="setCmdTab('${t.id}')">${t.icon} ${t.label}</button>`).join('');
     const placeholders = {
       missions: { icon: '◈', title: 'MAIN MISSIONS', desc: 'Story-driven command missions with NPC transmissions, objectives, and sector-altering consequences. Follow the Andromeda narrative arc.' },
       quests:   { icon: '⬡', title: 'ACTIVE QUESTS', desc: 'Rotating short-term objectives refreshed each SOL. Collect resources, hit milestones, and earn bonus rewards.' },
@@ -566,12 +573,12 @@ export function openHdrPanel(type) {
     };
     const p = placeholders[activeCmd];
     body.innerHTML = `
-      <div style="display:flex;border-bottom:1px solid #1a3a6e;margin-bottom:14px;">${tabBar}</div>
-      <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:20px;text-align:center;opacity:0.6;">
-        <div style="font-size:28px;margin-bottom:8px;">${p.icon}</div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:2px;color:#4af;margin-bottom:10px;">${p.title}</div>
-        <div style="font-size:13px;color:#4a6a8a;line-height:1.6;max-width:340px;margin:0 auto;">${p.desc}</div>
-        <div style="margin-top:16px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#2a4a6a;">— COMING SOON —</div>
+      <div class="command-tabs">${tabBar}</div>
+      <div class="command-card">
+        <div class="command-icon">${p.icon}</div>
+        <div class="command-title">${p.title}</div>
+        <div class="command-desc">${p.desc}</div>
+        <div class="command-soon">— COMING SOON —</div>
       </div>`;
     body.dataset.cmdTab = activeCmd;
     window.setCmdTab = (id) => { body.dataset.cmdTab = id; _hdrPanelOpen = null; openHdrPanel('command'); };
@@ -596,7 +603,7 @@ export function openHdrPanel(type) {
       { id: 'modules', label: 'MODULES', icon: '⬡' },
     ];
     const tabBar = craftTabDefs.map(t =>
-      `<button id="craft-tab-${t.id}" onclick="setCraftTab('${t.id}')" style="flex:1;padding:8px 4px;background:${activeCraftTab===t.id?'rgba(30,60,120,0.7)':'transparent'};border:none;border-bottom:2px solid ${activeCraftTab===t.id?'#4af':'transparent'};color:${activeCraftTab===t.id?'#4af':'#4a6a8a'};font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:1px;cursor:pointer;">${t.icon} ${t.label}</button>`
+      `<button id="craft-tab-${t.id}" class="craft-tab${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.icon} ${t.label}</button>`
     ).join('');
 
     let tabContent = '';
@@ -611,7 +618,7 @@ export function openHdrPanel(type) {
 
       const roleOrder = ['mining', 'transport', 'combat', 'garrison'];
       let items = atCap
-        ? `<div style="font-size:16px;color:#f88;background:rgba(60,10,10,0.4);border:1px solid #803020;border-radius:3px;padding:6px 8px;margin-bottom:8px;text-align:center;">⚠ Ship capacity full (${state.ships.length + activeCraftCount}/${maxShips}).<br>Upgrade the Base or sell a ship.</div>`
+        ? `<div class="craft-cap-warning">⚠ Ship capacity full (${state.ships.length + activeCraftCount}/${maxShips}).<br>Upgrade the Base or sell a ship.</div>`
         : '';
 
       for (const role of roleOrder) {
@@ -622,7 +629,7 @@ export function openHdrPanel(type) {
         });
         if (!groupRecipes.length) continue;
 
-        items += `<div style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:${meta.color};margin:12px 0 8px;padding-bottom:5px;border-bottom:1px solid ${meta.color}33;">${meta.label}</div>`;
+        items += `<div class="craft-role-header" style="color:${meta.color};border-bottom:1px solid ${meta.color}33;">${meta.label}</div>`;
 
         for (const recipe of groupRecipes) {
           const stats     = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
@@ -637,24 +644,20 @@ export function openHdrPanel(type) {
             reqsHtml += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`;
           }
 
-          const ic = 'color:#4a7aaa;';
           let statsHtml = '';
           if (stats.role === 'combat' || stats.role === 'garrison') {
-            statsHtml = `<div style="display:flex;gap:10px;font-size:14px;flex-wrap:wrap;">
-              <span style="color:#cde;"><span style="${ic}">❤</span> ${(stats.hp||0).toLocaleString()}</span>
-              <span style="color:#cde;"><span style="${ic}">⚔</span> ${stats.attack||0} atk</span>
-            </div>`;
+            statsHtml = `
+              <span class="craft-stat">HP <span style="color:#ffe066;">${(stats.hp||0).toLocaleString()}</span></span>
+              <span class="craft-stat">DAMAGE <span style="color:#ffe066;">${stats.attack||0}</span></span>`;
           } else if (stats.role === 'transport') {
-            statsHtml = `<div style="display:flex;gap:10px;font-size:14px;flex-wrap:wrap;">
-              <span style="color:#cde;"><span style="${ic}">▲</span> ${stats.capacity}u</span>
-              <span style="color:#cde;"><span style="${ic}">✈</span> ${formatFlySpeed(stats.flySpeed)}</span>
-            </div>`;
+            statsHtml = `
+              <span class="craft-stat">CAPACITY <span style="color:#ffe066;">${stats.capacity}u</span></span>
+              <span class="craft-stat">SPEED <span style="color:#ffe066;">${formatFlySpeed(stats.flySpeed)}</span></span>`;
           } else {
-            statsHtml = `<div style="display:flex;gap:10px;font-size:14px;flex-wrap:wrap;">
-              <span style="color:#cde;"><span style="${ic}">▲</span> ${stats.capacity}u</span>
-              <span style="color:#cde;"><span style="${ic}">✈</span> ${formatFlySpeed(stats.flySpeed)}</span>
-              <span style="color:#cde;"><span style="${ic}">⛏</span> ${formatMineSpeedPercent(stats.mineSpeed)}</span>
-            </div>`;
+            statsHtml = `
+              <span class="craft-stat">CAPACITY <span style="color:#ffe066;">${stats.capacity}u</span></span>
+              <span class="craft-stat">SPEED <span style="color:#ffe066;">${formatFlySpeed(stats.flySpeed)}</span></span>
+              <span class="craft-stat">MINE RATE <span style="color:#ffe066;">${formatMineSpeedPercent(stats.mineSpeed)}</span></span>`;
           }
 
           const craftTimer = state.shipCraftTimers?.[recipe.id];
@@ -666,41 +669,33 @@ export function openHdrPanel(type) {
           const builtNoticeActive = Date.now() < builtNoticeUntil;
 
           const buildBtn = builtNoticeActive
-            ? `<button class="btn bp-craft-btn bp-craft-btn-ready" style="width:100%;margin-top:6px;" disabled><span class="bp-craft-btn-label">SHIP BUILT AND DEPLOYED!</span></button>`
+            ? `<button class="btn bp-craft-btn bp-craft-btn-ready craft-btn-full" disabled><span class="bp-craft-btn-label">SHIP BUILT AND DEPLOYED!</span></button>`
             : timerActive
-            ? `<button class="btn bp-craft-btn bp-craft-btn-crafting" style="width:100%;margin-top:6px;" disabled><span class="bp-craft-btn-fill" id="craft-fill-${recipe.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-label-${recipe.id}">CRAFTING ${remainSec}s</span></button>`
-            : `<button class="btn ${atCap?'danger':'primary'}" style="width:100%;margin-top:6px;" ${!canCraft?'disabled':''} onclick="startCraftShip('${recipe.id}')">BUILD SHIP</button>`;
+            ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-btn-full" disabled><span class="bp-craft-btn-fill" id="craft-fill-${recipe.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-label-${recipe.id}">CRAFTING ${remainSec}s</span></button>`
+            : `<button class="btn ${atCap?'danger':'primary'} craft-btn-full" ${!canCraft?'disabled':''} onclick="startCraftShip('${recipe.id}')">BUILD SHIP</button>`;
 
           items += `<div class="bp-craft-item">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="color:${sc};font-size:15px;filter:drop-shadow(0 0 5px ${sc}66);">▲</span>
-              <div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
-                <span style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:#e8eef8;letter-spacing:1px;text-transform:uppercase;">${recipe.name}</span>
-                <span style="font-size:13px;color:#5a7a9a;font-style:italic;">${recipe.desc}</span>
+            <div class="craft-item-head">
+              <span class="craft-item-role-icon" style="color:${sc};filter:drop-shadow(0 0 5px ${sc}66);">▲</span>
+              <div class="craft-item-title-wrap">
+                <span class="craft-item-title">${recipe.name}</span>
+                <span class="craft-item-desc">${recipe.desc}</span>
               </div>
-              <span style="font-size:13px;padding:2px 8px;border-radius:3px;border:1px solid ${tierColor}44;background:${tierColor}18;color:${tierColor};font-family:'Cinzel',serif;font-weight:600;flex-shrink:0;">${toRoman(stats.mineTier)}</span>
-              <span style="font-size:13px;padding:2px 8px;border-radius:3px;border:1px solid ${sc}33;background:${sc}12;color:${sc};font-family:'Orbitron',sans-serif;letter-spacing:1px;flex-shrink:0;text-transform:uppercase;">${stats.role||'mining'}</span>
+              <span class="craft-item-tier-pill" style="border:1px solid ${tierColor}44;background:${tierColor}18;color:${tierColor};">${toRoman(stats.mineTier)}</span>
+              <span class="craft-item-role-pill" style="border:1px solid ${sc}33;background:${sc}12;color:${sc};">${stats.role||'mining'}</span>
             </div>
-            <table style="width:100%;border-collapse:collapse;border:1px solid #1a3a6e;border-radius:4px;overflow:hidden;">
-              <tr>
-                <th style="padding:6px 0;color:#3a6a9a;font-size:11px;letter-spacing:1px;text-align:left;border-bottom:1px solid #1a3a6e;border-right:1px solid #1a3a6e;font-family:'Orbitron',sans-serif;font-weight:600;background:rgba(6,14,38,0.6);">REQUIRED RESOURCES</th>
-                <th style="padding:6px 10px;color:#3a6a9a;font-size:11px;letter-spacing:1px;text-align:left;border-bottom:1px solid #1a3a6e;font-family:'Orbitron',sans-serif;font-weight:600;background:rgba(6,14,38,0.6);">SHIP STATS</th>
-              </tr>
-              <tr>
-                <td style="padding:8px 0;vertical-align:top;border-right:1px solid #1a3a6e;width:50%;"><div class="bp-craft-reqs" style="margin-top:0;">${reqsHtml}</div></td>
-                <td style="padding:8px 10px;vertical-align:middle;width:50%;">${statsHtml}</td>
-              </tr>
-            </table>
+            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">${statsHtml}</div>
+            <div class="bp-craft-reqs" style="margin:0 0 8px 0;">${reqsHtml}</div>
             ${buildBtn}
           </div>`;
         }
       }
 
       if (items === '' || (atCap && items.trim().endsWith('</div>'))) {
-        items += `<div style="font-size:14px;color:#4a6a8a;text-align:center;padding:20px;">No ships available at current base tier.</div>`;
+        items += `<div class="craft-empty">No ships available at current base tier.</div>`;
       }
 
-      tabContent = `<div style="font-size:12px;color:#3a6a9a;margin-bottom:10px;display:flex;align-items:center;gap:8px;"><span>Ships in fleet: <strong style="color:#cde;">${state.ships.length + activeCraftCount}</strong> / ${maxShips}</span></div><div class="bp-craft-grid">${items}</div>`;
+      tabContent = `<div class="bp-craft-grid">${items}</div>`;
 
       // Tutorial scroll-to
       if (state.tutStep === 7) {
@@ -712,62 +707,73 @@ export function openHdrPanel(type) {
 
     } else if (activeCraftTab === 'defense') {
       const turretsUnlocked = state.researchUnlocks['turrets'];
-      const defenseUnlocked = state.researchUnlocks['defense'];
       const turretCount = (state.turrets || []).length;
       let defHtml = '';
 
-      if (!turretsUnlocked && !defenseUnlocked) {
-        defHtml = `<div style="padding:16px;background:rgba(20,50,100,0.2);border:1px solid #1a3a6e;border-radius:4px;text-align:center;color:#4a6a8a;font-size:15px;">
+      if (!turretsUnlocked) {
+        defHtml = `<div class="craft-defense-empty">
           🔒 No defense systems unlocked yet.<br><br>
-          <span style="font-size:13px;">Visit the <strong style="color:#8ab">Research panel</strong> to unlock Turret Systems.</span>
-        </div>`;
-      }
-
-      if (defenseUnlocked) {
-        defHtml += `<div style="background:rgba(10,30,60,0.5);border:1px solid #2a4a7a;border-radius:5px;padding:10px;margin-bottom:8px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-            <span style="font-size:20px;">🛡</span>
-            <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#ffe066;letter-spacing:1px;">ARMOR PLATING</div>
-            <span style="margin-left:auto;font-size:12px;color:#4d8;background:rgba(20,60,30,0.4);border:1px solid #2a6040;border-radius:3px;padding:1px 6px;">ACTIVE</span>
-          </div>
-          <div style="font-size:14px;color:#5a7a9a;">Incoming base damage reduced by <strong style="color:#cde;">${Math.round(DEFENSE_DAMAGE_REDUCTION * 100)}%</strong>.</div>
+          <span style="font-size:13px;">Visit the <strong style="color:#8ab">Research panel</strong> to unlock Automatic Turret.</span>
         </div>`;
       }
 
       if (turretsUnlocked) {
-        const turretCraft = getCraft('turrets', 'turret');
-        const canCoins = state.coins >= turretCraft.cost;
-        const reqsMet  = Object.entries(turretCraft.reqs).map(([r, n]) => [(state.resources[r] || 0) >= n, r, n]);
-        const canBuild = canCoins && reqsMet.every(([met]) => met);
-        const pill    = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}">${label}</span>`;
-        const resPill = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}">${label}</span>`;
-        const resPills = reqsMet.map(([met, r, n]) => resPill(met, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
-        defHtml += `<div style="background:rgba(10,30,60,0.5);border:1px solid #2a4a7a;border-radius:5px;padding:10px;margin-bottom:8px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="font-size:20px;">🔫</span>
-            <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">TURRET SYSTEMS</div>
-            <span style="margin-left:auto;font-size:13px;color:#8ab;">${turretCount} built</span>
-          </div>
-          <div style="font-size:14px;color:#5a7a9a;margin-bottom:8px;">Build turrets on free map tiles to defend your base. Each turret has ${TURRET_BASE_STATS.health.toLocaleString()} HP, ${TURRET_BASE_STATS.damage} damage and ${TURRET_BASE_STATS.range}-tile range.</div>
-          <div class="bp-craft-reqs" style="margin-bottom:8px;">${pill(canCoins, '$' + turretCraft.cost)}${resPills}</div>
-          ${state.unplacedTurrets > 0
-            ? `<button class="btn primary" style="width:100%;font-size:14px;" onclick="beginPlacingTurret()">🔫 PLACE TURRET (${state.unplacedTurrets})</button>`
-            : `<button class="btn primary" style="width:100%;font-size:14px;" ${canBuild?'':'disabled'} onclick="startPlaceTurret()">🔫 BUILD TURRET</button>`
-          }
-        </div>`;
+        const queue = Array.isArray(state.unplacedTurretQueue) ? state.unplacedTurretQueue : Array.from({ length: state.unplacedTurrets || 0 }, () => 'turret');
+        const queuedCount = (id) => queue.filter(t => t === id).length;
+        const pill = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}">${label}</span>`;
+        const turretCards = [
+          { id: 'turret', unlocked: true, desc: 'Build automatic turrets on free map tiles to defend your base.', stats: ['5,000 HP', '100', '2s -> 0.2s', '2 tiles (MAX 5)'] },
+          { id: 'laser_turret', unlocked: !!state.researchUnlocks['laser_turrets'], desc: 'Fires a single heavy beam burst for big damage, then must recharge before firing again.', stats: ['8,000 HP', '500', '15s -> 5s', '4 tiles (MAX 12)'] },
+          { id: 'emp_turret', unlocked: !!state.researchUnlocks['emp_turrets'], desc: 'Stuns enemy ships so they cannot move or fire, while also dropping their defenses.', stats: ['15,000 HP', 'STUN 2s', '60s -> 45s', '3 tiles (MAX 15)'] },
+        ];
+        for (const card of turretCards) {
+          if (!card.unlocked) continue;
+          const craft = getCraft('turrets', card.id);
+          if (!craft) continue;
+          const canCoins = state.coins >= craft.cost;
+          const reqsMet = Object.entries(craft.reqs).map(([r, n]) => [(state.resources[r] || 0) >= n, r, n]);
+          const canBuild = canCoins && reqsMet.every(([met]) => met);
+          const resPills = reqsMet.map(([met, r, n]) => pill(met, `${r[0].toUpperCase() + r.slice(1)}: ${n}`)).join('');
+          const queued = queuedCount(card.id);
+          const craftTimer = state.turretCraftTimers?.[card.id];
+          const timerActive = !!(craftTimer && Date.now() < craftTimer.endsAt);
+          const remainMs = timerActive ? Math.max(0, craftTimer.endsAt - Date.now()) : 0;
+          const remainSec = Math.ceil(remainMs / 1000);
+          const pct = timerActive ? Math.max(0, Math.min(100, ((craftTimer.durationMs - remainMs) / craftTimer.durationMs) * 100)) : 0;
+          const builtCount = (state.turrets || []).filter(t => t.type === card.id).length;
+          defHtml += `<div class="craft-defense-card">
+            <div class="craft-defense-head">
+              <div class="craft-defense-title">${craft.name.toUpperCase()}</div>
+              <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
+            </div>
+            <div class="craft-defense-desc">${card.desc}</div>
+            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
+              <span class="craft-stat">HP <span style="color:#ffe066;">${card.stats[0]}</span></span>
+              <span class="craft-stat">DAMAGE <span style="color:#ffe066;">${card.stats[1]}</span></span>
+              <span class="craft-stat">FIRE RATE <span style="color:#ffe066;">${card.stats[2]}</span></span>
+              <span class="craft-stat">RANGE <span style="color:#ffe066;">${card.stats[3]}</span></span>
+            </div>
+            <div class="bp-craft-reqs" style="margin-bottom:8px;">${pill(canCoins, '$' + craft.cost)}${resPills}</div>
+            ${queued > 0
+              ? `<button class="btn place craft-defense-btn" onclick="beginPlacingTurret('${card.id}')">PLACE ${craft.name.toUpperCase()} (${queued})</button>`
+              : timerActive
+              ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-turret-fill-${card.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-turret-label-${card.id}">CRAFTING ${remainSec}s</span></button>`
+              : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startPlaceTurret('${card.id}')">BUILD ${craft.name.toUpperCase()}</button>`}
+          </div>`;
+        }
       }
 
       tabContent = defHtml;
 
     } else {
-      tabContent = `<div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:24px;text-align:center;opacity:0.6;margin-top:8px;">
-        <div style="font-size:22px;margin-bottom:8px;">⬡</div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;margin-bottom:8px;">COMING SOON</div>
-        <div style="font-size:12px;color:#4a6a8a;">More fabrication options will be available in a future update.</div>
+      tabContent = `<div class="craft-placeholder">
+        <div class="craft-placeholder-icon">⬡</div>
+        <div class="craft-placeholder-title">COMING SOON</div>
+        <div class="craft-placeholder-desc">More fabrication options will be available in a future update.</div>
       </div>`;
     }
 
-    body.innerHTML = `<div style="display:flex;border-bottom:1px solid #1a3a6e;margin-bottom:14px;">${tabBar}</div>${tabContent}`;
+    body.innerHTML = `<div class="craft-tabs">${tabBar}</div>${tabContent}`;
     body.dataset.craftTab = activeCraftTab;
     window.setCraftTab = (id) => {
       body.dataset.craftTab = id;
@@ -779,39 +785,53 @@ export function openHdrPanel(type) {
 
   // ── RESEARCH ───────────────────────────────────────────────
   else if (type === 'research') {
-    const rpCap = state.base.level * (state.base.level + 1) / 2;
+    const rpCap = getResearchPointCap(state.base.level);
     const formatResearchDesc = (desc) => desc.replace(/(\d[\d,]*(?:\.\d+)?(?:\s*HP|%)?)/g, '<span style="color:#ffe066;">$1</span>');
     heading.textContent = 'RESEARCH';
     let treeHtml = '';
     for (const tier of RESEARCH_TREE) {
       const tierLocked = tier.minBaseLevel && state.base.level < tier.minBaseLevel;
       const tierCol = tierLocked ? '#3a5a7a' : (MINE_TIERS[tier.tier]?.color || '#4af');
-      treeHtml += `<div style="margin-bottom:12px;">
-        <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:${tierCol};margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid ${tierCol}44;">
+      treeHtml += `<div class="research-tier-wrap">
+        <div class="research-tier-title" style="color:${tierCol};border-bottom:1px solid ${tierCol}44;">
           TIER ${toRoman(tier.tier)}${tierLocked?` <span style="color:#f88;font-size:11px;">— Requires Base Upgrade</span>`:''}
         </div>`;
       for (const u of tier.unlocks) {
         const isUnlocked = state.researchUnlocks[u.id];
-        const canAfford  = state.rp >= u.cost;
         const tierReqMet = !tier.minBaseLevel || state.base.level >= tier.minBaseLevel;
         const count      = getRepeatableCount(u.id, state);
         const maxCount   = getRepeatableMax(u.id);
+        const nextCost   = u.repeatable ? (u.cost * (count + 1)) : u.cost;
+        const canAfford  = state.rp >= nextCost;
         const capReached = u.repeatable && count >= maxCount;
         const purchasable = tierReqMet && canAfford && (!isUnlocked || u.repeatable) && !capReached;
-        treeHtml += `<div style="background:rgba(10,20,50,0.5);border:1px solid ${isUnlocked?'#2a5090':'#1a2a4a'};border-radius:5px;padding:10px;margin-bottom:6px;${tierLocked?'opacity:0.4;':''}">
-          <div style="display:flex;align-items:flex-start;gap:10px;">
-            <span style="font-size:18px;flex-shrink:0;font-family:monospace;color:#4af;">${u.icon}</span>
-            <div style="flex:1;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <div style="font-family:'Orbitron',sans-serif;font-size:16px;color:${isUnlocked?'#ffe066':'#cde'};letter-spacing:1px;">${u.name}</div>
-                ${u.repeatable && count > 0 ? `<span style="font-size:16px;color:#ffe066;">×${count}</span>` : ''}
-                ${isUnlocked && !u.repeatable ? `<span style="font-size:10px;color:#4d8;background:rgba(20,60,30,0.4);border:1px solid #2a6040;border-radius:3px;padding:1px 5px;">✓ UNLOCKED</span>` : ''}
+        const nextGain = (() => {
+          if (!u.repeatable) return '';
+          if (u.id === 'health_increase') return 'Next: +8,000 HP';
+          if (u.id === 'shield_increase') return 'Next: +5% shield';
+          if (u.id === 'anti_comet') return 'Next: +5% intercept';
+          if (u.id === 'solar_shield') return 'Next: +8% flare resist';
+          if (u.id === 'auto_regen') return 'Next: +5 HP/s';
+          return 'Next upgrade bonus';
+        })();
+        treeHtml += `<div class="research-card ${isUnlocked?'unlocked':''} ${tierLocked?'locked':''}">
+          <div class="research-row">
+            <span class="research-icon">${u.icon}</span>
+            <div class="research-main">
+              <div class="research-copy">
+              <div class="research-title-row">
+                <div class="research-title ${isUnlocked?'unlocked':''}">${u.name}</div>
+                ${u.repeatable && count > 0 ? `<span class="research-count">×${count}</span>` : ''}
+                ${isUnlocked && !u.repeatable ? `<span class="research-badge">✓ UNLOCKED</span>` : ''}
               </div>
-              <div style="font-size:14px;color:#5a7a9a;margin-top:2px;line-height:1.25;margin-bottom:8px;">${formatResearchDesc(u.desc)}</div>
-              ${(!isUnlocked || u.repeatable) && tierReqMet ? `
-              <button class="btn${purchasable?' primary':''}" style="font-size:12px;padding:5px 16px;" ${purchasable?'':'disabled'} onclick="purchaseResearch('${u.id}')">
-                ${capReached ? 'MAXED' : `<span style="color:${canAfford?'#ffe066':'#f88'};margin-right:6px;">${u.cost} RP</span> — UNLOCK`}
-              </button>` : ''}
+              <div class="research-desc">${formatResearchDesc(u.desc)}</div>
+              ${u.repeatable && !capReached ? `<div class="research-next">${nextGain}</div>` : ''}
+              </div>
+              ${(!isUnlocked || u.repeatable) && tierReqMet ? `<div class="research-action">
+                <button class="btn research-btn${purchasable?' primary':''}" ${purchasable?'':'disabled'} onclick="purchaseResearch('${u.id}')">
+                  ${capReached ? 'MAXED' : `<span style="color:#ffe066;">${nextCost} RP</span><br>${u.repeatable ? 'UPGRADE' : 'UNLOCK'} ${u.repeatable ? `x${count + 1}` : ''}`}
+                </button>
+              </div>` : ''}
             </div>
           </div>
         </div>`;
@@ -819,11 +839,11 @@ export function openHdrPanel(type) {
       treeHtml += '</div>';
     }
     body.innerHTML = `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0 12px;border-bottom:1px solid #1a3a6e;margin-bottom:12px;">
+      <div class="research-header">
         <div>
-          <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:3px;">RESEARCH POINTS</div>
-          <div style="font-size:24px;color:#ffe066;font-weight:bold;">🔬 ${state.rp} <span style="font-size:14px;color:#4a6a8a;">/ ${rpCap}</span></div>
-          <div style="font-size:13px;color:#6f97bc;margin-top:2px;">+1 per SOL</div>
+          <div class="research-header-title">RESEARCH POINTS</div>
+          <div class="research-header-points">🔬 ${state.rp} <span class="research-header-cap">/ ${rpCap}</span></div>
+          <div class="research-header-rate">+1 per SOL</div>
         </div>
       </div>
       ${treeHtml}`;
@@ -837,16 +857,16 @@ export function openHdrPanel(type) {
     if (state.marketBoost) {
       const bd = RESOURCE_DEFS[state.marketBoost.type];
       const boostMult = state.marketBoost.multiplier ?? 1.5;
-      tradeHtml += `<div style="background:linear-gradient(180deg, rgba(10,30,70,0.9) 0%, rgba(6,16,48,0.94) 100%);border:1px solid #4aa8ff;border-radius:6px;padding:10px 12px;margin-bottom:12px;text-align:center;line-height:1.2;box-shadow:0 0 16px rgba(80,170,255,0.35), 0 0 28px rgba(60,140,255,0.18), inset 0 0 16px rgba(90,180,255,0.14);">
-        <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:1.5px;color:#9be89b;margin-bottom:4px;">SOL ${state.sol} - DEMAND</div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700;color:${bd.color};text-shadow:0 0 10px ${bd.color}55;display:flex;align-items:center;justify-content:center;gap:8px;">
-          <span style="width:10px;height:10px;border-radius:50%;background:${bd.color};display:inline-block;box-shadow:0 0 8px ${bd.color}aa;"></span>
-          <span>${bd.label}<span style="display:inline-block;width:22px;"></span><span style="color:#ffe066;">${boostMult}x!</span></span>
+      tradeHtml += `<div class="trade-demand-card">
+        <div class="trade-demand-title">SOL ${state.sol} - DEMAND</div>
+        <div class="trade-demand-body" style="color:${bd.color};text-shadow:0 0 10px ${bd.color}55;">
+          <span class="trade-demand-dot" style="background:${bd.color};box-shadow:0 0 8px ${bd.color}aa;"></span>
+          <span>${bd.label}<span class="trade-demand-gap"></span><span class="trade-demand-mult">${boostMult}x!</span></span>
         </div>
       </div>`;
     }
     if (!hasAny) {
-      tradeHtml += `<div style="padding:14px;text-align:center;color:#3a5a7a;font-size:13px;">⏳ No resources to sell yet.</div>`;
+      tradeHtml += `<div class="trade-empty">⏳ No resources to sell yet.</div>`;
     } else {
       tradeHtml += '<div class="sell-grid">';
       for (const [type, def] of Object.entries(RESOURCE_DEFS)) {
@@ -858,37 +878,37 @@ export function openHdrPanel(type) {
         const earnedAll = amt * price;
         const boosted = state.marketBoost?.type === type;
         const priceHtml = boosted
-          ? `<span style="color:#6fff9a;font-size:14px;flex-shrink:0">$${price} <span title="Market boosted this SOL — ${state.marketBoost?.multiplier ?? 1.5}× sell price!" style="cursor:help;">✦</span></span>`
-          : `<span style="color:#6fff9a;font-size:14px;flex-shrink:0">$${price}</span>`;
+          ? `<span class="trade-price">$${price} <span class="trade-price-boost" title="Market boosted this SOL — ${state.marketBoost?.multiplier ?? 1.5}× sell price!">✦</span></span>`
+          : `<span class="trade-price">$${price}</span>`;
         tradeHtml += `<div class="sell-row">
-          <span style="width:9px;height:9px;border-radius:50%;background:${def.color};display:inline-block;flex-shrink:0"></span>
+          <span class="trade-res-dot" style="background:${def.color};"></span>
           ${priceHtml}
           <span class="res-name-s">${def.label}</span>
           <span class="res-qty">${fmt(amt)}</span>
-          <button class="sell-btn-s" onmousedown="sellResource('${type}',${sellAmt});_hdrPanelOpen=null;openHdrPanel('market')">SELL ${fmt(sellAmt)} <span style="color:#ffe066">· $${fmt(earnedSellAmt)}</span></button>
-          <button class="sell-btn-s" onmousedown="sellResource('${type}',100);_hdrPanelOpen=null;openHdrPanel('market')" ${amt < 100 ? 'disabled' : ''}>SELL 100 <span style="color:#ffe066">· $${fmt(100 * price)}</span></button>
-          <button class="sell-btn-s" onmousedown="sellResource('${type}',${amt});_hdrPanelOpen=null;openHdrPanel('market')">ALL <span style="color:#ffe066">· $${fmt(earnedAll)}</span></button>
+          <button class="sell-btn-s" onmousedown="sellResource('${type}',${sellAmt});openHdrPanel('market',{refresh:true,preserveScroll:true})">SELL ${fmt(sellAmt)} <span class="trade-sell-earned">· $${fmt(earnedSellAmt)}</span></button>
+          <button class="sell-btn-s" onmousedown="sellResource('${type}',100);openHdrPanel('market',{refresh:true,preserveScroll:true})" ${amt < 100 ? 'disabled' : ''}>SELL 100 <span class="trade-sell-earned">· $${fmt(100 * price)}</span></button>
+          <button class="sell-btn-s" onmousedown="sellResource('${type}',${amt});openHdrPanel('market',{refresh:true,preserveScroll:true})">ALL <span class="trade-sell-earned">· $${fmt(earnedAll)}</span></button>
         </div>`;
       }
       tradeHtml += '</div>';
     }
     const totalResources = Object.values(state.resources).reduce((sum, n) => sum + (n || 0), 0);
     body.innerHTML = `
-      <div style="padding:12px 0 14px;border-bottom:1px solid #1a3a6e;margin-bottom:12px;display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:end;">
+      <div class="trade-summary">
         <div>
-          <div style="font-size:30px;color:#ffe066;font-family:'Orbitron',sans-serif;font-weight:bold;line-height:1;">$${fmt(state.coins)}</div>
-          <div style="font-size:13px;color:#7fa4c8;margin-top:4px;letter-spacing:0.8px;">CURRENT BALANCE</div>
+          <div class="trade-summary-value-lg">$${fmt(state.coins)}</div>
+          <div class="trade-summary-label">CURRENT BALANCE</div>
         </div>
         <div>
-          <div style="font-size:22px;color:#cde;font-family:'Orbitron',sans-serif;font-weight:bold;line-height:1;">${fmt(totalResources)}</div>
-          <div style="font-size:13px;color:#7fa4c8;margin-top:4px;letter-spacing:0.8px;">CURRENT RESOURCES</div>
+          <div class="trade-summary-value">${fmt(totalResources)}</div>
+          <div class="trade-summary-label">CURRENT RESOURCES</div>
         </div>
         <div>
-          <div style="font-size:22px;color:#cde;font-family:'Orbitron',sans-serif;font-weight:bold;line-height:1;">0%</div>
-          <div style="font-size:13px;color:#7fa4c8;margin-top:4px;letter-spacing:0.8px;">TAX RATE</div>
+          <div class="trade-summary-value">0%</div>
+          <div class="trade-summary-label">TAX RATE</div>
         </div>
       </div>
-      <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin-bottom:8px;">◈ SELL RESOURCES</div>
+      <div class="trade-section-title">◈ SELL RESOURCES</div>
       ${tradeHtml}`;
   }
 
@@ -900,7 +920,6 @@ export function openHdrPanel(type) {
     const compositionHtml = buildFleetCompositionHtml(typeCounts, state.ships.length, maxShips);
     _fleetCompSig = JSON.stringify(typeCounts);
     const fmtSell = v => v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(0)}K` : `$${v}`;
-    const noWrap  = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     const rows = getSortedFleetShips().map(s => {
       const typeName = getShipTypeName(s);
       const status = getShipStatusLabel(s);
@@ -908,20 +927,20 @@ export function openHdrPanel(type) {
       const totalLevel = (s.capacityLevel || 0) + (s.flySpeedLevel || 0) + (s.mineSpeedLevel || 0);
       const sellVal = getShipSellValue(s);
       return `<tr data-ship-id="${s.id}">
-        <td style="color:#ffe066;font-weight:bold;">${totalLevel}</td>
-        <td style="${noWrap}">${s.name}</td>
-        <td style="${noWrap}">${typeName}</td>
-        <td style="text-transform:capitalize;${noWrap}">${role}</td>
+        <td class="ships-lv">${totalLevel}</td>
+        <td class="ships-nowrap">${s.name}</td>
+        <td class="ships-nowrap">${typeName}</td>
+        <td class="ships-role ships-nowrap">${role}</td>
         <td data-cell="tier">${shipTierPill(s)}</td>
-        <td data-cell="node" style="${noWrap}">${getShipNodeLabel(s)}</td>
-        <td data-cell="status" style="${noWrap}">${status}</td>
-        <td data-cell="cargo" style="color:#ffe066;${noWrap}">${s.cargo}/${s.capacity}</td>
-        <td style="color:#6fff9a;${noWrap}">${fmtSell(sellVal)}</td>
+        <td data-cell="node" class="ships-nowrap">${getShipNodeLabel(s)}</td>
+        <td data-cell="status" class="ships-nowrap">${status}</td>
+        <td data-cell="cargo" class="ships-cargo ships-nowrap">${s.cargo}/${s.capacity}</td>
+        <td class="ships-sell ships-nowrap">${fmtSell(sellVal)}</td>
       </tr>`;
     }).join('');
     body.innerHTML = `
       <div id="fleet-composition-wrap">${compositionHtml}</div>
-      <table class="fleet-table" style="table-layout:fixed;width:100%;">
+      <table class="fleet-table ships-table-fixed">
         <colgroup>
           <col style="width:5%;">
           <col style="width:17%;">
@@ -952,13 +971,14 @@ export function openHdrPanel(type) {
       { id: 'events',   label: 'Events' },
       { id: 'resources',label: 'Resources' },
       { id: 'ships',    label: 'Ships' },
-      { id: 'upgrades', label: 'Base Upgrades' },
+      { id: 'turrets',  label: 'Turrets' },
       { id: 'research', label: 'Research' },
+      { id: 'upgrades', label: 'Base Upgrades' },
       { id: 'sector',   label: 'Sector' },
       { id: 'trade',    label: 'Trade' },
     ];
-    const tabBar = `<div style="width:190px;flex-shrink:0;border-right:1px solid #1a3a6e;padding-right:10px;">
-      ${codexTabs.map(tab => `<button onclick="event.stopPropagation();switchCodexTab('${tab.id}')" style="width:100%;text-align:left;padding:9px 10px;margin-bottom:6px;font-family:'Orbitron',monospace;font-size:11px;letter-spacing:1.3px;border:1px solid ${_codexTab===tab.id?'#2f6fb8':'#1a3458'};border-left:3px solid ${_codexTab===tab.id?'#4af':'#24466f'};border-radius:4px;background:${_codexTab===tab.id?'rgba(16,48,90,0.45)':'rgba(8,18,40,0.4)'};color:${_codexTab===tab.id?'#8fd0ff':'#5f7fa0'};cursor:pointer;transition:all 0.15s;text-transform:uppercase;">${tab.label}</button>`).join('')}
+    const tabBar = `<div class="codex-nav">
+      ${codexTabs.map(tab => `<button onclick="event.stopPropagation();switchCodexTab('${tab.id}')" class="codex-nav-btn${_codexTab===tab.id?' active':''}">${tab.label}</button>`).join('')}
     </div>`;
 
     let tabContent = '';
@@ -1082,7 +1102,7 @@ export function openHdrPanel(type) {
         },
       ];
 
-      tabContent = ROLE_GROUPS.map(group => {
+      tabContent = `<div class="codex-group-label codex-section-title">◈ SHIP CATALOG</div>` + ROLE_GROUPS.map(group => {
         const ships = Object.entries(SHIP_DEFS).filter(([,s]) => (s.role||'mining') === group.role);
         if (!ships.length) return '';
 
@@ -1121,15 +1141,59 @@ export function openHdrPanel(type) {
             <tbody>${rows}</tbody>
           </table>`;
       }).join('');
+    } else if (_codexTab === 'turrets') {
+      const turretDefs = [
+        { id: 'turret', name: 'Automatic Turret', tier: 'Tier III', color: '#4a90e2', stats: [{ label: 'HEALTH', value: '5,000 HP (+0/lv)' }, { label: 'DAMAGE', value: '100 (+25/lv)' }, { label: 'FIRE RATE', value: '2s (lv50: 0.2s)' }, { label: 'RANGE', value: '2 tiles (MAX 5)' }], desc: 'Baseline autonomous defense platform. Tracks and fires automatically at hostile ships entering range.' },
+        { id: 'laser_turret', name: 'Laser Turret', tier: 'Tier V', color: '#ffd700', stats: [{ label: 'HEALTH', value: '8,000 HP (+350/lv)' }, { label: 'DAMAGE', value: '500 (+40/lv)' }, { label: 'FIRE RATE', value: '15s (lv50: 5s)' }, { label: 'RANGE', value: '4 tiles (MAX 12)' }], desc: 'Fires a single high-damage beam burst, then enters a long recharge cycle before it can fire again.' },
+        { id: 'emp_turret', name: 'EMP Turret', tier: 'Tier VII', color: '#ff60b0', stats: [{ label: 'HEALTH', value: '15,000 HP (+200/lv)' }, { label: 'DAMAGE', value: 'STUN 2s (lv50: 8s)' }, { label: 'FIRE RATE', value: '60s (lv50: 45s)' }, { label: 'RANGE', value: '3 tiles (MAX 15)' }], desc: 'Control platform that disables ship movement and firing while also dropping active defenses.' },
+      ];
+      const formatTurretStatValue = (value) => String(value)
+        .replace(/\((\+[^)]*\/lv)\)/gi, '<span class="codex-turret-inc">($1)</span>')
+        .replace(/\((lv50:[^)]+)\)/gi, '<span class="codex-turret-inc">($1)</span>')
+        .replace(/\((MAX\s*\d+)\)/gi, '<br><span class="codex-turret-inc">($1)</span>');
+      const turretRows = turretDefs.map(t => {
+        return `<tr>
+          <td class="codex-ships-td">
+            <div class="codex-ships-name"><span class="codex-ships-name-arrow" style="color:${t.color};">➤</span>${t.name}</div>
+            <div class="codex-ships-desc">${t.desc}</div>
+          </td>
+          <td class="codex-ships-td"><span class="codex-ships-tier-pill" style="border:1px solid ${t.color}44;background:${t.color}18;color:${t.color};">${t.tier.replace('Tier ', '')}</span></td>
+          <td class="codex-ships-td codex-ships-td-stat">${formatTurretStatValue(t.stats[0].value)}</td>
+          <td class="codex-ships-td codex-ships-td-stat">${formatTurretStatValue(t.stats[1].value)}</td>
+          <td class="codex-ships-td codex-ships-td-stat">${formatTurretStatValue(t.stats[2].value)}</td>
+          <td class="codex-ships-td codex-ships-td-stat">${formatTurretStatValue(t.stats[3].value)}</td>
+        </tr>`;
+      }).join('');
+
+      tabContent = `<div class="codex-group-label codex-section-title">◈ DEFENSE TURRETS</div>
+        <table class="codex-ships-table">
+          <colgroup>
+            <col class="col-ship">
+            <col class="col-tier">
+            <col style="width:14%;">
+            <col style="width:14%;">
+            <col style="width:14%;">
+            <col style="width:14%;">
+          </colgroup>
+          <thead><tr>
+            <th class="codex-ships-th" style="color:#4af;">TURRET</th>
+            <th class="codex-ships-th" style="color:#4af;">TIER</th>
+            <th class="codex-ships-th" style="color:#4af;">HEALTH</th>
+            <th class="codex-ships-th" style="color:#4af;">DAMAGE</th>
+            <th class="codex-ships-th" style="color:#4af;">FIRE RATE</th>
+            <th class="codex-ships-th" style="color:#4af;">RANGE</th>
+          </tr></thead>
+          <tbody>${turretRows}</tbody>
+        </table>`;
     } else if (_codexTab === 'upgrades') {
-      const rpCapTable = [1,3,6,10,15,21,28,36,45,55];
+      const rpCapTable = Array.from({ length: 10 }, (_, i) => getResearchPointCap(i + 1));
       const rpCapRows = rpCapTable.map((cap, i) =>
         `<tr>
           <td class="codex-ships-td" style="color:${MINE_TIERS[i+1]?.color||'#8ab'};">Tier ${i+1}</td>
           <td class="codex-ships-td codex-ships-td-stat">${cap} RP</td>
         </tr>`
       ).join('');
-      tabContent = `<div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:#4af;margin:12px 0 8px;">◈ BASE UPGRADE COSTS</div>
+      tabContent = `<div class="codex-group-label codex-section-title">◈ BASE UPGRADE COSTS</div>
         <table style="width:100%;border-collapse:collapse;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;overflow:hidden;">
           <thead>
             <tr>
@@ -1144,7 +1208,7 @@ export function openHdrPanel(type) {
             </tr>`).join('')}
           </tbody>
         </table>
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ RESEARCH POINT CAP PER BASE TIER</div>
+        <div class="codex-group-label codex-section-title">◈ RESEARCH POINT CAP PER BASE TIER</div>
         <div style="font-size:13px;color:#6a8aaa;margin-bottom:10px;">You earn +1 Research Point per SOL. The cap increases as your base tier advances.</div>
         <table class="codex-ships-table">
           <thead><tr>
@@ -1192,136 +1256,136 @@ export function openHdrPanel(type) {
 
     // ── RESEARCH ────────────────────────────────────────────────
     if (_codexTab === 'research') {
-      const tierBlocks = RESEARCH_TREE.map(tier => {
-        const itemCards = tier.unlocks.map(u => {
-          const maxCount = getRepeatableMax(u.id);
-          const costLabel = u.repeatable ? `${u.cost} RP per purchase` : `${u.cost} RP`;
-          const maxLabel  = u.repeatable ? `Max ${maxCount} purchases` : 'One-time unlock';
-          return `
-          <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:6px;">
-            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
-              <span style="font-size:20px;line-height:1;font-family:monospace;">${u.icon}</span>
-              <div style="flex:1;">
-                <div style="font-family:'Orbitron',sans-serif;font-size:15px;color:#cde;letter-spacing:1px;line-height:1.25;">${u.name}</div>
-              </div>
-              <div style="text-align:right;">
-                <div style="font-size:13px;color:#ffe066;">${costLabel}</div>
-                <div style="font-size:12px;color:#4a6a8a;margin-top:1px;">${maxLabel}</div>
-              </div>
-            </div>
-            <div style="font-size:15px;color:#6a8aaa;line-height:1.4;border-top:1px solid #1a3a5a;padding-top:8px;">${u.desc}</div>
-          </div>`;
-        }).join('');
+      const rows = RESEARCH_TREE.flatMap(tier => tier.unlocks.map(u => {
+        const tierColor = MINE_TIERS[tier.tier]?.color || '#8ab';
+        const maxCount = getRepeatableMax(u.id);
+        const costLabel = u.repeatable ? `${u.cost} RP / level` : `${u.cost} RP`;
+        const limitLabel = u.repeatable ? `MAX ${maxCount}` : 'ONE-TIME';
+        return `<tr>
+          <td class="codex-ships-td">
+            <div class="codex-research-name"><span class="codex-research-icon">${u.icon}</span>${u.name}</div>
+            <div class="codex-ships-desc">${u.desc}</div>
+          </td>
+          <td class="codex-ships-td"><span class="codex-ships-tier-pill" style="border:1px solid ${tierColor}44;background:${tierColor}18;color:${tierColor};">${toRoman(tier.tier)}</span></td>
+          <td class="codex-ships-td codex-ships-td-stat">${costLabel}</td>
+          <td class="codex-ships-td codex-ships-td-stat">${limitLabel}</td>
+        </tr>`;
+      })).join('');
 
-        const tCol = MINE_TIERS[tier.tier]?.color || '#4af';
-        return `
-          <div style="margin-bottom:16px;">
-            <div style="font-family:'Orbitron',sans-serif;font-size:11px;color:${tCol};letter-spacing:2px;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid ${tCol}44;">◈ TIER ${toRoman(tier.tier)}</div>
-            ${itemCards}
-          </div>`;
-      }).join('');
-
-      tabContent = `
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:12px;">◈ RESEARCH TREE</div>
-        ${tierBlocks}`;
+      tabContent = `<div class="codex-group-label codex-section-title">◈ RESEARCH TREE</div>
+        <table class="codex-ships-table codex-research-table">
+          <colgroup>
+            <col style="width:56%;">
+            <col style="width:10%;">
+            <col style="width:17%;">
+            <col style="width:17%;">
+          </colgroup>
+          <thead><tr>
+            <th class="codex-ships-th">RESEARCH</th>
+            <th class="codex-ships-th">TIER</th>
+            <th class="codex-ships-th">COST</th>
+            <th class="codex-ships-th">LIMIT</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
 
     // ── SECTOR ────────────────────────────────────────────────
     } else if (_codexTab === 'sector') {
       tabContent = `
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:10px;">◈ GALAXY: ANDROMEDA</div>
-        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
-          <div style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;margin-bottom:6px;">THE SECTOR</div>
-          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+        <div class="codex-group-label codex-section-title">◈ GALAXY: ANDROMEDA</div>
+        <div class="codex-info-card">
+          <div class="codex-info-card-title">THE SECTOR</div>
+          <div class="codex-info-body">
             You are operating in the <strong style="color:#cde;">Andromeda Galaxy</strong>, deep within an unmapped asteroid belt designated <strong style="color:#cde;">Sector 7-G</strong>.
             Rich in raw minerals and volatile compounds, this sector was flagged by long-range probes as a high-yield extraction zone.
             Your base station was deployed here to begin resource extraction and establish a permanent frontier presence.
           </div>
         </div>
 
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ SOL — SOLAR DAY</div>
-        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
-          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+        <div class="codex-group-label codex-section-title">◈ SOL — SOLAR DAY</div>
+        <div class="codex-info-card">
+          <div class="codex-info-body">
             One <strong style="color:#ffe066;">SOL</strong> represents a single solar day in this sector — approximately <strong style="color:#cde;">3 Earth minutes</strong> in real time.
             Each SOL triggers market demand shifts, awards Research Points, and advances your operational timeline.
             Events such as solar flares and comet impacts are tied to SOL progression — the higher your SOL count, the greater the risk.
           </div>
         </div>
 
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ FLEET POWER</div>
-        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
-          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+        <div class="codex-group-label codex-section-title">◈ FLEET POWER</div>
+        <div class="codex-info-card">
+          <div class="codex-info-body">
             Fleet Power is a combined rating of your operational strength. It is calculated from three sources:
           </div>
-          <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
-            <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
-              <span style="font-family:'Orbitron',sans-serif;font-size:10px;color:#4af;letter-spacing:1px;width:80px;flex-shrink:0;">SHIPS</span>
-              <span style="color:#8ab;">Sum of all ship upgrade levels (cargo + fly speed + mine/load speed)</span>
+          <div class="codex-sector-list">
+            <div class="codex-sector-item">
+              <span class="codex-sector-key ships">SHIPS</span>
+              <span class="codex-sector-val">Sum of all ship upgrade levels (cargo + fly speed + mine/load speed)</span>
             </div>
-            <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
-              <span style="font-family:'Orbitron',sans-serif;font-size:10px;color:#ff8c40;letter-spacing:1px;width:80px;flex-shrink:0;">TURRETS</span>
-              <span style="color:#8ab;">Sum of all placed turret levels</span>
+            <div class="codex-sector-item">
+              <span class="codex-sector-key turrets">TURRETS</span>
+              <span class="codex-sector-val">Sum of all placed turret levels</span>
             </div>
-            <div style="display:flex;align-items:center;gap:10px;font-size:13px;">
-              <span style="font-family:'Orbitron',sans-serif;font-size:10px;color:#60d090;letter-spacing:1px;width:80px;flex-shrink:0;">BASE</span>
-              <span style="color:#8ab;">Your current base tier level</span>
+            <div class="codex-sector-item">
+              <span class="codex-sector-key base">BASE</span>
+              <span class="codex-sector-val">Your current base tier level</span>
             </div>
           </div>
         </div>
 
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ SECTOR STATUS</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;">
-            <div style="font-family:'Orbitron',sans-serif;font-size:10px;color:#4a7aaa;letter-spacing:1px;margin-bottom:6px;">PIRATE STATUS</div>
-            <div style="font-size:13px;color:#4a6a8a;font-style:italic;">— Data unavailable —</div>
+        <div class="codex-group-label codex-section-title">◈ SECTOR STATUS</div>
+        <div class="codex-sector-status-grid">
+          <div class="codex-info-card codex-info-card-tight">
+            <div class="codex-info-card-subtitle">PIRATE STATUS</div>
+            <div class="codex-info-pending">— Data unavailable —</div>
           </div>
-          <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;">
-            <div style="font-family:'Orbitron',sans-serif;font-size:10px;color:#4a7aaa;letter-spacing:1px;margin-bottom:6px;">THREAT LEVEL</div>
-            <div style="font-size:13px;color:#4a6a8a;font-style:italic;">— Data unavailable —</div>
+          <div class="codex-info-card codex-info-card-tight">
+            <div class="codex-info-card-subtitle">THREAT LEVEL</div>
+            <div class="codex-info-pending">— Data unavailable —</div>
           </div>
         </div>`;
 
     // ── TRADE ────────────────────────────────────────────────
     } else if (_codexTab === 'trade') {
       tabContent = `
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:10px;">◈ MARKET DEMAND</div>
-        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
-          <div style="font-size:13px;color:#6a8aaa;line-height:1.5;">
+        <div class="codex-group-label codex-section-title">◈ MARKET DEMAND</div>
+        <div class="codex-trade-card">
+          <div class="codex-trade-body">
             Every SOL, the market shifts demand to a random resource accessible in your sector.
-            The <strong style="color:#ffe066;">boosted resource</strong> sells at a multiplied rate between <strong style="color:#cde;">1.2×</strong> and <strong style="color:#cde;">2.0×</strong> its base price for that SOL.
+            The <strong class="codex-trade-emph">boosted resource</strong> sells at a multiplied rate between <strong class="codex-trade-emph-soft">1.2×</strong> and <strong class="codex-trade-emph-soft">2.0×</strong> its base price for that SOL.
             Only resources from nodes reachable at your current base tier are eligible for the demand boost.
             Watch the trade panel each SOL — timing your sales around demand spikes is one of the most effective ways to grow your credits quickly.
           </div>
         </div>
 
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ BASE SELL PRICES</div>
-        <div style="font-size:13px;color:#6a8aaa;margin-bottom:10px;">Prices below reflect standard market rate. Demand boosts apply on top of these values each SOL.</div>
+        <div class="codex-group-label codex-section-title">◈ BASE SELL PRICES</div>
+        <div class="codex-trade-note">Prices below reflect standard market rate. Demand boosts apply on top of these values each SOL.</div>
         <table class="codex-ships-table">
           <thead><tr>
-            <th class="codex-ships-th" style="color:#4af;">RESOURCE</th>
-            <th class="codex-ships-th" style="color:#4af;">TIER</th>
-            <th class="codex-ships-th" style="color:#4af;">BASE PRICE</th>
+            <th class="codex-ships-th codex-trade-th">RESOURCE</th>
+            <th class="codex-ships-th codex-trade-th">TIER</th>
+            <th class="codex-ships-th codex-trade-th">BASE PRICE</th>
           </tr></thead>
           <tbody>
             ${Object.entries(RESOURCE_DEFS).map(([key, def]) => {
               const tierInfo = (() => { for (const [t,td] of Object.entries(MINE_TIERS)) if (td.resources.includes(key)) return td; return null; })();
               return `<tr>
-                <td class="codex-ships-td" style="color:#e8eef8;font-family:'Orbitron',sans-serif;font-size:11px;">
-                  <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${def.color};margin-right:7px;vertical-align:middle;"></span>${def.label}
+                <td class="codex-ships-td codex-trade-resource">
+                  <span class="codex-trade-dot" style="background:${def.color};"></span>${def.label}
                 </td>
-                <td class="codex-ships-td"><span style="font-size:11px;padding:1px 6px;border-radius:3px;border:1px solid ${tierInfo?.color||'#8ab'}44;background:${tierInfo?.color||'#8ab'}18;color:${tierInfo?.color||'#8ab'};">${tierInfo?.label||'—'}</span></td>
+                <td class="codex-ships-td"><span class="codex-trade-tier-pill" style="border-color:${tierInfo?.color||'#8ab'}44;background:${tierInfo?.color||'#8ab'}18;color:${tierInfo?.color||'#8ab'};">${tierInfo?.label||'—'}</span></td>
                 <td class="codex-ships-td codex-ships-td-stat">$${def.sellPrice}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
 
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin:16px 0 10px;">◈ TAX & TRADE FEES</div>
-        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;">
-          <div style="font-size:13px;color:#4a6a8a;font-style:italic;">— Trade fee data pending sector clearance —</div>
+        <div class="codex-group-label codex-section-title">◈ TAX & TRADE FEES</div>
+        <div class="codex-trade-card">
+          <div class="codex-trade-pending">— Trade fee data pending sector clearance —</div>
         </div>`;
     }
 
-    body.innerHTML = `<div style="display:flex;gap:14px;align-items:flex-start;">${tabBar}<div style="flex:1;min-width:0;">${tabContent}</div></div>`;
+    body.innerHTML = `<div class="codex-layout">${tabBar}<div class="codex-content">${tabContent}</div></div>`;
   }
 }
 

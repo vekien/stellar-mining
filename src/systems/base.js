@@ -12,6 +12,8 @@ import { showOnce } from '../ui/transmissions.js';
 import { NPCS } from '../data/npcs.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { invalidateResourceBar, updateHeaderRP, updateHeaderShips } from '../ui/ui.js';
+import { HEALTH_INCREASE_HP_PER_PURCHASE } from '../data/research.js';
+import { getResearchPointCap } from '../data/research.js';
 
 export function getRepairCost(amount) {
   return { coins: amount }; // 1:1 coin per HP
@@ -32,6 +34,7 @@ window.repairBase = function(amount) {
 
 window.upgradeBase = function() {
   const bl = state.base.level;
+  const prevRange = BASE_RANGE[(bl - 1)] || 6;
   const cost = BASE_UPGRADE_COSTS[bl];
   if (!cost || state.coins < cost) return;
   const resReqs = BASE_TIER_REQS[bl + 1];
@@ -45,10 +48,17 @@ window.upgradeBase = function() {
     for (const [r, n] of Object.entries(resReqs)) state.resources[r] -= n;
   }
   state.base.level++;
-  const hpBoostBonus = (state.hpBoostCount || 0) * 2500;
+  const newRange = BASE_RANGE[(state.base.level - 1)] || prevRange;
+  state.baseRangeAnim = {
+    from: prevRange,
+    to: newRange,
+    start: performance.now(),
+    duration: 950,
+  };
+  const hpBoostBonus = (state.hpBoostCount || 0) * HEALTH_INCREASE_HP_PER_PURCHASE;
   state.base.maxHealth = 10000 + (state.base.level - 1) * 10000 + hpBoostBonus;
   state.base.health = state.base.maxHealth;
-  const rpCap = state.base.level * (state.base.level + 1) / 2;
+  const rpCap = getResearchPointCap(state.base.level);
   state.rp = Math.min(state.rp + 1, rpCap);
   updateHeaderRP();
   updateHeaderShips();

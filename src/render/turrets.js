@@ -5,9 +5,16 @@ import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, BASE_COL, BASE_ROW } from '../con
 import { gridToIso } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
+import { TURRET_BASE_STATS, getTurretTypeDef } from '../data/turrets.js';
 
 let ctx = null;
 export function setTurretCtx(c) { ctx = c; }
+
+function rgbFromHex(hex, fallback = '80,220,80') {
+  return typeof hex === 'string' && hex.startsWith('#')
+    ? `${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)}`
+    : fallback;
+}
 
 export function drawTurrets() {
   if (!ctx) return;
@@ -15,23 +22,41 @@ export function drawTurrets() {
   const { turretHoverCol, turretHoverRow } = canvasState;
 
   for (const turret of state.turrets) {
+    const isMoveSourceGhost = state.placingTurret && state.movingTurret === turret.id;
     const {x, y} = gridToIso(turret.col, turret.row);
     const cx = x, cy = y+TILE_H/2;
+    const typeDef = getTurretTypeDef(turret.type);
+    const platformFill = isMoveSourceGhost ? 'rgba(70,70,70,0.55)' : typeDef.platformFill;
+    const platformStroke = isMoveSourceGhost ? '#8a8a8a' : typeDef.platformStroke;
+    const cylFill = isMoveSourceGhost ? '#5e5e5e' : typeDef.detailFill;
+    const cylStroke = isMoveSourceGhost ? '#a0a0a0' : typeDef.detailStroke;
+    const bodyFill = isMoveSourceGhost ? '#6b6b6b' : typeDef.bodyFill;
+    const bodyStroke = isMoveSourceGhost ? '#b0b0b0' : typeDef.bodyStroke;
+    const barrelFill = isMoveSourceGhost ? '#bdbdbd' : typeDef.barrelFill;
+    const barrelStroke = isMoveSourceGhost ? '#8a8a8a' : typeDef.barrelStroke;
 
     // Base platform
     ctx.beginPath();
     ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(30,60,30,0.7)'; ctx.fill();
-    ctx.strokeStyle = '#3a8a3a'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = platformFill; ctx.fill();
+    ctx.strokeStyle = platformStroke; ctx.lineWidth = 1.5; ctx.stroke();
 
-    // Base cylinder
-    ctx.fillStyle = '#2a3a2a'; ctx.strokeStyle = '#4aaa4a'; ctx.lineWidth = 1;
+    // Core body per turret type
+    ctx.fillStyle = cylFill; ctx.strokeStyle = cylStroke; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(cx,cy-2,9,5,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
-
-    // Body block
-    ctx.fillStyle = '#3a5a3a'; ctx.strokeStyle = '#5acc5a'; ctx.lineWidth = 1;
-    ctx.fillRect(cx-6,cy-18,12,10); ctx.strokeRect(cx-6,cy-18,12,10);
+    ctx.fillStyle = bodyFill; ctx.strokeStyle = bodyStroke; ctx.lineWidth = 1;
+    if (typeDef.shape === 'triangle_orbit') {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 20);
+      ctx.lineTo(cx + 8, cy - 8);
+      ctx.lineTo(cx - 8, cy - 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillRect(cx-6,cy-18,12,10); ctx.strokeRect(cx-6,cy-18,12,10);
+    }
 
     // Periodic directional scan with long pause and short turn.
     if (!turret.scan) {
@@ -73,12 +98,29 @@ export function drawTurrets() {
     const bLen = 14, bW = 3;
     ctx.save();
     ctx.translate(cx, cy-14);
-    ctx.rotate(angle);
-    ctx.fillStyle = '#7aee7a'; ctx.strokeStyle = '#3a8a3a'; ctx.lineWidth = 1;
-    ctx.fillRect(-bW/2-3,-bLen,bW,bLen); ctx.strokeRect(-bW/2-3,-bLen,bW,bLen);
-    ctx.fillRect(bW/2+1,-bLen,bW,bLen); ctx.strokeRect(bW/2+1,-bLen,bW,bLen);
-    ctx.fillStyle = '#5aaa5a';
-    ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    if (typeDef.shape !== 'triangle_orbit') ctx.rotate(angle);
+    ctx.fillStyle = barrelFill; ctx.strokeStyle = barrelStroke; ctx.lineWidth = 1;
+    if (typeDef.shape === 'single_rifle') {
+      ctx.fillRect(-2, -bLen - 2, 4, bLen + 2);
+      ctx.strokeRect(-2, -bLen - 2, 4, bLen + 2);
+      ctx.fillStyle = bodyStroke;
+      ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    } else if (typeDef.shape === 'triangle_orbit') {
+      ctx.fillStyle = bodyStroke;
+      for (let i = 0; i < 3; i++) {
+        const orbAngle = t * 1.2 + i * (Math.PI * 2 / 3);
+        const ox = Math.cos(orbAngle) * 9;
+        const oy = Math.sin(orbAngle) * 4;
+        ctx.beginPath(); ctx.arc(ox, oy, 2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = barrelFill;
+      ctx.beginPath(); ctx.arc(0,0,4,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillRect(-bW/2-3,-bLen,bW,bLen); ctx.strokeRect(-bW/2-3,-bLen,bW,bLen);
+      ctx.fillRect(bW/2+1,-bLen,bW,bLen); ctx.strokeRect(bW/2+1,-bLen,bW,bLen);
+      ctx.fillStyle = bodyStroke;
+      ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    }
     ctx.restore();
 
     // Health bar
@@ -87,22 +129,39 @@ export function drawTurrets() {
     ctx.fillStyle = hpPct > 0.5 ? '#4d8' : hpPct > 0.25 ? '#fa4' : '#f44';
     ctx.fillRect(cx-12,cy+6,24*hpPct,3);
 
+    function traceDiamondForRange(col, row, r) {
+      const minC = Math.max(0, col - r);
+      const maxC = Math.min(GRID_COLS - 1, col + r);
+      const minR = Math.max(0, row - r);
+      const maxR = Math.min(GRID_ROWS - 1, row + r);
+      const tl = gridToIso(minC, minR);
+      const tr = gridToIso(maxC, minR);
+      const br = gridToIso(maxC, maxR);
+      const bl = gridToIso(minC, maxR);
+      const top = { x: tl.x, y: tl.y };
+      const right = { x: tr.x + TILE_W / 2, y: tr.y + TILE_H / 2 };
+      const bottom = { x: br.x, y: br.y + TILE_H };
+      const left = { x: bl.x - TILE_W / 2, y: bl.y + TILE_H / 2 };
+      ctx.beginPath();
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.lineTo(bottom.x, bottom.y);
+      ctx.lineTo(left.x, left.y);
+      ctx.closePath();
+    }
+
     // Range highlight on hover
     if (turretHoverCol === turret.col && turretHoverRow === turret.row && !state.placingTurret) {
       const r = turret.range;
       ctx.save();
-      for (let dc = -r; dc <= r; dc++) {
-        for (let dr = -r; dr <= r; dr++) {
-          const tc = turret.col+dc, tr2 = turret.row+dr;
-          if (tc < 0 || tc >= GRID_COLS || tr2 < 0 || tr2 >= GRID_ROWS) continue;
-          const {x: tx, y: ty} = gridToIso(tc, tr2);
-          ctx.beginPath();
-          ctx.moveTo(tx,ty); ctx.lineTo(tx+TILE_W/2,ty+TILE_H/2); ctx.lineTo(tx,ty+TILE_H); ctx.lineTo(tx-TILE_W/2,ty+TILE_H/2);
-          ctx.closePath();
-          ctx.fillStyle = 'rgba(80,220,80,0.18)'; ctx.fill();
-          ctx.strokeStyle = 'rgba(80,220,80,0.5)'; ctx.lineWidth = 0.8; ctx.stroke();
-        }
-      }
+      traceDiamondForRange(turret.col, turret.row, r);
+      const hoverStroke = typeDef.platformStroke;
+      const hoverRgb = rgbFromHex(hoverStroke);
+      ctx.fillStyle = `rgba(${hoverRgb},0.09)`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${hoverRgb},0.25)`;
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
       ctx.restore();
     }
   }
@@ -120,26 +179,33 @@ export function drawTurretPlacementHover() {
   const cx = x, cy = y+TILE_H/2;
 
   const movingTurret = state.movingTurret ? state.turrets.find(t => t.id === state.movingTurret) : null;
-  const previewRange = movingTurret ? movingTurret.range : 2;
-  for (let dc = -previewRange; dc <= previewRange; dc++) {
-    for (let dr = -previewRange; dr <= previewRange; dr++) {
-      const tc = col + dc;
-      const tr = row + dr;
-      if (tc < 0 || tc >= GRID_COLS || tr < 0 || tr >= GRID_ROWS) continue;
-      const p = gridToIso(tc, tr);
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(p.x + TILE_W/2, p.y + TILE_H/2);
-      ctx.lineTo(p.x, p.y + TILE_H);
-      ctx.lineTo(p.x - TILE_W/2, p.y + TILE_H/2);
-      ctx.closePath();
-      ctx.fillStyle = valid ? 'rgba(80,220,80,0.08)' : 'rgba(220,80,80,0.07)';
-      ctx.fill();
-      ctx.strokeStyle = valid ? 'rgba(80,220,80,0.22)' : 'rgba(220,80,80,0.2)';
-      ctx.lineWidth = 0.7;
-      ctx.stroke();
-    }
-  }
+  const previewType = movingTurret?.type || state.placingTurretType || 'turret';
+  const typeDef = getTurretTypeDef(previewType);
+  const previewRange = movingTurret ? movingTurret.range : (typeDef.baseRange ?? TURRET_BASE_STATS.range);
+  const previewRgb = rgbFromHex(typeDef.platformStroke);
+  const minC = Math.max(0, col - previewRange);
+  const maxC = Math.min(GRID_COLS - 1, col + previewRange);
+  const minR = Math.max(0, row - previewRange);
+  const maxR = Math.min(GRID_ROWS - 1, row + previewRange);
+  const tl = gridToIso(minC, minR);
+  const tr = gridToIso(maxC, minR);
+  const br = gridToIso(maxC, maxR);
+  const bl = gridToIso(minC, maxR);
+  const top = { x: tl.x, y: tl.y };
+  const right = { x: tr.x + TILE_W / 2, y: tr.y + TILE_H / 2 };
+  const bottom = { x: br.x, y: br.y + TILE_H };
+  const left = { x: bl.x - TILE_W / 2, y: bl.y + TILE_H / 2 };
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(right.x, right.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.lineTo(left.x, left.y);
+  ctx.closePath();
+  ctx.fillStyle = valid ? `rgba(${previewRgb},0.06)` : 'rgba(220,80,80,0.05)';
+  ctx.fill();
+  ctx.strokeStyle = valid ? `rgba(${previewRgb},0.2)` : 'rgba(220,80,80,0.18)';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
 
   ctx.beginPath();
   ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy);
@@ -148,17 +214,39 @@ export function drawTurretPlacementHover() {
   ctx.strokeStyle = valid ? '#4d8' : '#f44'; ctx.lineWidth = 2; ctx.stroke();
 
   // Ghost turret preview
-  ctx.fillStyle = valid ? 'rgba(122,238,122,0.9)' : 'rgba(255,120,120,0.85)';
-  ctx.strokeStyle = valid ? 'rgba(58,138,58,0.95)' : 'rgba(150,60,60,0.95)';
+  ctx.fillStyle = valid ? typeDef.barrelFill : 'rgba(255,120,120,0.85)';
+  ctx.strokeStyle = valid ? typeDef.barrelStroke : 'rgba(150,60,60,0.95)';
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.ellipse(cx, cy-2, 9, 5, 0, 0, Math.PI*2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillRect(cx-6, cy-18, 12, 10);
-  ctx.strokeRect(cx-6, cy-18, 12, 10);
-  ctx.beginPath();
-  ctx.arc(cx, cy-14, 5, 0, Math.PI*2);
-  ctx.fill();
-  ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(cx, cy-2, 9, 5, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = valid ? typeDef.bodyFill : 'rgba(255,120,120,0.85)';
+  ctx.strokeStyle = valid ? typeDef.bodyStroke : 'rgba(150,60,60,0.95)';
+  if (typeDef.shape === 'triangle_orbit') {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 20);
+    ctx.lineTo(cx + 8, cy - 8);
+    ctx.lineTo(cx - 8, cy - 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = valid ? typeDef.detailStroke : 'rgba(255,160,160,0.9)';
+    for (let i = 0; i < 3; i++) {
+      const orbAngle = performance.now() / 1000 * 1.2 + i * (Math.PI * 2 / 3);
+      const ox = Math.cos(orbAngle) * 9;
+      const oy = Math.sin(orbAngle) * 4;
+      ctx.beginPath(); ctx.arc(cx + ox, cy - 14 + oy, 2, 0, Math.PI * 2); ctx.fill();
+    }
+  } else {
+    ctx.fillRect(cx-6, cy-18, 12, 10);
+    ctx.strokeRect(cx-6, cy-18, 12, 10);
+    if (typeDef.shape === 'single_rifle') {
+      ctx.fillStyle = valid ? typeDef.barrelFill : 'rgba(255,120,120,0.85)';
+      ctx.strokeStyle = valid ? typeDef.barrelStroke : 'rgba(150,60,60,0.95)';
+      ctx.fillRect(cx - 2, cy - 30, 4, 14);
+      ctx.strokeRect(cx - 2, cy - 30, 4, 14);
+    } else {
+      ctx.fillStyle = valid ? typeDef.barrelFill : 'rgba(255,120,120,0.85)';
+      ctx.strokeStyle = valid ? typeDef.barrelStroke : 'rgba(150,60,60,0.95)';
+      ctx.beginPath(); ctx.arc(cx, cy-14, 5, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    }
+  }
 }

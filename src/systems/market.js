@@ -3,6 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
+import { BASE_MAX_SHIPS } from '../data/base.js';
 import { addLog, fmt, addCoins } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { showOnce } from '../ui/transmissions.js';
@@ -35,7 +36,8 @@ window.sellResource = function(type, amount) {
   addCoins(earned);
   const boosted = state.marketBoost?.type === type ? ' ✦' : '';
   addLog(`💰 Sold ${fmt(sell)}x ${RESOURCE_DEFS[type].label} for ${fmt(earned)} coins${boosted}`);
-  if (state.coins >= 50000) {
+  const maxBaseTier = BASE_MAX_SHIPS.length;
+  if (state.coins >= 50000 && state.base.level < maxBaseTier) {
     showOnce('sera_base_upgrade', NPCS.sera.transmissionLines.sera_base_upgrade, 35, 'sera');
   }
   if (refresh.ui) refresh.ui();

@@ -3,7 +3,7 @@
 // ============================================================
 
 // ── Health Increase ───────────────────────────────────────────
-export const HEALTH_INCREASE_HP_PER_PURCHASE = 2500;
+export const HEALTH_INCREASE_HP_PER_PURCHASE = 8000;
 export const HEALTH_INCREASE_MAX_PURCHASES   = 10;
 // Backward-compat alias used in older code paths
 export const HP_BOOST_HEALTH_PER_PURCHASE    = HEALTH_INCREASE_HP_PER_PURCHASE;
@@ -11,7 +11,8 @@ export const HP_BOOST_HEALTH_PER_PURCHASE    = HEALTH_INCREASE_HP_PER_PURCHASE;
 // ── Shield ────────────────────────────────────────────────────
 export const SHIELD_PCT_PER_PURCHASE  = 0.05;  // 5% of base.maxHealth per purchase
 export const SHIELD_MAX_PURCHASES     = 10;
-export const SHIELD_REGEN_PER_PURCHASE_PER_10S = 50; // shield restored per purchase every 10 s
+export const SHIELD_REGEN_INTERVAL_S = 1; // shield regen tick interval
+export const SHIELD_REGEN_PER_PURCHASE_PER_TICK = 12.5; // shield restored per purchase each tick
 
 // ── Anti-Comet Defenses ───────────────────────────────────────
 export const ANTI_COMET_CHANCE_PER_PURCHASE = 0.05; // 5% per purchase
@@ -32,13 +33,21 @@ export const DEFENSE_DAMAGE_REDUCTION = 0.10;
 // ── Market Influence ──────────────────────────────────────────
 export const MARKET_INFLUENCE_BONUS = 0.10; // 10% sell price increase
 
+export function getResearchPointCap(baseTier) {
+  const t = Math.max(1, Math.min(10, Math.floor(baseTier || 1)));
+  const minCap = 5;
+  const maxCap = 100;
+  const cap = minCap + ((maxCap - minCap) * (t - 1) / 9);
+  return Math.round(cap);
+}
+
 export const RESEARCH_TREE = [
   {
     tier: 1, label: 'Base Level 1',
     unlocks: [
       {
         id: 'health_increase', name: 'Health Increase', cost: 1, icon: '▲', repeatable: true,
-        desc: 'Increases base station max health by 2,500 HP per purchase. Can be purchased up to 10 times (+25,000 HP total).',
+        desc: 'Increases base station max health by 8,000 HP per purchase. Can be purchased up to 10 times (+80,000 HP total).',
       },
       {
         id: 'shield_increase', name: 'Shield Increase', cost: 1, icon: '◈', repeatable: true,
@@ -67,15 +76,15 @@ export const RESEARCH_TREE = [
     tier: 3, label: 'Base Level 3', minBaseLevel: 3,
     unlocks: [
       {
-        id: 'turrets', name: 'Turret Systems', cost: 1, icon: '■',
-        desc: 'Allows construction of standard defensive turrets on the map. Place them to protect your base from incoming raids.',
+        id: 'turrets', name: 'Automatic Turret', cost: 1, icon: '■',
+        desc: 'Allows construction of standard automatic defensive turrets on the map. Place them to protect your base from incoming raids.',
       },
       {
         id: 'armor_plating', name: 'Armor Plating', cost: 2, icon: '▣',
         desc: 'Permanently increases the armor rating of all Combat ships, reducing damage taken in combat by 10%. Applied to fleet combat — future ship combat expansion.',
       },
       {
-        id: 'resource_fabrication', name: 'Unlock Resource Fabrication', cost: 2, icon: '◆',
+        id: 'resource_fabrication', name: 'Unlock Resource Fabrication', cost: 10, icon: '◆',
         desc: 'Enables crafting of advanced materials such as Microchips and Fuel Cells from multiple raw resource inputs. Future expansion — flag is active upon purchase.',
       },
       {
@@ -105,11 +114,11 @@ export const RESEARCH_TREE = [
     tier: 5, label: 'Base Level 5', minBaseLevel: 5,
     unlocks: [
       {
-        id: 'market_influence', name: 'Market Influence', cost: 3, icon: '▲',
+        id: 'market_influence', name: 'Market Influence', cost: 10, icon: '▲',
         desc: 'Leverages your sector reputation to permanently increase all resource sale prices by 10%. One-time unlock.',
       },
       {
-        id: 'laser_turrets', name: 'Laser Turrets', cost: 2, icon: '◈',
+        id: 'laser_turrets', name: 'Laser Turrets', cost: 10, icon: '◈',
         desc: 'Unlocks construction of high-energy laser turret emplacements with superior range and damage output. Future expansion.',
       },
     ],
@@ -118,7 +127,7 @@ export const RESEARCH_TREE = [
     tier: 7, label: 'Base Level 7', minBaseLevel: 7,
     unlocks: [
       {
-        id: 'emp_turrets', name: 'EMP Turrets', cost: 3, icon: '◇',
+        id: 'emp_turrets', name: 'EMP Turrets', cost: 18, icon: '◇',
         desc: 'Deploys electromagnetic pulse turrets that temporarily disable the systems of incoming enemy ships, preventing attacks and slowing advances. Future expansion.',
       },
     ],
@@ -127,7 +136,7 @@ export const RESEARCH_TREE = [
     tier: 8, label: 'Base Level 8', minBaseLevel: 8,
     unlocks: [
       {
-        id: 'unique_scanner', name: 'Unique Ship Scanner', cost: 4, icon: '□',
+        id: 'unique_scanner', name: 'Unique Ship Scanner', cost: 40, icon: '□',
         desc: 'Installs a long-range signature scanner capable of detecting unique and legendary ship signatures in the asteroid belt. Future expansion — flag is active upon purchase.',
       },
     ],
@@ -136,7 +145,7 @@ export const RESEARCH_TREE = [
     tier: 10, label: 'Base Level 10', minBaseLevel: 10,
     unlocks: [
       {
-        id: 'multi_demand', name: 'Multi-Demand', cost: 5, icon: '■',
+        id: 'multi_demand', name: 'Multi-Demand', cost: 25, icon: '■',
         desc: 'Expands your market intelligence network — instead of a single in-demand resource per SOL, up to 3 resources can be simultaneously boosted each day.',
       },
     ],

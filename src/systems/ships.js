@@ -188,7 +188,8 @@ export function tickShip(ship, dt) {
       // Smooth turn rate: wide arcs far out, tight near destination. No sudden jumps.
       // Beyond 300 units, apply the ship's personal randomness so arcs vary in width.
       const turnT = Math.max(0, Math.min(1, 1 - dist / 500));
-      const farVariance = dist > 300 ? ship.turnRadiusRandomness * 1.2 : 0;
+      const turnVariance = Number.isFinite(ship.turnRadiusRandomness) ? ship.turnRadiusRandomness : 0;
+      const farVariance = dist > 300 ? turnVariance * 1.2 : 0;
       const TURN_RATE = Math.max(1, 3 + (10 - 3) * turnT + farVariance);
       const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
       let da = targetAngle - ship.heading;

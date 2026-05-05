@@ -13,6 +13,7 @@ import { showTransmissionMessage } from '../ui/transmissions.js';
 import { checkTradeTutorial } from '../ui/tutorial.js';
 import { NPCS } from '../data/npcs.js';
 import { patchSolPanel } from '../ui/panels.js';
+import { getResearchPointCap } from '../data/research.js';
 
 export function scheduleNextEvent() {
   const solsFromNow = EVENT_SCHEDULE_MIN_SOLS + Math.floor(Math.random() * (EVENT_SCHEDULE_MAX_SOLS - EVENT_SCHEDULE_MIN_SOLS + 1));
@@ -41,7 +42,7 @@ export function tickSOL(dt) {
     state.sol++;
 
     // Earn 1 RP per SOL, capped
-    const rpCap = state.base.level * (state.base.level + 1) / 2;
+    const rpCap = getResearchPointCap(state.base.level);
     if (state.rp < rpCap) { state.rp++; updateHeaderRP(); addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
 
     // Random in-demand resource(s)

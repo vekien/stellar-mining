@@ -63,10 +63,24 @@ export const CRAFTS = {
   turrets: [
     {
       id: 'turret',
-      name: 'Defense Turret',
-      desc: '5,000 HP · 100 dmg · 6-tile range',
+      name: 'Automatic Turret',
+      desc: '5,000 HP · 100 dmg · 2-tile range',
       cost: 6000,
-      reqs: { iron: 900, copper: 700, oxygen: 450, silicon: 450, titanium: 250 },
+      reqs: { iron: 900, copper: 700, oxygen: 450, nickel: 300, silicon: 450, cobalt: 250 },
+    },
+    {
+      id: 'laser_turret',
+      name: 'Laser Turret',
+      desc: 'Heavy beam burst · long recharge',
+      cost: 18000,
+      reqs: { iron: 2700, copper: 2100, oxygen: 1350, nickel: 900, silicon: 1350, cobalt: 750, gold: 600, chromium: 450, platinum: 225, xenon: 180 },
+    },
+    {
+      id: 'emp_turret',
+      name: 'EMP Turret',
+      desc: 'Stuns ships · disables movement and fire',
+      cost: 36000,
+      reqs: { iron: 5400, copper: 4200, oxygen: 2700, nickel: 1800, silicon: 2700, cobalt: 1500, gold: 1200, chromium: 900, silver: 600, neon: 450, platinum: 450, xenon: 360 },
     },
     {
       id: 'turret_upgrade',

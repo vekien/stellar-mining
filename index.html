@@ -71,7 +71,7 @@
     <div id="turret-modal-overlay" onclick="closeTurretModal(event)" style="display:none;position:fixed;top:44px;left:0;right:350px;bottom:0;background:rgba(0,0,0,0.55);z-index:200;align-items:flex-start;justify-content:center;padding-top:24px;">
   <div id="turret-modal" onclick="event.stopPropagation()" style="width:340px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a6a2a;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #1a4a1a;background:rgba(20,50,20,0.4);">
-      <div style="font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:2px;color:#5acc5a;">🔫 TURRET</div>
+      <div id="turret-modal-title" style="font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:2px;color:#5acc5a;">TURRET</div>
       <button onclick="closeTurretModal(null)" style="background:none;border:none;color:#4a6a4a;font-size:14px;cursor:pointer;" onmouseover="this.style.color='#cde'" onmouseout="this.style.color='#4a6a4a'">✕</button>
     </div>
     <div id="turret-modal-body" style="padding:14px;"></div>
@@ -191,9 +191,9 @@
     <h2 class="about-title">SETTINGS</h2>
     <div class="about-divider"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;">
-      <div style="font-size:17px;color:#8ab;">Show Grid Coordinates</div>
+      <div style="font-size:17px;color:#8ab;">Show Tile Grid</div>
       <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
-        <input id="setting-grid-coords" type="checkbox" onchange="toggleGridCoords(this.checked)">
+        <input id="setting-show-grid" type="checkbox" onchange="toggleShowGrid(this.checked)">
         On
       </label>
     </div>

@@ -21,6 +21,7 @@ import { tickAdmiral } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
 import './systems/research.js';
 import { getMaxShield } from './systems/research.js';
+import { SHIELD_REGEN_INTERVAL_S, SHIELD_REGEN_PER_PURCHASE_PER_TICK, AUTO_REGEN_HP_PER_PURCHASE } from './data/research.js';
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
 import { renderBasePanel } from './ui/basePanel.js';
@@ -191,9 +192,9 @@ window.openLogHistory = openLogHistory;
 window.closeLogHistory = closeLogHistory;
 window.openSettings   = () => {
   const overlay = document.getElementById('settings-overlay');
-  const chkGrid = document.getElementById('setting-grid-coords');
+  const chkShowGrid = document.getElementById('setting-show-grid');
   const chkStars = document.getElementById('setting-bg-stars');
-  if (chkGrid) chkGrid.checked = !!state.settings?.showGridCoords;
+  if (chkShowGrid) chkShowGrid.checked = state.settings?.showGrid !== false;
   if (chkStars) chkStars.checked = state.settings?.showBackgroundStars !== false;
   if (overlay) overlay.classList.add('show');
 };
@@ -201,9 +202,9 @@ window.closeSettings  = () => {
   const overlay = document.getElementById('settings-overlay');
   if (overlay) overlay.classList.remove('show');
 };
-window.toggleGridCoords = (enabled) => {
+window.toggleShowGrid = (enabled) => {
   if (!state.settings) state.settings = {};
-  state.settings.showGridCoords = !!enabled;
+  state.settings.showGrid = !!enabled;
 };
 window.toggleBackgroundStars = (enabled) => {
   if (!state.settings) state.settings = {};
@@ -218,7 +219,7 @@ window.switchTab      = function(tab) {
 };
 
 // ── Passive tick timers ───────────────────────────────────────
-let _shieldRegenTimer = 0;  // accumulates toward 10 s
+let _shieldRegenTimer = 0;  // accumulates toward shield regen interval
 let _autoRegenTimer   = 0;  // accumulates toward 1 s
 
 // ── Game loop ─────────────────────────────────────────────────
@@ -240,13 +241,13 @@ function gameLoop() {
   tickSOL(dt);
   tickAdmiral(dt);
 
-  // ── Shield regeneration (every 10 s) ───────────────────────
+  // ── Shield regeneration ─────────────────────────────────────
   if ((state.shieldBoostCount || 0) > 0) {
     _shieldRegenTimer += dt;
-    if (_shieldRegenTimer >= 10) {
-      _shieldRegenTimer -= 10;
+    if (_shieldRegenTimer >= SHIELD_REGEN_INTERVAL_S) {
+      _shieldRegenTimer -= SHIELD_REGEN_INTERVAL_S;
       const maxShield = getMaxShield();
-      const regen = state.shieldBoostCount * 50;
+      const regen = state.shieldBoostCount * SHIELD_REGEN_PER_PURCHASE_PER_TICK;
       state.base.shield = Math.min(maxShield, (state.base.shield || 0) + regen);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
     }
@@ -257,7 +258,7 @@ function gameLoop() {
     _autoRegenTimer += dt;
     if (_autoRegenTimer >= 1) {
       _autoRegenTimer -= 1;
-      const hpPerSec = state.autoRegenCount * 5;
+      const hpPerSec = state.autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE;
       state.base.health = Math.min(state.base.maxHealth, state.base.health + hpPerSec);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
     }

@@ -16,7 +16,8 @@ import { renderBasePanel } from './ui/basePanel.js';
 import { closeRenameOverlay } from './ui/rename.js';
 import { openTurretModal } from './ui/turretUI.js';
 import { assignShip } from './systems/ships.js';
-import { TURRET_BASE_STATS } from './data/turrets.js';
+import { TURRET_BASE_STATS, getTurretTypeDef, getTurretStats } from './data/turrets.js';
+import { getCraft } from './data/crafts.js';
 
 export function initInput(canvas) {
   let isPanning   = false;
@@ -140,9 +141,10 @@ export function initInput(canvas) {
       canvasState.lastHoveredNode = null;
       const hpPct    = Math.round(hoveredTurret.health / hoveredTurret.maxHealth * 100);
       const hpColor  = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+      const turretName = getTurretTypeDef(hoveredTurret.type).name;
       const tt = tooltipEl();
       tt.innerHTML = `
-        <div class="tt-name">🔫 Turret <span style="color:#ffe066;font-size:11px;">Lv${hoveredTurret.level}</span></div>
+        <div class="tt-name">${turretName} <span style="color:#ffe066;font-size:11px;">Lv${hoveredTurret.level}</span></div>
         <div>Health: <span style="color:${hpColor}">${fmt(hoveredTurret.health)} / ${fmt(hoveredTurret.maxHealth)}</span></div>
         <div>Damage: <span style="color:#cde">${hoveredTurret.damage}</span></div>
         <div>Range: <span style="color:#cde">${hoveredTurret.range} tiles</span></div>
@@ -241,17 +243,22 @@ function handleCanvasClick(canvas, clientX, clientY) {
       if (turret) { turret.col = col; turret.row = row; addLog(`↔ Turret moved to (${col},${row}).`); }
       state.movingTurret = null;
       state.placingTurret = false;
+      state.placingTurretType = null;
       canvas.style.cursor = '';
     } else {
-      state.turrets.push({ id: Date.now(), col, row, health: TURRET_BASE_STATS.health, maxHealth: TURRET_BASE_STATS.health, damage: TURRET_BASE_STATS.damage, range: TURRET_BASE_STATS.range, level: 1 });
-      state.unplacedTurrets--;
-      addLog(`🔫 Turret placed at (${col},${row})!`);
-      if (state.unplacedTurrets > 0) {
-        addLog(`🔫 ${state.unplacedTurrets} turret(s) still to place. Click another tile.`);
-      } else {
-        state.placingTurret = false;
-        canvas.style.cursor = '';
-      }
+      const queue = Array.isArray(state.unplacedTurretQueue) ? state.unplacedTurretQueue : [];
+      const requestedType = state.placingTurretType || queue[0] || 'turret';
+      const placeIdx = queue.indexOf(requestedType);
+      const turretType = placeIdx >= 0 ? queue.splice(placeIdx, 1)[0] : (queue.shift() || 'turret');
+      state.unplacedTurrets = queue.length;
+      const turretName = getCraft('turrets', turretType)?.name || 'Turret';
+      const stats = getTurretStats(turretType, 1);
+      state.turrets.push({ id: Date.now(), type: turretType, col, row, health: stats.maxHealth, maxHealth: stats.maxHealth, damage: stats.damage, range: stats.range, fireRate: stats.fireRate, stunDuration: stats.stunDuration, level: 1 });
+      addLog(`${turretName} placed at (${col},${row})!`);
+      if (state.unplacedTurrets > 0) addLog(`${state.unplacedTurrets} turret(s) remaining in inventory.`);
+      state.placingTurret = false;
+      state.placingTurretType = null;
+      canvas.style.cursor = '';
     }
     if (refresh.ui) refresh.ui();
     return;

@@ -49,6 +49,8 @@ export function generateNodes(baseCol, baseRow, seed) {
   const all = [];
   let id = 0;
   const minSeparation = 2;
+  const relMin = 2;
+  const relMax = 48;
 
   for (const band of NODE_BANDS) {
     const candidates = [];
@@ -56,6 +58,8 @@ export function generateNodes(baseCol, baseRow, seed) {
       for (let dr = -band.maxDist; dr <= band.maxDist; dr++) {
         const cheb = Math.max(Math.abs(dc), Math.abs(dr));
         if (cheb < band.minDist || cheb > band.maxDist) continue;
+        if (Math.abs(dc) < relMin || Math.abs(dr) < relMin) continue;
+        if (Math.abs(dc) > relMax || Math.abs(dr) > relMax) continue;
         candidates.push([baseCol + dc, baseRow + dr]);
       }
     }

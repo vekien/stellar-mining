@@ -6,6 +6,8 @@ import { BASE_COL, BASE_ROW } from './constants.js';
 import { gridToWorld } from './render/camera.js';
 import { RESOURCE_DEFS } from './data/resources.js';
 import { normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel } from './data/ships.js';
+import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
+import { getTurretTypeDef, getTurretStats } from './data/turrets.js';
 import { clampCoins } from './helpers.js';
 
 function makeEmptyResources() {
@@ -38,6 +40,7 @@ export let state = {
   fleetFilter: { type: null, role: null, node: null, idleOnly: false, sort: null, sortDir: 1 },
   shipCraftTimers: {},
   shipCraftNotices: {},
+  turretCraftTimers: {},
 
   // Time + progression
   sol: 1,
@@ -48,7 +51,7 @@ export let state = {
 
   // Player settings
   settings: {
-    showGridCoords: false,
+    showGrid: true,
     showBackgroundStars: true,
   },
 
@@ -72,6 +75,8 @@ export let state = {
   selectedTurret: null,
   movingTurret: null,
   unplacedTurrets: 0,
+  unplacedTurretQueue: [],
+  placingTurretType: null,
   hpBoostCount: 0,
   shieldBoostCount: 0,
   antiCometCount: 0,
@@ -86,6 +91,9 @@ export let state = {
   nextEventSol: null,
   activeWarning: null,
 
+  // Runtime visual effects
+  baseRangeAnim: null,
+
   // Base
   base: {
     name: 'Base Station',
@@ -96,7 +104,7 @@ export let state = {
   },
 };
 
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 6;
 
 export let shipIdCounter = 1;
 export function setShipIdCounter(v) { shipIdCounter = v; }
@@ -121,9 +129,10 @@ export function saveGame() {
       antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
       autoRegenCount: state.autoRegenCount,
       researchUnlocksList: state.researchUnlocksList,
-      turrets: state.turrets, unplacedTurrets: state.unplacedTurrets,
+      turrets: state.turrets, unplacedTurrets: state.unplacedTurrets, unplacedTurretQueue: state.unplacedTurretQueue,
       logHistory: state.logHistory,
       shipCraftTimers: state.shipCraftTimers,
+      turretCraftTimers: state.turretCraftTimers,
       saveVersion: SAVE_VERSION,
       ships: state.ships.map(s => ({
         id:s.id, name:s.name, type:s.type,
@@ -150,7 +159,7 @@ export function loadGame() {
     state.rp   = d.rp  ?? 0;
     state.marketBoost = d.marketBoost ?? null;
     state.settings = {
-      showGridCoords: d.settings?.showGridCoords ?? d.showGridCoords ?? false,
+      showGrid: d.settings?.showGrid ?? true,
       showBackgroundStars: d.settings?.showBackgroundStars ?? true,
     };
     state.solStarted = d.solStarted ?? false;
@@ -177,11 +186,26 @@ export function loadGame() {
     }
     state.turrets = d.turrets ?? [];
     // Migrate old turrets
-    state.turrets.forEach(t => { if (t.range > 2 && t.level === 1) t.range = 2; });
-    state.unplacedTurrets = d.unplacedTurrets ?? 0;
+    state.turrets.forEach(t => {
+      if (!t.type) t.type = 'turret';
+      const level = Math.max(1, t.level || 1);
+      const stats = getTurretStats(t.type, level);
+      const priorHealth = Number.isFinite(t.health) ? t.health : stats.maxHealth;
+      t.maxHealth = stats.maxHealth;
+      t.health = Math.min(priorHealth, stats.maxHealth);
+      t.damage = stats.damage;
+      t.range = stats.range;
+      t.fireRate = stats.fireRate;
+      t.stunDuration = stats.stunDuration;
+    });
+    state.unplacedTurretQueue = Array.isArray(d.unplacedTurretQueue)
+      ? d.unplacedTurretQueue.slice()
+      : Array.from({ length: d.unplacedTurrets ?? 0 }, () => 'turret');
+    state.unplacedTurrets = state.unplacedTurretQueue.length;
     state.logHistory = Array.isArray(d.logHistory) ? d.logHistory.slice(-100) : [];
     state.log = state.logHistory.slice(0, 3).map(entry => entry.msg);
     state.shipCraftTimers = d.shipCraftTimers && typeof d.shipCraftTimers === 'object' ? d.shipCraftTimers : {};
+    state.turretCraftTimers = d.turretCraftTimers && typeof d.turretCraftTimers === 'object' ? d.turretCraftTimers : {};
     state.hpBoostCount     = d.hpBoostCount     ?? 0;
     state.shieldBoostCount = d.shieldBoostCount ?? 0;
     state.antiCometCount   = d.antiCometCount   ?? 0;
@@ -193,7 +217,7 @@ export function loadGame() {
     const hpEntry = state.researchUnlocksList.find(r => r.id === 'health_increase');
     if (hpEntry && Number.isFinite(hpEntry.qty)) state.hpBoostCount = Math.max(state.hpBoostCount, hpEntry.qty);
 
-    const expectedMaxHealth = 10000 + (state.base.level - 1) * 10000 + (state.hpBoostCount * 2500);
+    const expectedMaxHealth = 10000 + (state.base.level - 1) * 10000 + (state.hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE);
     state.base.maxHealth = Math.max(state.base.maxHealth || 0, expectedMaxHealth);
     state.base.health = Math.min(state.base.health ?? state.base.maxHealth, state.base.maxHealth);
     // scheduleNextEvent() called by main.js after loadGame() if nextEventTimer === null
@@ -224,6 +248,9 @@ export function loadGame() {
         cargo:0, cargoResource:null,
         status:'idle', targetNode: sd.targetNode ?? null,
         heading: Math.random() * Math.PI * 2,
+        turnRadiusRandomness: Number.isFinite(sd.turnRadiusRandomness)
+          ? sd.turnRadiusRandomness
+          : (Math.random() - 0.5) * 2,
         x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0, pauseTimer:0,
       };
     });

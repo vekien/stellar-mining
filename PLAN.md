@@ -1,5 +1,33 @@
 # Game Systems Plan
 
+## Current Implementation Snapshot (Research-Aligned)
+
+### Already Implemented
+- Research tree with tier gating, RP costs, repeatable upgrades, and purchased-unlock tracking.
+- Defense foundation: `turrets` unlock is functional with placement, rendering, basic stats, and upgrades.
+- Survivability research loop is functional: `health_increase`, `shield_increase`, `anti_comet`, `solar_shield`, and `auto_regen` all apply gameplay effects.
+- Economy research hooks are partially live: `market_influence` affects sell values and `multi_demand` enables multiple boosted daily demands.
+- Future-tech unlocks already persist as flags (`resource_synthesis`, `resource_fabrication`, `unlock_bounties`, `galaxy_probes`, `storage_facilities`, `laser_turrets`, `emp_turrets`, `unique_scanner`) and can be surfaced in UI.
+
+### Implemented but Not Fully Productized
+- Bounty board has panel/navigation presence, but no full bounty contract loop yet.
+- Armor plating is represented in research and UI but appears reserved for deeper fleet combat logic.
+- Advanced turret unlocks (`laser_turrets`, `emp_turrets`) are tracked as unlock flags but not yet a complete differentiated turret gameplay path.
+
+### Good Next Steps Based on Research Tree
+- Bounties first: convert `unlock_bounties` from flag + panel into real contracts (spawn, timer, rewards, fail state).
+- Advanced turret path: make `laser_turrets` and `emp_turrets` meaningful with distinct recipes, stats, and enemy interaction.
+- Resource pipeline expansion: implement `resource_synthesis` and `resource_fabrication` as a real component/material crafting layer.
+- Mid/late-game logistics: implement `storage_facilities` to support expanded resource throughput and strategic map placement.
+- Exploration track: implement `galaxy_probes` mission flow and later connect `unique_scanner` to rare/legendary ship discovery events.
+
+### Suggested Build Order (From Current Code + Research Gating)
+1. Bounties (Tier 3 unlock already present in research and UI)
+2. Advanced turrets (Tier 5/7 research hooks already in place)
+3. Resource synthesis/fabrication (Tier 2/3 hooks already in place)
+4. Storage facilities (Tier 4 economic scaling support)
+5. Galaxy probes + unique scanner (Tier 4/8 late-game exploration)
+
 ## 1. Command Mission System
 Story-driven, sequential missions with named NPCs from the current cast, such as Rigs, Vane, and Juno. Each command has a briefing transmission, objectives, and a debrief with lore payoff.
 

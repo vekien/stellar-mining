@@ -47,26 +47,64 @@ export function drawTile(targetCtx, col, row, fill, stroke) {
   targetCtx.strokeStyle = stroke; targetCtx.lineWidth = 0.5; targetCtx.stroke();
 }
 
+function getEffectiveBaseRange() {
+  const currentRange = BASE_RANGE[(state.base.level - 1)] || 6;
+  const anim = state.baseRangeAnim;
+  if (!anim) return currentRange;
+
+  const duration = Math.max(1, anim.duration || 900);
+  const t = Math.max(0, Math.min(1, (performance.now() - anim.start) / duration));
+  const eased = 1 - Math.pow(1 - t, 3);
+  const from = Number.isFinite(anim.from) ? anim.from : currentRange;
+  const to = Number.isFinite(anim.to) ? anim.to : currentRange;
+  const range = from + (to - from) * eased;
+
+  if (t >= 1) state.baseRangeAnim = null;
+  return range;
+}
+
+function getEffectiveBorderRange() {
+  return getEffectiveBaseRange();
+}
+
 export function drawGrid(targetCtx = ctx) {
   const BASE_C = BASE_COL, BASE_R = BASE_ROW;
-  const halfR = BASE_RANGE[(state.base.level-1)] || 6;
-  targetCtx.save();
-  targetCtx.font = '7px Share Tech Mono, monospace';
-  targetCtx.textAlign = 'center';
-  targetCtx.textBaseline = 'middle';
-  for (let c = 0; c < GRID_COLS; c++) for (let r = 0; r < GRID_ROWS; r++) {
-    const dist = Math.sqrt((c-BASE_C)*(c-BASE_C)+(r-BASE_R)*(r-BASE_R));
-    const gridDist = Math.max(Math.abs(c-BASE_C), Math.abs(r-BASE_R));
-    const inRange  = gridDist <= halfR;
-    const a = Math.max(0, 0.15 - dist*0.006);
-    if (inRange) drawTile(targetCtx, c, r, `rgba(10,25,70,${a})`, `rgba(30,80,160,${a*1.5})`);
-    else         drawTile(targetCtx, c, r, `rgba(14,14,20,0.08)`, `rgba(50,50,68,0.1)`);
+  const halfR = getEffectiveBaseRange();
 
-    if (inRange && state.settings?.showGridCoords) {
-      const wp = gridToWorld(c, r);
-      targetCtx.fillStyle = 'rgba(235,245,255,0.2)';
-      targetCtx.fillText(`${c},${r}`, wp.x, wp.y + TILE_H / 2);
-    }
+  function pointsForRange(r) {
+    const minC = Math.max(0, BASE_C - r);
+    const maxC = Math.min(GRID_COLS - 1, BASE_C + r);
+    const minR = Math.max(0, BASE_R - r);
+    const maxR = Math.min(GRID_ROWS - 1, BASE_R + r);
+    const wTL = gridToWorld(minC, minR);
+    const wTR = gridToWorld(maxC, minR);
+    const wBR = gridToWorld(maxC, maxR);
+    const wBL = gridToWorld(minC, maxR);
+    const top    = { x: wTL.x,              y: wTL.y };
+    const right  = { x: wTR.x + TILE_W / 2, y: wTR.y + TILE_H / 2 };
+    const bottom = { x: wBR.x,              y: wBR.y + TILE_H };
+    const left   = { x: wBL.x - TILE_W / 2, y: wBL.y + TILE_H / 2 };
+    return [top, right, bottom, left];
+  }
+
+  const tiersToDraw = [];
+  for (let i = 0; i < state.base.level - 1; i++) {
+    const r = BASE_RANGE[i];
+    if (Number.isFinite(r) && r > 0) tiersToDraw.push(r);
+  }
+  tiersToDraw.push(halfR);
+
+  targetCtx.save();
+  targetCtx.fillStyle = 'rgba(70,150,255,0.0025)';
+  for (const r of tiersToDraw) {
+    const [top, right, bottom, left] = pointsForRange(r);
+    targetCtx.beginPath();
+    targetCtx.moveTo(top.x, top.y);
+    targetCtx.lineTo(right.x, right.y);
+    targetCtx.lineTo(bottom.x, bottom.y);
+    targetCtx.lineTo(left.x, left.y);
+    targetCtx.closePath();
+    targetCtx.fill();
   }
   targetCtx.restore();
 }
@@ -80,15 +118,21 @@ function ensureGridCache(shiftX, shiftY) {
     gridCacheSig = '';
   }
 
+  const anim = state.baseRangeAnim;
+  const animPhase = anim
+    ? Math.floor(Math.max(0, Math.min(1, (performance.now() - anim.start) / Math.max(1, anim.duration || 900))) * 20)
+    : -1;
+
   const sig = [
     W, H,
     state.base.level,
-    state.settings?.showGridCoords ? 1 : 0,
+    state.settings?.showGrid === false ? 0 : 1,
     cam.x.toFixed(2),
     cam.y.toFixed(2),
     cam.zoom.toFixed(3),
     shiftX.toFixed(2),
     shiftY.toFixed(2),
+    animPhase,
   ].join('|');
 
   if (sig === gridCacheSig) return;
@@ -104,16 +148,26 @@ function ensureGridCache(shiftX, shiftY) {
 
 export function drawRangeBorder() {
   const BASE_C = BASE_COL, BASE_R = BASE_ROW;
-  const halfR  = BASE_RANGE[(state.base.level-1)] || 6;
-  const wTL = gridToWorld(BASE_C-halfR, BASE_R-halfR);
-  const wTR = gridToWorld(BASE_C+halfR, BASE_R-halfR);
-  const wBR = gridToWorld(BASE_C+halfR, BASE_R+halfR);
-  const wBL = gridToWorld(BASE_C-halfR, BASE_R+halfR);
-  const top    = { x:wTL.x,             y:wTL.y            };
-  const right  = { x:wTR.x+TILE_W/2,   y:wTR.y+TILE_H/2   };
-  const bottom = { x:wBR.x,             y:wBR.y+TILE_H     };
-  const left   = { x:wBL.x-TILE_W/2,   y:wBL.y+TILE_H/2   };
-  const points = [top, right, bottom, left];
+  const halfR  = getEffectiveBorderRange();
+
+  function pointsForRange(r) {
+    const minC = Math.max(0, BASE_C - r);
+    const maxC = Math.min(GRID_COLS - 1, BASE_C + r);
+    const minR = Math.max(0, BASE_R - r);
+    const maxR = Math.min(GRID_ROWS - 1, BASE_R + r);
+    const wTL = gridToWorld(minC, minR);
+    const wTR = gridToWorld(maxC, minR);
+    const wBR = gridToWorld(maxC, maxR);
+    const wBL = gridToWorld(minC, maxR);
+    const top    = { x: wTL.x,             y: wTL.y };
+    const right  = { x: wTR.x + TILE_W / 2, y: wTR.y + TILE_H / 2 };
+    const bottom = { x: wBR.x,             y: wBR.y + TILE_H };
+    const left   = { x: wBL.x - TILE_W / 2, y: wBL.y + TILE_H / 2 };
+    return [top, right, bottom, left];
+  }
+
+  const points = pointsForRange(halfR);
+  const [top, right, bottom, left] = points;
   const cx = (top.x + right.x + bottom.x + left.x) / 4;
   const cy = (top.y + right.y + bottom.y + left.y) / 4;
 
@@ -134,6 +188,38 @@ export function drawRangeBorder() {
   }
 
   ctx.save();
+
+  // Faint tier contour lines (constant subtle opacity)
+  for (let i = 0; i < state.base.level - 1; i++) {
+    const tierRange = BASE_RANGE[i];
+    if (!Number.isFinite(tierRange) || tierRange <= 0 || tierRange >= halfR) continue;
+    const tierPts = pointsForRange(tierRange);
+    const topMidX = (tierPts[0].x + tierPts[1].x) / 2;
+    const topMidY = (tierPts[0].y + tierPts[1].y) / 2;
+    const topAngle = Math.atan2(tierPts[1].y - tierPts[0].y, tierPts[1].x - tierPts[0].x);
+    traceDiamond(tierPts);
+    ctx.strokeStyle = 'rgba(70,150,255,0.10)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.stroke();
+
+    ctx.save();
+    const tierHex = MINE_TIERS[i + 1]?.color || '#8ab';
+    const tierRgb = hexToRgb(tierHex);
+    ctx.font = '8px Orbitron, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = `rgba(${tierRgb},0.72)`;
+    ctx.translate(topMidX, topMidY - 4);
+    ctx.rotate(topAngle);
+    ctx.fillText(`TIER ${toRoman(i + 1)}`, 0, 0);
+    ctx.restore();
+  }
+
   const t = performance.now();
   const cycleMs = 7000;   // one pulse every 7s
   const burstMs = 1000;   // pulse expands in 1s
@@ -145,6 +231,25 @@ export function drawRangeBorder() {
   traceDiamond(points);
   ctx.strokeStyle = 'rgba(40,220,100,0.9)'; ctx.lineWidth = 2;
   ctx.setLineDash([]); ctx.stroke();
+
+  const outerTopMidX = (points[0].x + points[1].x) / 2;
+  const outerTopMidY = (points[0].y + points[1].y) / 2;
+  const outerTopAngle = Math.atan2(points[1].y - points[0].y, points[1].x - points[0].x);
+  const currentTierHex = MINE_TIERS[state.base.level]?.color || '#6fff9a';
+  const currentTierRgb = hexToRgb(currentTierHex);
+  ctx.save();
+  ctx.font = '9px Orbitron, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 2;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = `rgba(${currentTierRgb},0.9)`;
+  ctx.translate(outerTopMidX, outerTopMidY - 5);
+  ctx.rotate(outerTopAngle);
+  ctx.fillText(`TIER ${toRoman(state.base.level)}`, 0, 0);
+  ctx.restore();
 
   // Outward pulse ring: single border line matching the main style.
   if (activePulse) {
@@ -470,13 +575,16 @@ export function render(ts) {
   if (state.settings?.showBackgroundStars !== false) drawStars(ts);
   ctx.clearRect(0,0,W,H);
   const shake = getShakeOffset();
-  ensureGridCache(shake.x, shake.y);
-  ctx.drawImage(gridCacheCanvas, 0, 0);
+  const showGrid = state.settings?.showGrid !== false;
+  if (showGrid) {
+    ensureGridCache(shake.x, shake.y);
+    ctx.drawImage(gridCacheCanvas, 0, 0);
+  }
 
   ctx.save();
   ctx.translate(W/2-cam.x*cam.zoom+shake.x, H/2-cam.y*cam.zoom+shake.y);
   ctx.scale(cam.zoom, cam.zoom);
-  drawRangeBorder();
+  if (showGrid) drawRangeBorder();
   drawRangePulses();
   const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
   for (const n of sn) drawNode(n);

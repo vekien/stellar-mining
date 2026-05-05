@@ -8,7 +8,15 @@ import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE, BASE_TIER_REQS } from '
 import { fmt, showHintTooltip, hideTooltip, isLightColor } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
 import { renderTutPointers } from './tutorial.js';
-import { HEALTH_INCREASE_HP_PER_PURCHASE, SHIELD_PCT_PER_PURCHASE, ANTI_COMET_CHANCE_PER_PURCHASE, SOLAR_SHIELD_REDUCTION_PER_PURCHASE, AUTO_REGEN_HP_PER_PURCHASE } from '../data/research.js';
+import {
+  HEALTH_INCREASE_HP_PER_PURCHASE,
+  ANTI_COMET_CHANCE_PER_PURCHASE,
+  SOLAR_SHIELD_REDUCTION_PER_PURCHASE,
+  AUTO_REGEN_HP_PER_PURCHASE,
+  SHIELD_REGEN_INTERVAL_S,
+  SHIELD_REGEN_PER_PURCHASE_PER_TICK,
+  getResearchPointCap,
+} from '../data/research.js';
 import { getMaxShield } from '../systems/research.js';
 
 
@@ -56,8 +64,13 @@ export function renderBasePanel() {
 
   {
     const installedUpgrades = [];
+    const combatUpgrades = [];
+    const unlockedPerks = [];
+    const formatUpgradeDetail = (detail) => String(detail).replace(/(\+?\d[\d,]*(?:\.\d+)?(?:%|\/s)?)/g, '<span style="color:#ffe066;">$1</span>');
     const hpBoostCount     = state.hpBoostCount     || 0;
     const shieldBoostCount = state.shieldBoostCount || 0;
+    const shieldPerTick = shieldBoostCount * SHIELD_REGEN_PER_PURCHASE_PER_TICK;
+    const shieldPerSec = shieldBoostCount > 0 ? (shieldPerTick / SHIELD_REGEN_INTERVAL_S) : 0;
     const antiCometCount   = state.antiCometCount   || 0;
     const solarShieldCount = state.solarShieldCount || 0;
     const autoRegenCount   = state.autoRegenCount   || 0;
@@ -65,7 +78,7 @@ export function renderBasePanel() {
     if (hpBoostCount > 0)
       installedUpgrades.push({ icon: '▲', name: 'Health Increase', detail: `+${fmt(hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE)} max HP total`, qty: hpBoostCount });
     if (shieldBoostCount > 0)
-      installedUpgrades.push({ icon: '◈', name: 'Shield Increase', detail: `${fmt(maxShield)} max shield · ${shieldBoostCount * 50}/10s regen`, qty: shieldBoostCount });
+      installedUpgrades.push({ icon: '◈', name: 'Shield Increase', detail: `${fmt(maxShield)} max shield · +${fmt(Math.round(shieldPerSec))}/s`, qty: shieldBoostCount });
     if (antiCometCount > 0)
       installedUpgrades.push({ icon: '◇', name: 'Anti-Comet Defenses', detail: `${antiCometCount * 5}% intercept chance`, qty: antiCometCount });
     if (solarShieldCount > 0)
@@ -73,29 +86,29 @@ export function renderBasePanel() {
     if (autoRegenCount > 0)
       installedUpgrades.push({ icon: '○', name: 'Auto Regeneration', detail: `${autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE} HP/s`, qty: autoRegenCount });
     if (state.researchUnlocks['armor_plating'])
-      installedUpgrades.push({ icon: '▣', name: 'Armor Plating', detail: 'Combat ship armor +10%', qty: null });
+      combatUpgrades.push({ icon: '▣', name: 'Armor Plating', detail: 'Combat ship armor +10%', qty: null });
     if (state.researchUnlocks['turrets'])
-      installedUpgrades.push({ icon: '■', name: 'Turret Systems', detail: 'Defensive turrets unlocked', qty: null });
+      combatUpgrades.push({ icon: '■', name: 'Automatic Turret', detail: 'Defensive turrets unlocked', qty: null });
     if (state.researchUnlocks['resource_synthesis'])
-      installedUpgrades.push({ icon: '◎', name: 'Resource Synthesis', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ icon: '◎', name: 'Resource Synthesis', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['resource_fabrication'])
-      installedUpgrades.push({ icon: '◆', name: 'Resource Fabrication', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ icon: '◆', name: 'Resource Fabrication', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['unlock_bounties'])
-      installedUpgrades.push({ icon: '◉', name: 'Bounties', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ icon: '◉', name: 'Bounties', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['galaxy_probes'])
-      installedUpgrades.push({ icon: '▷', name: 'Galaxy Probes', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ icon: '▷', name: 'Galaxy Probes', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['storage_facilities'])
-      installedUpgrades.push({ icon: '▤', name: 'Storage Facilities', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ icon: '▤', name: 'Storage Facilities', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['market_influence'])
-      installedUpgrades.push({ icon: '▲', name: 'Market Influence', detail: '+10% all sell prices', qty: null });
+      unlockedPerks.push({ icon: '▲', name: 'Market Influence', detail: '+10% all sell prices', qty: null });
     if (state.researchUnlocks['laser_turrets'])
-      installedUpgrades.push({ icon: '◈', name: 'Laser Turrets', detail: 'Unlocked', qty: null });
+      combatUpgrades.push({ icon: '◈', name: 'Laser Turrets', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['emp_turrets'])
-      installedUpgrades.push({ icon: '◇', name: 'EMP Turrets', detail: 'Unlocked', qty: null });
+      combatUpgrades.push({ icon: '◇', name: 'EMP Turrets', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['unique_scanner'])
-      installedUpgrades.push({ icon: '□', name: 'Unique Ship Scanner', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ icon: '□', name: 'Unique Ship Scanner', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['multi_demand'])
-      installedUpgrades.push({ icon: '■', name: 'Multi-Demand', detail: 'Up to 3 resources in demand per SOL', qty: null });
+      unlockedPerks.push({ icon: '■', name: 'Multi-Demand', detail: 'Up to 3 resources in demand per SOL', qty: null });
 
     const upgradeBtn = nextCost
       ? `<button class="btn${canUpgrade?' primary':''}" style="font-size:18px;padding:6px 14px;white-space:nowrap;line-height:1.5;" onclick="upgradeBase()" ${canUpgrade?'':'disabled'}>⬆ UPGRADE</button>`
@@ -123,7 +136,10 @@ export function renderBasePanel() {
             <div style="position:absolute;left:0;top:0;height:100%;width:${hpW}%;background:${hpCol};"></div>
             ${shield > 0 ? `<div style="position:absolute;left:${hpW}%;top:0;height:100%;width:${shW}%;background:linear-gradient(90deg,#1a6aff,#48f);"></div>` : ''}
           </div>
-          ${maxShield > 0 ? `<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px;"><span style="color:#48f;">◈ Shield: ${fmt(shield)} / ${fmt(maxShield)}</span></div>` : ''}`;
+          ${maxShield > 0 ? `<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-top:5px;">
+            <span style="color:#69a3ff;">◈ Shield (+${fmt(Math.round(shieldPerSec))}/s)</span>
+            <span style="color:#48f;font-size:16px;font-family:'Share Tech Mono',monospace;">${fmt(shield)} / ${fmt(maxShield)}</span>
+          </div>` : ''}`;
         })()}
       </div>
       ${(() => {
@@ -152,7 +168,7 @@ export function renderBasePanel() {
         <div style="width:1px;background:#1a3a6e;"></div>
         <div style="flex:1;padding:10px 12px;text-align:center;">
           <div style="color:#3a6a9a;font-size:11px;letter-spacing:1px;font-family:'Orbitron',sans-serif;margin-bottom:4px;">RESEARCH PTS</div>
-          <div style="color:#a0f0a0;font-family:'Share Tech Mono',monospace;font-size:18px;">${state.rp} / ${bl*(bl+1)/2}</div>
+          <div style="color:#a0f0a0;font-family:'Share Tech Mono',monospace;font-size:18px;">${state.rp} / ${getResearchPointCap(bl)}</div>
         </div>
       </div>
       <div style="background:rgba(8,22,46,0.55);border:1px solid #23426f;border-radius:5px;padding:10px;margin-top:8px;">
@@ -161,15 +177,45 @@ export function renderBasePanel() {
           ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               ${installedUpgrades.map(upg => `
                 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;text-align:center;">
-                  <span style="font-size:22px;line-height:1;">${upg.icon}</span>
-                  <div style="display:flex;align-items:center;gap:5px;justify-content:center;flex-wrap:wrap;">
+                  <div style="display:flex;align-items:center;gap:7px;justify-content:center;flex-wrap:wrap;">
+                    <span style="font-size:18px;line-height:1;">${upg.icon}</span>
                     <span style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${upg.name}</span>
                     ${upg.qty ? `<span style="font-size:11px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${upg.qty}</span>` : ''}
                   </div>
-                  <div style="font-size:13px;color:#6f97bc;">${upg.detail}</div>
+                  <div style="font-size:13px;color:#6f97bc;">${formatUpgradeDetail(upg.detail)}</div>
                 </div>`).join('')}
             </div>`
           : '<div style="font-size:14px;color:#4a6a8a;">No tower upgrades installed yet.</div>'}
+        <div style="height:10px;"></div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#8fc3ff;letter-spacing:1.4px;margin-bottom:7px;">⚔ COMBAT</div>
+        ${combatUpgrades.length
+          ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              ${combatUpgrades.map(upg => `
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;text-align:center;">
+                  <div style="display:flex;align-items:center;gap:7px;justify-content:center;flex-wrap:wrap;">
+                    <span style="font-size:18px;line-height:1;">${upg.icon}</span>
+                    <span style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${upg.name}</span>
+                    ${upg.qty ? `<span style="font-size:11px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${upg.qty}</span>` : ''}
+                  </div>
+                  <div style="font-size:13px;color:#6f97bc;">${formatUpgradeDetail(upg.detail)}</div>
+                </div>`).join('')}
+            </div>`
+          : '<div style="font-size:14px;color:#4a6a8a;">No combat upgrades unlocked yet.</div>'}
+        <div style="height:10px;"></div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#8fc3ff;letter-spacing:1.4px;margin-bottom:7px;">◎ UNLOCKED PERKS</div>
+        ${unlockedPerks.length
+          ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              ${unlockedPerks.map(perk => `
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;text-align:center;">
+                  <div style="display:flex;align-items:center;gap:7px;justify-content:center;flex-wrap:wrap;">
+                    <span style="font-size:18px;line-height:1;">${perk.icon}</span>
+                    <span style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${perk.name}</span>
+                    ${perk.qty ? `<span style="font-size:11px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${perk.qty}</span>` : ''}
+                  </div>
+                  <div style="font-size:13px;color:#6f97bc;">${formatUpgradeDetail(perk.detail)}</div>
+                </div>`).join('')}
+            </div>`
+          : '<div style="font-size:14px;color:#4a6a8a;">No unlocked perks yet.</div>'}
       </div>
       <div class="bp-divider"></div>
       ${nextCost ? (() => {

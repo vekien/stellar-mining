@@ -12,6 +12,7 @@ import {
   flySpeedFromLevel, mineSpeedFromLevel, loadSpeedFromLevel,
   hpFromLevel, attackFromLevel, atkRateFromLevel,
 } from '../data/ships.js';
+import { getResearchPointCap } from '../data/research.js';
 import { MAX_COINS, RESOURCE_CAP } from '../helpers.js';
 import { showTransmissionMessage } from './transmissions.js';
 import { refresh } from './refresh.js';
@@ -37,8 +38,8 @@ function devAddCoins() {
 }
 
 function devAddRP() {
-  const rpCap = state.base.level * (state.base.level + 1) / 2;
-  state.rp = Math.min(state.rp + 1, rpCap);
+  const rpCap = getResearchPointCap(state.base.level);
+  state.rp = rpCap;
   updateHeader();
   if (refresh.ui) refresh.ui();
 }

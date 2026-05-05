@@ -21,24 +21,26 @@ export function getMaxShield() {
 
 window.purchaseResearch = function(unlockId) {
   let def = null;
+  let defTier = null;
   for (const tier of RESEARCH_TREE) {
-    for (const u of tier.unlocks) { if (u.id === unlockId) { def = u; break; } }
+    for (const u of tier.unlocks) { if (u.id === unlockId) { def = u; defTier = tier; break; } }
     if (def) break;
   }
   if (!def) return;
 
-  const tierLocked = def._tier?.minBaseLevel && state.base.level < def._tier.minBaseLevel;
+  const tierLocked = defTier?.minBaseLevel && state.base.level < defTier.minBaseLevel;
   if (tierLocked) { addLog('⚠ Base tier requirement not met.'); return; }
 
   const isUnlocked   = state.researchUnlocks[unlockId];
   const currentCount = getRepeatableCount(unlockId, state);
   const maxCount     = getRepeatableMax(unlockId);
+  const cost         = def.repeatable ? (def.cost * (currentCount + 1)) : def.cost;
 
   if (!def.repeatable && isUnlocked) { addLog('Already unlocked.'); return; }
   if (def.repeatable && currentCount >= maxCount) { addLog(`⚠ ${def.name} is maxed (${maxCount}/${maxCount}).`); return; }
-  if (state.rp < def.cost) { addLog('⚠ Not enough Research Points.'); return; }
+  if (state.rp < cost) { addLog('⚠ Not enough Research Points.'); return; }
 
-  state.rp -= def.cost;
+  state.rp -= cost;
   updateHeaderRP();
 
   const trackUnlock = (id, name, amount = 1) => {
@@ -99,5 +101,5 @@ window.purchaseResearch = function(unlockId) {
   if (refresh.ui) refresh.ui();
   if (refresh.basePanel) refresh.basePanel();
   // Re-open research panel to reflect new state
-  if (window.openHdrPanel) { window._hdrPanelOpen = null; window.openHdrPanel('research'); }
+  if (window.openHdrPanel) { window.openHdrPanel('research', { refresh: true, preserveScroll: true }); }
 };
