@@ -9,10 +9,18 @@ import { showOnce } from '../ui/transmissions.js';
 import { NPCS } from '../data/npcs.js';
 
 export function getSellPrice(type) {
-  const base = RESOURCE_DEFS[type].sellPrice;
+  let base = RESOURCE_DEFS[type].sellPrice;
+  // Market Influence: permanent 10% bonus
+  if (state.researchUnlocks?.market_influence) base = Math.round(base * 1.10);
+  // SOL demand boost (primary)
   if (state.marketBoost && state.marketBoost.type === type) {
     const mult = state.marketBoost.multiplier ?? 1.5;
     return Math.round(base * mult);
+  }
+  // Extra demands (multi_demand)
+  if (state.extraDemands?.length) {
+    const extra = state.extraDemands.find(d => d.type === type);
+    if (extra) return Math.round(base * (extra.multiplier ?? 1.5));
   }
   return base;
 }

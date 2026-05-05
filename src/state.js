@@ -73,6 +73,11 @@ export let state = {
   movingTurret: null,
   unplacedTurrets: 0,
   hpBoostCount: 0,
+  shieldBoostCount: 0,
+  antiCometCount: 0,
+  solarShieldCount: 0,
+  autoRegenCount: 0,
+  extraDemands: [], // [{type, multiplier}] additional market demands when multi_demand unlocked
 
   shownAboutWindow: false,
 
@@ -87,6 +92,7 @@ export let state = {
     level: 1,
     health: 10000,
     maxHealth: 10000,
+    shield: 0, // current shield HP
   },
 };
 
@@ -110,7 +116,10 @@ export function saveGame() {
       firstNodeSwitch: state.firstNodeSwitch, seenMsgs: state.seenMsgs,
       shownAboutWindow: state.shownAboutWindow,
       nextEventTimer: state.nextEventTimer, nextEventSol: state.nextEventSol, eventCounts: state.eventCounts,
-      researchUnlocks: state.researchUnlocks, hpBoostCount: state.hpBoostCount,
+      researchUnlocks: state.researchUnlocks,
+      hpBoostCount: state.hpBoostCount, shieldBoostCount: state.shieldBoostCount,
+      antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
+      autoRegenCount: state.autoRegenCount,
       researchUnlocksList: state.researchUnlocksList,
       turrets: state.turrets, unplacedTurrets: state.unplacedTurrets,
       logHistory: state.logHistory,
@@ -136,7 +145,7 @@ export function loadGame() {
     state.trips = d.trips ?? 0;
     state.resources = { ...makeEmptyResources(), ...(d.resources || {}) };
     state.worldSeed = Number.isFinite(d.worldSeed) ? d.worldSeed : null;
-    state.base = { name:'Base Station', level:1, health:10000, maxHealth:10000, ...(d.base||{}) };
+    state.base = { name:'Base Station', level:1, health:10000, maxHealth:10000, shield:0, ...(d.base||{}) };
     state.sol  = d.sol ?? 1;
     state.rp   = d.rp  ?? 0;
     state.marketBoost = d.marketBoost ?? null;
@@ -155,7 +164,17 @@ export function loadGame() {
     state.nextEventSol = d.nextEventSol ?? null;
     state.eventCounts = d.eventCounts ?? {};
     state.researchUnlocks = d.researchUnlocks ?? {};
+    // ── Migrations ──────────────────────────────────────────────
+    // hp_boost → health_increase
+    if (state.researchUnlocks.hp_boost) { state.researchUnlocks.health_increase = true; delete state.researchUnlocks.hp_boost; }
+    // defense → armor_plating
+    if (state.researchUnlocks.defense) { state.researchUnlocks.armor_plating = true; delete state.researchUnlocks.defense; }
     state.researchUnlocksList = Array.isArray(d.researchUnlocksList) ? d.researchUnlocksList : [];
+    // Migrate old list entry names
+    for (const r of state.researchUnlocksList) {
+      if (r.id === 'hp_boost') { r.id = 'health_increase'; r.name = 'Health Increase'; }
+      if (r.id === 'defense')  { r.id = 'armor_plating';   r.name = 'Armor Plating'; }
+    }
     state.turrets = d.turrets ?? [];
     // Migrate old turrets
     state.turrets.forEach(t => { if (t.range > 2 && t.level === 1) t.range = 2; });
@@ -163,12 +182,16 @@ export function loadGame() {
     state.logHistory = Array.isArray(d.logHistory) ? d.logHistory.slice(-100) : [];
     state.log = state.logHistory.slice(0, 3).map(entry => entry.msg);
     state.shipCraftTimers = d.shipCraftTimers && typeof d.shipCraftTimers === 'object' ? d.shipCraftTimers : {};
-    state.hpBoostCount = d.hpBoostCount ?? 0;
+    state.hpBoostCount     = d.hpBoostCount     ?? 0;
+    state.shieldBoostCount = d.shieldBoostCount ?? 0;
+    state.antiCometCount   = d.antiCometCount   ?? 0;
+    state.solarShieldCount = d.solarShieldCount ?? 0;
+    state.autoRegenCount   = d.autoRegenCount   ?? 0;
     if (!state.researchUnlocksList.length && state.hpBoostCount > 0) {
-      state.researchUnlocksList = [{ id: 'hp_boost', name: 'HP Boost', qty: state.hpBoostCount }];
+      state.researchUnlocksList = [{ id: 'health_increase', name: 'Health Increase', qty: state.hpBoostCount }];
     }
-    const hpBoostEntry = state.researchUnlocksList.find(r => r.id === 'hp_boost');
-    if (hpBoostEntry && Number.isFinite(hpBoostEntry.qty)) state.hpBoostCount = Math.max(state.hpBoostCount, hpBoostEntry.qty);
+    const hpEntry = state.researchUnlocksList.find(r => r.id === 'health_increase');
+    if (hpEntry && Number.isFinite(hpEntry.qty)) state.hpBoostCount = Math.max(state.hpBoostCount, hpEntry.qty);
 
     const expectedMaxHealth = 10000 + (state.base.level - 1) * 10000 + (state.hpBoostCount * 2500);
     state.base.maxHealth = Math.max(state.base.maxHealth || 0, expectedMaxHealth);

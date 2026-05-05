@@ -8,7 +8,8 @@ import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE, BASE_TIER_REQS } from '
 import { fmt, showHintTooltip, hideTooltip, isLightColor } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
 import { renderTutPointers } from './tutorial.js';
-import { HP_BOOST_HEALTH_PER_PURCHASE, DEFENSE_DAMAGE_REDUCTION } from '../data/research.js';
+import { HEALTH_INCREASE_HP_PER_PURCHASE, SHIELD_PCT_PER_PURCHASE, ANTI_COMET_CHANCE_PER_PURCHASE, SOLAR_SHIELD_REDUCTION_PER_PURCHASE, AUTO_REGEN_HP_PER_PURCHASE } from '../data/research.js';
+import { getMaxShield } from '../systems/research.js';
 
 
 let _bpWasOpen = false;
@@ -34,6 +35,8 @@ export function renderBasePanel() {
   const resReqsMet  = !nextResReqs || Object.entries(nextResReqs).every(([r, n]) => (state.resources[r] || 0) >= n);
   const canUpgrade  = nextCost && state.coins >= nextCost && resReqsMet;
   const hpPct    = (state.base.health / state.base.maxHealth * 100).toFixed(0);
+  const maxShield  = getMaxShield();
+  const shield     = Math.min(state.base.shield || 0, maxShield);
 
   // Build header bar once — reuse DOM if already present
   if (!document.getElementById('bp-header-bar')) {
@@ -52,25 +55,47 @@ export function renderBasePanel() {
   const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
 
   {
-    const defenseUnlocked = state.researchUnlocks['defense'];
-    const hpBoostCount = state.hpBoostCount || 0;
     const installedUpgrades = [];
-    if (defenseUnlocked) {
-      installedUpgrades.push({
-        icon: '🛡',
-        name: 'Armor Plating',
-        detail: `Base incoming damage reduced by ${Math.round(DEFENSE_DAMAGE_REDUCTION * 100)}%`,
-        qty: null,
-      });
-    }
-    if (hpBoostCount > 0) {
-      installedUpgrades.push({
-        icon: '💪',
-        name: 'HP Boost',
-        detail: `+${fmt(hpBoostCount * HP_BOOST_HEALTH_PER_PURCHASE)} max base HP total`,
-        qty: hpBoostCount,
-      });
-    }
+    const hpBoostCount     = state.hpBoostCount     || 0;
+    const shieldBoostCount = state.shieldBoostCount || 0;
+    const antiCometCount   = state.antiCometCount   || 0;
+    const solarShieldCount = state.solarShieldCount || 0;
+    const autoRegenCount   = state.autoRegenCount   || 0;
+
+    if (hpBoostCount > 0)
+      installedUpgrades.push({ icon: '▲', name: 'Health Increase', detail: `+${fmt(hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE)} max HP total`, qty: hpBoostCount });
+    if (shieldBoostCount > 0)
+      installedUpgrades.push({ icon: '◈', name: 'Shield Increase', detail: `${fmt(maxShield)} max shield · ${shieldBoostCount * 50}/10s regen`, qty: shieldBoostCount });
+    if (antiCometCount > 0)
+      installedUpgrades.push({ icon: '◇', name: 'Anti-Comet Defenses', detail: `${antiCometCount * 5}% intercept chance`, qty: antiCometCount });
+    if (solarShieldCount > 0)
+      installedUpgrades.push({ icon: '□', name: 'Solar Radiation Shielding', detail: `${solarShieldCount * 8}% flare reduction`, qty: solarShieldCount });
+    if (autoRegenCount > 0)
+      installedUpgrades.push({ icon: '○', name: 'Auto Regeneration', detail: `${autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE} HP/s`, qty: autoRegenCount });
+    if (state.researchUnlocks['armor_plating'])
+      installedUpgrades.push({ icon: '▣', name: 'Armor Plating', detail: 'Combat ship armor +10%', qty: null });
+    if (state.researchUnlocks['turrets'])
+      installedUpgrades.push({ icon: '■', name: 'Turret Systems', detail: 'Defensive turrets unlocked', qty: null });
+    if (state.researchUnlocks['resource_synthesis'])
+      installedUpgrades.push({ icon: '◎', name: 'Resource Synthesis', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['resource_fabrication'])
+      installedUpgrades.push({ icon: '◆', name: 'Resource Fabrication', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['unlock_bounties'])
+      installedUpgrades.push({ icon: '◉', name: 'Bounties', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['galaxy_probes'])
+      installedUpgrades.push({ icon: '▷', name: 'Galaxy Probes', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['storage_facilities'])
+      installedUpgrades.push({ icon: '▤', name: 'Storage Facilities', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['market_influence'])
+      installedUpgrades.push({ icon: '▲', name: 'Market Influence', detail: '+10% all sell prices', qty: null });
+    if (state.researchUnlocks['laser_turrets'])
+      installedUpgrades.push({ icon: '◈', name: 'Laser Turrets', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['emp_turrets'])
+      installedUpgrades.push({ icon: '◇', name: 'EMP Turrets', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['unique_scanner'])
+      installedUpgrades.push({ icon: '□', name: 'Unique Ship Scanner', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['multi_demand'])
+      installedUpgrades.push({ icon: '■', name: 'Multi-Demand', detail: 'Up to 3 resources in demand per SOL', qty: null });
 
     const upgradeBtn = nextCost
       ? `<button class="btn${canUpgrade?' primary':''}" style="font-size:18px;padding:6px 14px;white-space:nowrap;line-height:1.5;" onclick="upgradeBase()" ${canUpgrade?'':'disabled'}>⬆ UPGRADE</button>`
@@ -89,7 +114,17 @@ export function renderBasePanel() {
       <div class="bp-section-title">◈ Base Stats</div>
       <div style="padding:8px 10px;border:1px solid ${hpPct<25?'#803030':'#2a6040'};border-radius:6px;background:${hpPct<25?'rgba(60,12,12,0.2)':'rgba(12,45,26,0.16)'};margin-bottom:6px;">
         <div class="bp-row" style="margin-bottom:6px;"><span style="font-size:18px;">HEALTH</span><span class="bp-val" style="color:${hpPct<25?'#f88':'#4d8'};font-size:17px;padding:2px 8px;line-height:1.2;">${fmt(state.base.health)} / ${fmt(state.base.maxHealth)}</span></div>
-        <div class="bp-health-bar"><div class="bp-health-fill" style="width:${hpPct}%;background:${hpPct<25?'linear-gradient(90deg,#cc1010,#f44)':'linear-gradient(90deg,#2a8040,#4d8)'}"></div></div>
+        ${(() => {
+          const total = state.base.maxHealth + maxShield;
+          const hpW   = (state.base.health / total * 100).toFixed(2);
+          const shW   = (shield / total * 100).toFixed(2);
+          const hpCol = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
+          return `<div class="bp-health-bar" style="position:relative;overflow:hidden;">
+            <div style="position:absolute;left:0;top:0;height:100%;width:${hpW}%;background:${hpCol};"></div>
+            ${shield > 0 ? `<div style="position:absolute;left:${hpW}%;top:0;height:100%;width:${shW}%;background:linear-gradient(90deg,#1a6aff,#48f);"></div>` : ''}
+          </div>
+          ${maxShield > 0 ? `<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px;"><span style="color:#48f;">◈ Shield: ${fmt(shield)} / ${fmt(maxShield)}</span></div>` : ''}`;
+        })()}
       </div>
       ${(() => {
         if (state.base.health >= state.base.maxHealth) return '';

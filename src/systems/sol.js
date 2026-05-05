@@ -44,12 +44,17 @@ export function tickSOL(dt) {
     const rpCap = state.base.level * (state.base.level + 1) / 2;
     if (state.rp < rpCap) { state.rp++; updateHeaderRP(); addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
 
-    // Random in-demand resource
+    // Random in-demand resource(s)
     const types = getAvailableMarketResourceTypes();
-    const boosted = types[Math.floor(Math.random() * types.length)];
+    const shuffled = types.slice().sort(() => Math.random() - 0.5);
+    const demandCount = state.researchUnlocks?.multi_demand ? Math.min(3, 1 + Math.floor(Math.random() * 3)) : 1;
+    const picked = shuffled.slice(0, Math.min(demandCount, shuffled.length));
+    const boosted = picked[0];
     const multiplier = randomDemandMultiplier();
     state.marketBoost = { type: boosted, multiplier };
-    addLog(`📈 Market boost: ${RESOURCE_DEFS[boosted].label} selling for ${multiplier}× this SOL!`);
+    state.extraDemands = picked.slice(1).map(t => ({ type: t, multiplier: randomDemandMultiplier() }));
+    const demandLabels = [RESOURCE_DEFS[boosted].label, ...state.extraDemands.map(d => RESOURCE_DEFS[d.type].label)];
+    addLog(`📈 Market boost: ${demandLabels.join(', ')} selling at premium this SOL!`);
     addLog(`☀ SOL ${state.sol} begins.`);
     patchSolPanel('sol');
 

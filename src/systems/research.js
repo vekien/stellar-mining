@@ -2,18 +2,42 @@
 // RESEARCH SYSTEM
 // ============================================================
 import { state } from '../state.js';
-import { RESEARCH_TREE, HP_BOOST_HEALTH_PER_PURCHASE, HP_BOOST_MAX_PURCHASES } from '../data/research.js';
+import {
+  RESEARCH_TREE,
+  HEALTH_INCREASE_HP_PER_PURCHASE, HEALTH_INCREASE_MAX_PURCHASES,
+  SHIELD_MAX_PURCHASES, ANTI_COMET_MAX_PURCHASES,
+  SOLAR_SHIELD_MAX_PURCHASES, AUTO_REGEN_MAX_PURCHASES,
+  getRepeatableCount, getRepeatableMax,
+} from '../data/research.js';
 import { addLog } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { updateHeaderRP } from '../ui/ui.js';
 
+// ── Compute current max shield from purchases ─────────────────
+export function getMaxShield() {
+  const pct = (state.shieldBoostCount || 0) * 0.05;
+  return Math.floor(state.base.maxHealth * pct);
+}
+
 window.purchaseResearch = function(unlockId) {
   let def = null;
-  for (const tier of RESEARCH_TREE) for (const u of tier.unlocks) if (u.id === unlockId) { def = u; break; }
+  for (const tier of RESEARCH_TREE) {
+    for (const u of tier.unlocks) { if (u.id === unlockId) { def = u; break; } }
+    if (def) break;
+  }
   if (!def) return;
-  if (!def.repeatable && state.researchUnlocks[unlockId]) { addLog('Already unlocked.'); return; }
-  if (def.id === 'hp_boost' && (state.hpBoostCount || 0) >= HP_BOOST_MAX_PURCHASES) { addLog(`⚠ HP Boost is maxed (${HP_BOOST_MAX_PURCHASES}/${HP_BOOST_MAX_PURCHASES}).`); return; }
+
+  const tierLocked = def._tier?.minBaseLevel && state.base.level < def._tier.minBaseLevel;
+  if (tierLocked) { addLog('⚠ Base tier requirement not met.'); return; }
+
+  const isUnlocked   = state.researchUnlocks[unlockId];
+  const currentCount = getRepeatableCount(unlockId, state);
+  const maxCount     = getRepeatableMax(unlockId);
+
+  if (!def.repeatable && isUnlocked) { addLog('Already unlocked.'); return; }
+  if (def.repeatable && currentCount >= maxCount) { addLog(`⚠ ${def.name} is maxed (${maxCount}/${maxCount}).`); return; }
   if (state.rp < def.cost) { addLog('⚠ Not enough Research Points.'); return; }
+
   state.rp -= def.cost;
   updateHeaderRP();
 
@@ -23,18 +47,57 @@ window.purchaseResearch = function(unlockId) {
     else state.researchUnlocksList.push({ id, name, qty: amount });
   };
 
-  if (def.id === 'hp_boost') {
-    state.base.maxHealth += HP_BOOST_HEALTH_PER_PURCHASE;
-    state.base.health = Math.min(state.base.health + HP_BOOST_HEALTH_PER_PURCHASE, state.base.maxHealth);
-    state.hpBoostCount++;
-    trackUnlock(def.id, def.name, 1);
-    addLog(`💪 HP Boost applied! Base max health: ${state.base.maxHealth.toLocaleString()}`);
-  } else {
-    state.researchUnlocks[unlockId] = true;
-    trackUnlock(def.id, def.name, 1);
-    addLog(`🔬 Research unlocked: ${def.name}`);
+  switch (unlockId) {
+    case 'health_increase':
+      state.base.maxHealth += HEALTH_INCREASE_HP_PER_PURCHASE;
+      state.base.health = Math.min(state.base.health + HEALTH_INCREASE_HP_PER_PURCHASE, state.base.maxHealth);
+      state.hpBoostCount++;
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`▲ Health Increase applied! Base max health: ${state.base.maxHealth.toLocaleString()}`);
+      break;
+
+    case 'shield_increase':
+      state.shieldBoostCount++;
+      // Top up shield to new max
+      const newMaxShield = getMaxShield();
+      state.base.shield = Math.min((state.base.shield || 0) + Math.floor(state.base.maxHealth * 0.05), newMaxShield);
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`◈ Shield Increase applied! Max shield: ${newMaxShield.toLocaleString()}`);
+      break;
+
+    case 'anti_comet':
+      state.antiCometCount++;
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`◇ Anti-Comet Defenses upgraded! Intercept chance: ${(state.antiCometCount * 5)}%`);
+      break;
+
+    case 'solar_shield':
+      state.solarShieldCount++;
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`□ Solar Radiation Shielding upgraded! Flare reduction: ${(state.solarShieldCount * 8)}%`);
+      break;
+
+    case 'auto_regen':
+      state.autoRegenCount++;
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`○ Auto Regeneration upgraded! Regen rate: ${state.autoRegenCount * 5} HP/s`);
+      break;
+
+    case 'market_influence':
+      state.researchUnlocks[unlockId] = true;
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`▲ Market Influence active! All sell prices increased by 10%.`);
+      break;
+
+    default:
+      state.researchUnlocks[unlockId] = true;
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`+ Research unlocked: ${def.name}`);
+      break;
   }
+
   if (refresh.ui) refresh.ui();
+  if (refresh.basePanel) refresh.basePanel();
   // Re-open research panel to reflect new state
   if (window.openHdrPanel) { window._hdrPanelOpen = null; window.openHdrPanel('research'); }
 };

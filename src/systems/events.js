@@ -18,7 +18,11 @@ import {
   EVENT_SCHEDULE_MIN_SOLS, EVENT_SCHEDULE_MAX_SOLS,
   SOLAR_FLARE_TRIGGER_DELAY_MS, COMET_TRIGGER_DELAY_MS,
 } from '../data/events.js';
-import { DEFENSE_DAMAGE_REDUCTION } from '../data/research.js';
+import {
+  ANTI_COMET_CHANCE_PER_PURCHASE,
+  SOLAR_SHIELD_REDUCTION_PER_PURCHASE,
+} from '../data/research.js';
+import { getMaxShield } from './research.js';
 
 export function showEventWarning(label, detail, duration = 6000) {
   const banner = document.getElementById('event-warning');
@@ -40,9 +44,10 @@ export const RANDOM_EVENTS = [
       // Shuffle and slice to get the affected subset
       const shuffled = available.slice().sort(() => Math.random() - 0.5);
       const affectedTypes = shuffled.slice(0, count);
+      const solarReduction = Math.min(0.80, (state.solarShieldCount || 0) * SOLAR_SHIELD_REDUCTION_PER_PURCHASE);
       const losses = {};
       for (const type of affectedTypes) {
-        const pct = SOLAR_FLARE_LOSS_MIN + Math.random() * (SOLAR_FLARE_LOSS_MAX - SOLAR_FLARE_LOSS_MIN);
+        const pct = (SOLAR_FLARE_LOSS_MIN + Math.random() * (SOLAR_FLARE_LOSS_MAX - SOLAR_FLARE_LOSS_MIN)) * (1 - solarReduction);
         const lost = Math.floor((state.resources[type]||0) * pct);
         if (lost > 0) { state.resources[type] -= lost; losses[type] = lost; }
       }
@@ -69,23 +74,52 @@ export const RANDOM_EVENTS = [
     id: 'comet',
     label: '☄ COMET IMPACT',
     trigger(sol) {
+      // ── Anti-comet intercept roll ───────────────────────────
+      const interceptChance = Math.min(0.50, (state.antiCometCount || 0) * ANTI_COMET_CHANCE_PER_PURCHASE);
+      if (interceptChance > 0 && Math.random() < interceptChance) {
+        addLog(`◇ Anti-comet defenses intercepted the incoming comet! No damage taken.`);
+        showEventWarning('◇ COMET INTERCEPTED', `<div style="color:#4d8;font-size:14px;letter-spacing:1px;">Point-defense systems destroyed the comet before impact.</div><div style="margin-top:6px;font-size:12px;color:#6a8aaa;">Intercept chance: ${Math.round(interceptChance * 100)}%</div>`, COMET_WARNING_DURATION_MS);
+        if (refresh.ui) refresh.ui();
+        return;
+      }
+
+      // ── Damage calculation ──────────────────────────────────
       const scale = Math.min(sol / 10, 1);
       const minDmg = Math.round(COMET_BASE_DMG_MIN + scale * COMET_SCALE_DMG_MIN);
       const maxDmg = Math.round(COMET_BASE_DMG_MAX + scale * COMET_SCALE_DMG_MAX);
       const dmg = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
-      const defenseReduction = state.researchUnlocks['defense'] ? DEFENSE_DAMAGE_REDUCTION : 0;
-      const actualDmg = Math.round(dmg * (1 - defenseReduction));
+
+      // ── Shield absorbs first ────────────────────────────────
+      let remainingDmg = dmg;
+      const shieldBefore = state.base.shield || 0;
+      const shieldAbsorbed = Math.min(shieldBefore, remainingDmg);
+      state.base.shield = shieldBefore - shieldAbsorbed;
+      remainingDmg -= shieldAbsorbed;
+
       const oldHp = state.base.health;
-      state.base.health = Math.max(0, state.base.health - actualDmg);
-      const actual = oldHp - state.base.health;
+      state.base.health = Math.max(0, state.base.health - remainingDmg);
+      const hpDmg = oldHp - state.base.health;
       const hpPct = Math.round(state.base.health / state.base.maxHealth * 100);
       const critical = hpPct < 30;
-      addLog(`☄ Comet impact! Base took ${fmt(actual)} damage. HP: ${fmt(state.base.health)}/${fmt(state.base.maxHealth)}`);
+
+      const shieldLine = shieldAbsorbed > 0
+        ? `<div class="event-loss-row" style="border-bottom:none;padding-bottom:2px;">
+            <span style="color:#48f;font-size:11px;letter-spacing:2px;">SHIELD ABSORBED</span>
+            <span class="event-loss-amt" style="color:#48f;font-size:14px;">−${fmt(shieldAbsorbed)}</span>
+          </div>` : '';
+
+      if (shieldAbsorbed > 0 && hpDmg === 0) {
+        addLog(`☄ Comet impact! Shield absorbed all ${fmt(shieldAbsorbed)} damage. HP intact.`);
+      } else {
+        addLog(`☄ Comet impact! Base took ${fmt(hpDmg)} HP damage${shieldAbsorbed > 0 ? ` (${fmt(shieldAbsorbed)} absorbed by shield)` : ''}. HP: ${fmt(state.base.health)}/${fmt(state.base.maxHealth)}`);
+      }
+
       const hpColor = hpPct < 30 ? '#ff4040' : hpPct < 60 ? '#ffa040' : '#40d080';
       const cometDetail = `
+        ${shieldLine}
         <div class="event-loss-row" style="border-bottom:none;padding-bottom:2px;">
           <span style="color:#f88;font-size:11px;letter-spacing:2px;">BASE DAMAGE</span>
-          <span class="event-loss-amt" style="color:#ff6060;font-size:16px;">−${fmt(actual)} HP</span>
+          <span class="event-loss-amt" style="color:#ff6060;font-size:16px;">−${fmt(hpDmg)} HP</span>
         </div>
         <div class="event-hp-bar-wrap">
           <div class="event-hp-bar" style="width:${hpPct}%;background:${hpColor};box-shadow:0 0 8px ${hpColor}99;"></div>

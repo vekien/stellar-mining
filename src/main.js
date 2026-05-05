@@ -20,6 +20,7 @@ import { fireRandomEvent } from './systems/events.js';
 import { tickAdmiral } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
 import './systems/research.js';
+import { getMaxShield } from './systems/research.js';
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
 import { renderBasePanel } from './ui/basePanel.js';
@@ -216,6 +217,10 @@ window.switchTab      = function(tab) {
   if (refresh.ui) refresh.ui();
 };
 
+// ── Passive tick timers ───────────────────────────────────────
+let _shieldRegenTimer = 0;  // accumulates toward 10 s
+let _autoRegenTimer   = 0;  // accumulates toward 1 s
+
 // ── Game loop ─────────────────────────────────────────────────
 let lastTick = performance.now();
 
@@ -234,6 +239,29 @@ function gameLoop() {
   tickNodeParticles(dt);
   tickSOL(dt);
   tickAdmiral(dt);
+
+  // ── Shield regeneration (every 10 s) ───────────────────────
+  if ((state.shieldBoostCount || 0) > 0) {
+    _shieldRegenTimer += dt;
+    if (_shieldRegenTimer >= 10) {
+      _shieldRegenTimer -= 10;
+      const maxShield = getMaxShield();
+      const regen = state.shieldBoostCount * 50;
+      state.base.shield = Math.min(maxShield, (state.base.shield || 0) + regen);
+      if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+    }
+  }
+
+  // ── Auto Regeneration HP (every 1 s) ───────────────────────
+  if ((state.autoRegenCount || 0) > 0 && state.base.health < state.base.maxHealth) {
+    _autoRegenTimer += dt;
+    if (_autoRegenTimer >= 1) {
+      _autoRegenTimer -= 1;
+      const hpPerSec = state.autoRegenCount * 5;
+      state.base.health = Math.min(state.base.maxHealth, state.base.health + hpPerSec);
+      if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+    }
+  }
 
   // Node fade-ins
   for (const n of state.nodes) {

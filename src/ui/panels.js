@@ -14,7 +14,7 @@ import {
 import { NODE_BANDS } from '../data/nodes.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
-import { RESEARCH_TREE, DEFENSE_DAMAGE_REDUCTION } from '../data/research.js';
+import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
 import { fmt } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
@@ -498,6 +498,8 @@ export function openHdrPanel(type) {
   }
   _hdrPanelOpen = type;
   overlay.classList.add('open');
+  const _modalBody = document.getElementById('hdr-modal-body');
+  if (_modalBody) _modalBody.scrollTop = 0;
   const MODAL_WIDTHS = { fleet: '1100px', codex: '1200px' };
   document.getElementById('hdr-modal').style.width = MODAL_WIDTHS[type] || '';
 
@@ -783,20 +785,22 @@ export function openHdrPanel(type) {
     let treeHtml = '';
     for (const tier of RESEARCH_TREE) {
       const tierLocked = tier.minBaseLevel && state.base.level < tier.minBaseLevel;
+      const tierCol = tierLocked ? '#3a5a7a' : (MINE_TIERS[tier.tier]?.color || '#4af');
       treeHtml += `<div style="margin-bottom:12px;">
-        <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:${tierLocked?'#3a5a7a':'#4af'};margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #1a3a6e;">
-          ${tier.label}${tierLocked?' <span style="color:#f88;font-size:11px;">— Requires Base Upgrade</span>':''}
+        <div style="font-family:'Orbitron',sans-serif;font-size:15px;letter-spacing:2px;color:${tierCol};margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid ${tierCol}44;">
+          TIER ${toRoman(tier.tier)}${tierLocked?` <span style="color:#f88;font-size:11px;">— Requires Base Upgrade</span>`:''}
         </div>`;
       for (const u of tier.unlocks) {
         const isUnlocked = state.researchUnlocks[u.id];
         const canAfford  = state.rp >= u.cost;
         const tierReqMet = !tier.minBaseLevel || state.base.level >= tier.minBaseLevel;
-        const count = u.id === 'hp_boost' ? state.hpBoostCount : (isUnlocked ? 1 : 0);
-        const capReached = u.id === 'hp_boost' && count >= 10;
+        const count      = getRepeatableCount(u.id, state);
+        const maxCount   = getRepeatableMax(u.id);
+        const capReached = u.repeatable && count >= maxCount;
         const purchasable = tierReqMet && canAfford && (!isUnlocked || u.repeatable) && !capReached;
         treeHtml += `<div style="background:rgba(10,20,50,0.5);border:1px solid ${isUnlocked?'#2a5090':'#1a2a4a'};border-radius:5px;padding:10px;margin-bottom:6px;${tierLocked?'opacity:0.4;':''}">
           <div style="display:flex;align-items:flex-start;gap:10px;">
-            <span style="font-size:18px;flex-shrink:0;">${u.icon}</span>
+            <span style="font-size:18px;flex-shrink:0;font-family:monospace;color:#4af;">${u.icon}</span>
             <div style="flex:1;">
               <div style="display:flex;align-items:center;gap:8px;">
                 <div style="font-family:'Orbitron',sans-serif;font-size:16px;color:${isUnlocked?'#ffe066':'#cde'};letter-spacing:1px;">${u.name}</div>
@@ -1188,44 +1192,38 @@ export function openHdrPanel(type) {
 
     // ── RESEARCH ────────────────────────────────────────────────
     if (_codexTab === 'research') {
-
-      const researchItems = [
-        {
-          icon: '💪', name: 'HP Boost',
-          tier: 'Base Tier 1', cost: '1 RP per purchase', max: '10 purchases (+25,000 HP total)',
-          purpose: 'Increases base station max health by 2,500 HP per purchase. Stacks up to 10 times for a total of +25,000 HP on top of your base tier health.',
-        },
-        {
-          icon: '🔫', name: 'Turret Systems',
-          tier: 'Base Tier 3', cost: '1 RP', max: 'One-time unlock',
-          purpose: 'Unlocks the ability to construct and place defensive turrets on the map. Turrets automatically engage enemy ships within their range and are essential for base defense during raids.',
-        },
-        {
-          icon: '🛡', name: 'Armor Plating',
-          tier: 'Base Tier 3', cost: '2 RP', max: 'One-time unlock',
-          purpose: 'Permanently reduces all incoming damage to the base station by 10%. Stacks with turret defense. Recommended before advancing into higher-threat sectors.',
-        },
-      ];
-
-      const itemCards = researchItems.map(r => `
-        <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:8px;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-            <span style="font-size:24px;line-height:1;">${r.icon}</span>
-            <div style="flex:1;">
-              <div style="font-family:'Orbitron',sans-serif;font-size:15px;color:#cde;letter-spacing:1px;">${r.name}</div>
-              <div style="font-size:13px;color:#4a7aaa;margin-top:1px;letter-spacing:1px;">${r.tier}</div>
+      const tierBlocks = RESEARCH_TREE.map(tier => {
+        const itemCards = tier.unlocks.map(u => {
+          const maxCount = getRepeatableMax(u.id);
+          const costLabel = u.repeatable ? `${u.cost} RP per purchase` : `${u.cost} RP`;
+          const maxLabel  = u.repeatable ? `Max ${maxCount} purchases` : 'One-time unlock';
+          return `
+          <div style="background:rgba(10,20,50,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:12px 14px;margin-bottom:6px;">
+            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
+              <span style="font-size:20px;line-height:1;font-family:monospace;">${u.icon}</span>
+              <div style="flex:1;">
+                <div style="font-family:'Orbitron',sans-serif;font-size:15px;color:#cde;letter-spacing:1px;line-height:1.25;">${u.name}</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:13px;color:#ffe066;">${costLabel}</div>
+                <div style="font-size:12px;color:#4a6a8a;margin-top:1px;">${maxLabel}</div>
+              </div>
             </div>
-            <div style="text-align:right;">
-              <div style="font-size:13px;color:#ffe066;">${r.cost}</div>
-              <div style="font-size:12px;color:#4a6a8a;margin-top:1px;">${r.max}</div>
-            </div>
-          </div>
-          <div style="font-size:15px;color:#6a8aaa;line-height:1.4;border-top:1px solid #1a3a5a;padding-top:8px;">${r.purpose}</div>
-        </div>`).join('');
+            <div style="font-size:15px;color:#6a8aaa;line-height:1.4;border-top:1px solid #1a3a5a;padding-top:8px;">${u.desc}</div>
+          </div>`;
+        }).join('');
+
+        const tCol = MINE_TIERS[tier.tier]?.color || '#4af';
+        return `
+          <div style="margin-bottom:16px;">
+            <div style="font-family:'Orbitron',sans-serif;font-size:11px;color:${tCol};letter-spacing:2px;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid ${tCol}44;">◈ TIER ${toRoman(tier.tier)}</div>
+            ${itemCards}
+          </div>`;
+      }).join('');
 
       tabContent = `
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:10px;">◈ RESEARCH TREE</div>
-        ${itemCards}`;
+        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#4af;letter-spacing:2px;margin-bottom:12px;">◈ RESEARCH TREE</div>
+        ${tierBlocks}`;
 
     // ── SECTOR ────────────────────────────────────────────────
     } else if (_codexTab === 'sector') {
