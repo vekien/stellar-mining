@@ -6,7 +6,7 @@ import { gridToIso } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
 import { TURRET_BASE_STATS, getTurretTypeDef } from '../data/turrets.js';
-import { storageContainsCell } from '../data/storage.js';
+import { moduleContainsCell } from '../data/modules.js';
 
 let ctx = null;
 export function setTurretCtx(c) { ctx = c; }
@@ -174,7 +174,7 @@ export function drawTurretPlacementHover() {
   if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) return;
   const onNode   = state.nodes.some(n => n.gr[0]===col && n.gr[1]===row && n.minLevel<=state.base.level);
   const onTurret = state.turrets.some(t => t.col===col && t.row===row && t.id!==state.movingTurret);
-  const onStorage = state.storageFacilities.some(s => storageContainsCell(s, col, row));
+  const onStorage = state.modules.some(s => moduleContainsCell(s, col, row));
   const onBase   = col === BASE_COL && row === BASE_ROW;
   const valid = !onNode && !onTurret && !onStorage && !onBase;
   const {x, y} = gridToIso(col, row);

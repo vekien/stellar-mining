@@ -50,18 +50,18 @@ export function openBaseRenameOverlay() {
 }
 
 export function openStorageRenameOverlay(storageId) {
-  const storage = state.storageFacilities.find(s => s.id === storageId);
-  if (!storage) return;
-  state.selectedStorage = storageId;
+  const module = state.modules.find(s => s.id === storageId);
+  if (!module) return;
+  state.selectedModule = storageId;
   state.renamingShip = null;
   state.renamingBase = false;
   state.renamingStorage = storageId;
   const overlay = document.getElementById('rename-overlay');
   const input   = document.getElementById('rename-input-field');
   const titleEl = document.querySelector('#rename-box .rename-title');
-  input.value = storage.name;
-  input.placeholder = 'Enter storage name...';
-  if (titleEl) titleEl.textContent = '✎ Name Your Storage';
+  input.value = module.name;
+  input.placeholder = 'Enter module name...';
+  if (titleEl) titleEl.textContent = '✎ Name Your Module';
   overlay.classList.add('show');
   setTimeout(() => { input.focus(); input.select(); }, 30);
 
@@ -86,7 +86,7 @@ export function commitRename(newName) {
   if (state.renamingBase) {
     state.base.name = cleanName || state.base.name || 'Base Station';
   } else if (state.renamingStorage) {
-    const storage = state.storageFacilities.find(s => s.id === state.renamingStorage);
+    const storage = state.modules.find(s => s.id === state.renamingStorage);
     if (storage) storage.name = cleanName || storage.name;
   } else {
     const ship = state.ships.find(s => s.id === state.renamingShip);
@@ -97,7 +97,7 @@ export function commitRename(newName) {
     state.basePanelOpen = true;
     renderBasePanel();
   }
-  if (state.selectedStorage && window.renderStorageModal) window.renderStorageModal();
+  if (state.selectedModule && window.renderStorageModal) window.renderStorageModal();
   if (refresh.ui) refresh.ui();
 }
 

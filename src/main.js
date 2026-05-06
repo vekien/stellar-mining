@@ -32,12 +32,13 @@ import { initDevPanel } from './ui/devPanel.js';
 import './ui/storageUI.js';
 import { NPCS } from './data/npcs.js';
 import { getStoragePowerUsage } from './data/storage.js';
+import { isStorageModule } from './data/modules.js';
 
 let _baseDestroyedNoticeShown = false;
 let _storageOfflineNoticeShown = false;
 
 function hasOfflineStorage() {
-  return state.storageFacilities.some(storage => (storage.power || 0) <= 0 || (storage.health || 0) <= 0);
+  return state.modules.some(storage => isStorageModule(storage) && ((storage.power || 0) <= 0 || (storage.health || 0) <= 0));
 }
 
 function showStartupInfrastructureWarnings() {
@@ -296,7 +297,7 @@ function gameLoop() {
   if (_storagePowerTimer >= 1) {
     _storagePowerTimer -= 1;
     let storageWentOffline = false;
-    for (const storage of state.storageFacilities) {
+    for (const storage of state.modules.filter(isStorageModule)) {
       const prevPower = storage.power || 0;
       storage.power = Math.max(0, prevPower - getStoragePowerUsage(storage));
       if (prevPower > 0 && storage.power <= 0) storageWentOffline = true;
@@ -306,7 +307,7 @@ function gameLoop() {
       _storageOfflineNoticeShown = true;
       showTransmissionMessage(NPCS.doran.transmissionLines.storage_no_power, 18, 'doran');
     }
-    if (state.selectedStorage && window.patchStorageModal) {
+    if (state.selectedModule && window.patchStorageModal) {
       const overlay = document.getElementById('storage-modal-overlay');
       if (overlay?.style.display === 'flex') window.patchStorageModal();
     }

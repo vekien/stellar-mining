@@ -16,7 +16,7 @@ import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
-import { getStorageFacilityStats } from '../data/storage.js';
+import { MODULE_DEFS, getModuleDef } from '../data/modules.js';
 import { fmt } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
@@ -47,7 +47,7 @@ setInterval(() => {
     if (fillEl)  fillEl.style.width = `${pct}%`;
     if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
   }
-  for (const [moduleType, timer] of Object.entries(state.storageCraftTimers || {})) {
+  for (const [moduleType, timer] of Object.entries(state.moduleCraftTimers || {})) {
     if (!timer || Date.now() >= timer.endsAt) continue;
     const remainMs = Math.max(0, timer.endsAt - Date.now());
     const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
@@ -837,47 +837,47 @@ export function openHdrPanel(type, options = {}) {
       tabContent = defHtml;
 
     } else if (activeCraftTab === 'modules') {
-      const storageUnlocked = !!state.researchUnlocks['storage_facilities'];
-      const storageStats = getStorageFacilityStats(1);
-      const queue = Array.isArray(state.unplacedStorageQueue) ? state.unplacedStorageQueue : Array.from({ length: state.unplacedStorages || 0 }, () => 'storage_facility');
-      const queued = queue.filter(t => t === 'storage_facility').length;
-      const builtCount = (state.storageFacilities || []).length;
-      const moduleDef = getCraft('modules', 'storage_facility');
-      const timer = state.storageCraftTimers?.storage_facility;
-      const timerActive = !!(timer && Date.now() < timer.endsAt);
-      const remainMs = timerActive ? Math.max(0, timer.endsAt - Date.now()) : 0;
-      const remainSec = Math.ceil(remainMs / 1000);
-      const pct = timerActive ? Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100)) : 0;
-      const canCoins = state.coins >= (moduleDef?.cost || 0);
-      const reqPills = moduleDef
-        ? Object.entries(moduleDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')
-        : '';
-      const canBuild = !!moduleDef && canCoins && Object.entries(moduleDef.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-
-      tabContent = !storageUnlocked
-        ? `<div class="craft-defense-empty">
-            🔒 Storage Facilities are still locked.<br><br>
-            <span style="font-size:13px;">Unlock <strong style="color:#8ab">Storage Facilities</strong> in the Research panel first.</span>
-          </div>`
-        : `<div class="craft-defense-card">
-            <div class="craft-defense-head">
-              <div class="craft-defense-title">${moduleDef?.name?.toUpperCase() || 'STORAGE FACILITY'}</div>
-              <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
-            </div>
-            <div class="craft-defense-desc">Deploy a 3x3 depot that stores its own cargo inventory separately from the Base Station.</div>
-            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
-              <span class="craft-stat">HEALTH <span style="color:#ffe066;">${fmt(storageStats.maxHealth)}</span></span>
-              <span class="craft-stat">STORAGE <span style="color:#ffe066;">${fmt(storageStats.storageCapacity)}</span></span>
-              <span class="craft-stat">POWER USE <span style="color:#ffe066;">${storageStats.powerUsage}/s</span></span>
-              <span class="craft-stat">POWER CAP <span style="color:#ffe066;">${fmt(storageStats.powerCapacity)}</span></span>
-            </div>
-            <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${canCoins ? 'met' : 'unmet'}">$${fmt(moduleDef?.cost || 0)}</span>${reqPills}</div>
-            ${queued > 0
-              ? `<button class="btn place craft-defense-btn" onclick="beginPlacingStorage('storage_facility')">PLACE STORAGE (${queued})</button>`
-              : timerActive
-              ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-module-fill-storage_facility" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-module-label-storage_facility">CRAFTING ${remainSec}s</span></button>`
-              : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startCraftModule('storage_facility')">BUILD STORAGE</button>`}
+      const queue = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue : Array.from({ length: state.unplacedModules || 0 }, () => 'storage_facility');
+      const unlockedModules = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId]);
+      if (!unlockedModules.length) {
+        tabContent = `<div class="craft-defense-empty">
+            🔒 Modules are still locked.<br><br>
+            <span style="font-size:13px;">Unlock placeable <strong style="color:#8ab">Modules</strong> in the Research panel first.</span>
           </div>`;
+      } else {
+        tabContent = unlockedModules.map((moduleConfig) => {
+          const moduleDef = getCraft('modules', moduleConfig.id);
+          const queued = queue.filter(t => t === moduleConfig.id).length;
+          const builtCount = (state.modules || []).filter(module => module.type === moduleConfig.id).length;
+          const timer = state.moduleCraftTimers?.[moduleConfig.id];
+          const timerActive = !!(timer && Date.now() < timer.endsAt);
+          const remainMs = timerActive ? Math.max(0, timer.endsAt - Date.now()) : 0;
+          const remainSec = Math.ceil(remainMs / 1000);
+          const pct = timerActive ? Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100)) : 0;
+          const canCoins = state.coins >= (moduleDef?.cost || 0);
+          const reqPills = moduleDef
+            ? Object.entries(moduleDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')
+            : '';
+          const canBuild = !!moduleDef && canCoins && Object.entries(moduleDef.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
+          const statsHtml = moduleConfig.cardStats(1).map(([label, value]) => `<span class="craft-stat">${label} <span style="color:#ffe066;">${value}</span></span>`).join('');
+          const buildLabel = moduleConfig.id === 'storage_facility' ? 'BUILD STORAGE' : `BUILD ${moduleDef?.name?.toUpperCase() || getModuleDef(moduleConfig.id).name.toUpperCase()}`;
+          const placeLabel = moduleConfig.id === 'storage_facility' ? 'PLACE STORAGE' : `PLACE ${moduleDef?.name?.toUpperCase() || getModuleDef(moduleConfig.id).name.toUpperCase()}`;
+          return `<div class="craft-defense-card">
+              <div class="craft-defense-head">
+                <div class="craft-defense-title">${moduleDef?.name?.toUpperCase() || moduleConfig.name.toUpperCase()}</div>
+                <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
+              </div>
+              <div class="craft-defense-desc">${moduleDef?.desc || ''}</div>
+              <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">${statsHtml}</div>
+              <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${canCoins ? 'met' : 'unmet'}">$${fmt(moduleDef?.cost || 0)}</span>${reqPills}</div>
+              ${queued > 0
+                ? `<button class="btn place craft-defense-btn" onclick="beginPlacingStorage('${moduleConfig.id}')">${placeLabel} (${queued})</button>`
+                : timerActive
+                ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-module-fill-${moduleConfig.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-module-label-${moduleConfig.id}">CRAFTING ${remainSec}s</span></button>`
+                : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startCraftModule('${moduleConfig.id}')">${buildLabel}</button>`}
+            </div>`;
+        }).join('');
+      }
     } else {
       tabContent = `<div class="craft-placeholder">
         <div class="craft-placeholder-icon">⬡</div>
@@ -1098,6 +1098,7 @@ export function openHdrPanel(type, options = {}) {
       { id: 'resources',label: 'Resources' },
       { id: 'ships',    label: 'Ships' },
       { id: 'turrets',  label: 'Turrets' },
+      { id: 'storage',  label: 'Storage' },
       { id: 'research', label: 'Research' },
       { id: 'upgrades', label: 'Base Upgrades' },
       { id: 'sector',   label: 'Sector' },
@@ -1314,6 +1315,40 @@ export function openHdrPanel(type, options = {}) {
           </tr></thead>
           <tbody>${turretRows}</tbody>
         </table>`;
+    } else if (_codexTab === 'storage') {
+      const baseStorageStats = getStorageFacilityStats(1);
+      tabContent = `
+        <div class="codex-group-label codex-section-title">◈ STORAGE FACILITIES</div>
+        <div class="codex-info-card">
+          <div class="codex-info-card-title">INDEPENDENT DEPOTS</div>
+          <div class="codex-info-body">
+            Storage Facilities are <strong style="color:#cde;">3x3 depot modules</strong> that ships can unload into instead of the Base Station.
+            Cargo stored here is tracked in a <strong style="color:#cde;">separate inventory</strong> and does not automatically add to your global resource totals.
+          </div>
+        </div>
+        <div class="codex-info-card">
+          <div class="codex-info-card-title">BASELINE STATS</div>
+          <div class="codex-info-body">
+            Health: <strong style="color:#ffe066;">${fmt(baseStorageStats.maxHealth)}</strong><br>
+            Storage Capacity: <strong style="color:#ffe066;">${fmt(baseStorageStats.storageCapacity)}</strong><br>
+            Power Capacity: <strong style="color:#ffe066;">${fmt(baseStorageStats.powerCapacity)}</strong><br>
+            Power Usage: <strong style="color:#ffe066;">1/s to 10/s</strong> depending on how full the facility is.
+          </div>
+        </div>
+        <div class="codex-info-card">
+          <div class="codex-info-card-title">POWER LOAD</div>
+          <div class="codex-info-body">
+            Storage power draw is dynamic. At <strong style="color:#cde;">0% usage</strong>, the facility drains <strong style="color:#ffe066;">1 power per second</strong>.
+            At <strong style="color:#cde;">100% storage used</strong>, it drains <strong style="color:#ffe066;">10 power per second</strong>.
+            As stored cargo rises, the power draw scales linearly between those values.
+          </div>
+        </div>
+        <div class="codex-info-card">
+          <div class="codex-info-card-title">OFFLINE STATE</div>
+          <div class="codex-info-body">
+            If a facility loses all power or is fully destroyed, ships assigned to it cannot unload and will enter a <strong style="color:#cde;">holding pattern</strong> nearby until the depot becomes available again.
+          </div>
+        </div>`;
     } else if (_codexTab === 'upgrades') {
       const rpCapTable = Array.from({ length: 10 }, (_, i) => getResearchPointCap(i + 1));
       const rpCapRows = rpCapTable.map((cap, i) =>

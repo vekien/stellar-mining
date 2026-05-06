@@ -12,7 +12,16 @@ import {
   flySpeedFromLevel, mineSpeedFromLevel, loadSpeedFromLevel,
   hpFromLevel, attackFromLevel, atkRateFromLevel,
 } from '../data/ships.js';
-import { getResearchPointCap } from '../data/research.js';
+import {
+  RESEARCH_TREE,
+  HEALTH_INCREASE_HP_PER_PURCHASE,
+  HEALTH_INCREASE_MAX_PURCHASES,
+  SHIELD_MAX_PURCHASES,
+  ANTI_COMET_MAX_PURCHASES,
+  SOLAR_SHIELD_MAX_PURCHASES,
+  AUTO_REGEN_MAX_PURCHASES,
+  getResearchPointCap,
+} from '../data/research.js';
 import { MAX_COINS, RESOURCE_CAP } from '../helpers.js';
 import { showTransmissionMessage } from './transmissions.js';
 import { refresh } from './refresh.js';
@@ -21,6 +30,8 @@ import { assignShip, spawnShip } from '../systems/ships.js';
 import { BASE_MAX_SHIPS } from '../data/base.js';
 import { BASE_COL, BASE_ROW } from '../constants.js';
 import { fireEventById } from '../systems/events.js';
+import { rollMarketDemands } from '../systems/sol.js';
+import { saveGame } from '../state.js';
 
 const LOREM = `Transmission check — this is a test signal from sector relay delta-niner.<br><br>` +
   `All systems nominal. <strong>Fleet status confirmed.</strong> Resource extraction proceeding within expected parameters.<br><br>` +
@@ -43,6 +54,46 @@ function devAddRP() {
   state.rp = rpCap;
   updateHeader();
   if (refresh.ui) refresh.ui();
+}
+
+function devMaxResearch() {
+  state.hpBoostCount = HEALTH_INCREASE_MAX_PURCHASES;
+  state.shieldBoostCount = SHIELD_MAX_PURCHASES;
+  state.antiCometCount = ANTI_COMET_MAX_PURCHASES;
+  state.solarShieldCount = SOLAR_SHIELD_MAX_PURCHASES;
+  state.autoRegenCount = AUTO_REGEN_MAX_PURCHASES;
+
+  const expectedBaseMaxHealth = 10000 + ((Math.max(1, state.base.level || 1) - 1) * 10000) + (state.hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE);
+  state.base.maxHealth = Math.max(state.base.maxHealth || 0, expectedBaseMaxHealth);
+  state.base.health = state.base.maxHealth;
+  state.base.shield = Math.floor(state.base.maxHealth * 0.05 * state.shieldBoostCount);
+
+  state.researchUnlocks = { ...(state.researchUnlocks || {}) };
+  state.researchUnlocksList = [];
+
+  for (const tier of RESEARCH_TREE) {
+    for (const unlock of tier.unlocks) {
+      if (unlock.repeatable) {
+        const qty = unlock.id === 'health_increase' ? HEALTH_INCREASE_MAX_PURCHASES
+          : unlock.id === 'shield_increase' ? SHIELD_MAX_PURCHASES
+          : unlock.id === 'anti_comet' ? ANTI_COMET_MAX_PURCHASES
+          : unlock.id === 'solar_shield' ? SOLAR_SHIELD_MAX_PURCHASES
+          : unlock.id === 'auto_regen' ? AUTO_REGEN_MAX_PURCHASES
+          : 0;
+        if (qty > 0) state.researchUnlocksList.push({ id: unlock.id, name: unlock.name, qty });
+        continue;
+      }
+      state.researchUnlocks[unlock.id] = true;
+      state.researchUnlocksList.push({ id: unlock.id, name: unlock.name, qty: 1 });
+    }
+  }
+
+  if (state.researchUnlocks.multi_demand) rollMarketDemands();
+  updateHeader();
+  if (refresh.ui) refresh.ui();
+  if (refresh.basePanel) refresh.basePanel();
+  saveGame();
+  if (window._hdrPanelOpen === 'research' && window.openHdrPanel) window.openHdrPanel('research', { refresh: true, preserveScroll: true });
 }
 
 function devAddResources() {
@@ -186,6 +237,7 @@ export function initDevPanel() {
   document.getElementById('dev-btn-transmission').addEventListener('click', e => { e.stopPropagation(); devTestTransmission(); });
   document.getElementById('dev-btn-coins').addEventListener('click',         e => { e.stopPropagation(); devAddCoins(); });
   document.getElementById('dev-btn-rp').addEventListener('click',            e => { e.stopPropagation(); devAddRP(); });
+  document.getElementById('dev-btn-max-research').addEventListener('click',  e => { e.stopPropagation(); devMaxResearch(); });
   document.getElementById('dev-btn-resources').addEventListener('click',     e => { e.stopPropagation(); devAddResources(); });
   document.getElementById('dev-btn-sol').addEventListener('click',           e => { e.stopPropagation(); devNextSol(); });
   document.getElementById('dev-btn-max-upgrades').addEventListener('click',  e => { e.stopPropagation(); devMaxUpgrades(); });

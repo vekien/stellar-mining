@@ -12,13 +12,13 @@ import { refresh } from './ui/refresh.js';
 import { renderTutPointers } from './ui/tutorial.js';
 import { removeReassignTooltip } from './ui/tutorial.js';
 import { cancelTurretPlacement } from './ui/turretUI.js';
-import { cancelStoragePlacement, canPlaceStorageAt, getStorageAtCell, openStorageModal } from './ui/storageUI.js';
+import { cancelStoragePlacement, canPlaceModuleAt, getModuleAtCell, getModuleAtWorld, openStorageModal } from './ui/storageUI.js';
 import { renderBasePanel } from './ui/basePanel.js';
 import { closeRenameOverlay } from './ui/rename.js';
 import { openTurretModal } from './ui/turretUI.js';
 import { assignShip } from './systems/ships.js';
 import { TURRET_BASE_STATS, getTurretTypeDef, getTurretStats } from './data/turrets.js';
-import { getStorageFacilityStats } from './data/storage.js';
+import { createModuleInstance, getModuleDef, STORAGE_FACILITY_ID } from './data/modules.js';
 import { getCraft } from './data/crafts.js';
 
 export function initInput(canvas) {
@@ -118,7 +118,7 @@ export function initInput(canvas) {
     if (onBase !== canvasState.baseHovered) canvasState.baseHovered = onBase;
 
     // Placement hover
-    if (state.placingTurret || state.placingStorage) {
+    if (state.placingTurret || state.placingModule) {
       canvasState.turretHoverCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
       canvasState.turretHoverRow = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
     } else {
@@ -127,12 +127,12 @@ export function initInput(canvas) {
 
     const hoverCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
     const hoverRow = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
-    const hoveredStorage = getStorageAtCell(hoverCol, hoverRow);
+    const hoveredStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(hoverCol, hoverRow);
     canvasState.storageHoverId = hoveredStorage?.id ?? null;
 
     // Turret hover detection
     let hoveredTurret = null;
-    if (!state.placingTurret && !state.placingStorage) {
+    if (!state.placingTurret && !state.placingModule) {
       for (const turret of state.turrets) {
         const tw = gridToWorld(turret.col, turret.row);
         const tdx = wx - tw.x, tdy = wy - (tw.y + TILE_H/2);
@@ -172,7 +172,7 @@ export function initInput(canvas) {
       if (canvasState.lastHoveredNode !== null) { canvasState.lastHoveredNode = null; hideTooltip(); }
     } else {
       if (canvasState.lastHoveredNode !== null) { canvasState.lastHoveredNode = null; hideTooltip(); }
-      if (!hoveredTurret && !state.placingTurret && !state.placingStorage) { canvasState.turretHoverCol = -1; canvasState.turretHoverRow = -1; }
+      if (!hoveredTurret && !state.placingTurret && !state.placingModule) { canvasState.turretHoverCol = -1; canvasState.turretHoverRow = -1; }
     }
   });
 
@@ -183,7 +183,7 @@ export function initInput(canvas) {
   // ── KEYBOARD ────────────────────────────────────────────────
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (state.renamingShip || state.renamingBase) { closeRenameOverlay(); return; }
+      if (state.renamingShip || state.renamingBase || state.renamingStorage) { closeRenameOverlay(); return; }
       const sellOverlay = document.getElementById('sell-overlay');
       if (sellOverlay && sellOverlay.classList.contains('show')) {
         if (window.closeSellOverlay) window.closeSellOverlay();
@@ -195,7 +195,7 @@ export function initInput(canvas) {
         return;
       }
       if (state.placingTurret) { cancelTurretPlacement(); return; }
-      if (state.placingStorage) { cancelStoragePlacement(); return; }
+      if (state.placingModule) { cancelStoragePlacement(); return; }
       if (state.basePanelOpen) { state.basePanelOpen = false; renderBasePanel(); return; }
       if (state.selectedShip) {
         state.pendingAssign = null;
@@ -236,47 +236,35 @@ function handleCanvasClick(canvas, clientX, clientY) {
   }
 
   // Storage placement mode
-  if (state.placingStorage && (state.unplacedStorages > 0 || state.movingStorage)) {
+  if (state.placingModule && (state.unplacedModules > 0 || state.movingModule)) {
     const col = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
     const row = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
-    const check = canPlaceStorageAt(col, row, state.movingStorage);
+    const moduleType = state.placingModuleType || STORAGE_FACILITY_ID;
+    const check = canPlaceModuleAt(moduleType, col, row, state.movingModule);
     if (!check.ok) { addLog(check.reason); return; }
-    const stats = getStorageFacilityStats(1);
-    if (state.movingStorage) {
-      const storage = state.storageFacilities.find(s => s.id === state.movingStorage);
-      if (storage) {
-        storage.col = col;
-        storage.row = row;
-        addLog(`↔ ${storage.name} moved to (${col},${row}).`);
+    if (state.movingModule) {
+      const module = state.modules.find(entry => entry.id === state.movingModule);
+      if (module) {
+        module.col = col;
+        module.row = row;
+        addLog(`↔ ${module.name} moved to (${col},${row}).`);
       }
     } else {
-      const queue = Array.isArray(state.unplacedStorageQueue) ? state.unplacedStorageQueue : [];
-      const requestedType = state.placingStorageType || queue[0] || 'storage_facility';
+      const queue = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue : [];
+      const requestedType = state.placingModuleType || queue[0] || STORAGE_FACILITY_ID;
       const placeIdx = queue.indexOf(requestedType);
-      const storageType = placeIdx >= 0 ? queue.splice(placeIdx, 1)[0] : (queue.shift() || 'storage_facility');
-      state.unplacedStorages = queue.length;
-      state.storageFacilities.push({
-        id: Date.now(),
-        type: storageType,
-        name: `Storage Facility #${state.storageFacilities.length + 1}`,
-        col,
-        row,
-        level: 1,
-        health: stats.maxHealth,
-        maxHealth: stats.maxHealth,
-        storageCapacity: stats.storageCapacity,
-        powerUsage: stats.powerUsage,
-        powerCapacity: stats.powerCapacity,
-        power: stats.powerCapacity,
-        inventory: Object.fromEntries(Object.keys(RESOURCE_DEFS).map(k => [k, 0])),
-      });
-      addLog('Storage Facility placed.');
-      if (state.unplacedStorages > 0) addLog(`${state.unplacedStorages} storage module(s) remaining in inventory.`);
+      const placedType = placeIdx >= 0 ? queue.splice(placeIdx, 1)[0] : (queue.shift() || STORAGE_FACILITY_ID);
+      state.unplacedModules = queue.length;
+      const countOfType = state.modules.filter(entry => entry.type === placedType).length + 1;
+      state.modules.push(createModuleInstance(placedType, { id: Date.now(), col, row, index: countOfType }));
+      addLog(`${getModuleDef(placedType).name} placed.`);
+      if (state.unplacedModules > 0) addLog(`${state.unplacedModules} module(s) remaining in inventory.`);
     }
-    state.placingStorage = false;
-    state.placingStorageType = null;
-    state.movingStorage = null;
+    state.placingModule = false;
+    state.placingModuleType = null;
+    state.movingModule = null;
     canvas.style.cursor = '';
+    if (refresh.header) refresh.header();
     if (refresh.ui) refresh.ui();
     return;
   }
@@ -291,8 +279,8 @@ function handleCanvasClick(canvas, clientX, clientY) {
     if (onNode)    { addLog('⚠ Cannot place turret on a resource node.'); return; }
     const onTurret = state.turrets.some(t => t.col === col && t.row === row && t.id !== state.movingTurret);
     if (onTurret)  { addLog('⚠ A turret is already placed here.'); return; }
-    const onStorage = !!getStorageAtCell(col, row);
-    if (onStorage) { addLog('⚠ Cannot place turret on a storage facility tile.'); return; }
+    const onStorage = !!getModuleAtCell(col, row);
+    if (onStorage) { addLog('⚠ Cannot place turret on a module tile.'); return; }
 
     if (state.movingTurret) {
       const turret = state.turrets.find(t => t.id === state.movingTurret);
@@ -316,6 +304,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
       state.placingTurretType = null;
       canvas.style.cursor = '';
     }
+    if (refresh.header) refresh.header();
     if (refresh.ui) refresh.ui();
     return;
   }
@@ -330,7 +319,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
 
   const clickCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
   const clickRow = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
-  const clickedStorage = getStorageAtCell(clickCol, clickRow);
+  const clickedStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(clickCol, clickRow);
   if (clickedStorage) { openStorageModal(clickedStorage.id); return; }
 
   if (!state.pendingAssign) return;

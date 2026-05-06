@@ -99,6 +99,20 @@ export const CRAFTS = {
       cost: 12000,
       reqs: { iron: 1200, copper: 900, oxygen: 500, nickel: 300, silicon: 400 },
     },
+    {
+      id: 'power_station',
+      name: 'Power Station',
+      desc: '1x1 grid module for future power generation infrastructure',
+      cost: 18000,
+      reqs: { iron: 1600, copper: 1200, oxygen: 700, nickel: 450, silicon: 650, cobalt: 300 },
+    },
+    {
+      id: 'power_pole',
+      name: 'Power Pole',
+      desc: '1x1 relay node for future power distribution layouts',
+      cost: 1200,
+      reqs: { iron: 120, copper: 90, silicon: 35 },
+    },
   ],
 
   base: [

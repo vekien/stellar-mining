@@ -1,26 +1,21 @@
 // ============================================================
-// STORAGE FACILITIES — stats and footprint helpers
+// STORAGE FACILITIES — storage-specific helpers on top of modules
 // ============================================================
+import {
+  STORAGE_FACILITY_ID,
+  getModuleStats,
+  getModuleFootprintHalf,
+  getModuleFootprintCells,
+  moduleContainsCell,
+} from './modules.js';
 
-export const STORAGE_FACILITY_ID = 'storage_facility';
+export { STORAGE_FACILITY_ID } from './modules.js';
+
 export const STORAGE_FACILITY_SIZE = 3;
-export const STORAGE_FACILITY_HALF = 1;
-
-export const STORAGE_FACILITY_BASE_STATS = {
-  maxHealth: 10000,
-  storageCapacity: 50000,
-  powerUsage: 1,
-  powerCapacity: 1000,
-};
+export const STORAGE_FACILITY_HALF = getModuleFootprintHalf(STORAGE_FACILITY_ID);
 
 export function getStorageFacilityStats(level = 1) {
-  const lvl = Math.max(1, Math.floor(level || 1));
-  return {
-    maxHealth: STORAGE_FACILITY_BASE_STATS.maxHealth + ((lvl - 1) * 2500),
-    storageCapacity: STORAGE_FACILITY_BASE_STATS.storageCapacity + ((lvl - 1) * 25000),
-    powerUsage: STORAGE_FACILITY_BASE_STATS.powerUsage,
-    powerCapacity: STORAGE_FACILITY_BASE_STATS.powerCapacity + ((lvl - 1) * 50),
-  };
+  return getModuleStats(STORAGE_FACILITY_ID, level);
 }
 
 export function getStoragePowerUsage(storage) {
@@ -35,16 +30,9 @@ export function isStorageOperational(storage) {
 }
 
 export function getStorageFootprintCells(col, row) {
-  const cells = [];
-  for (let dc = -STORAGE_FACILITY_HALF; dc <= STORAGE_FACILITY_HALF; dc++) {
-    for (let dr = -STORAGE_FACILITY_HALF; dr <= STORAGE_FACILITY_HALF; dr++) {
-      cells.push({ col: col + dc, row: row + dr });
-    }
-  }
-  return cells;
+  return getModuleFootprintCells(STORAGE_FACILITY_ID, col, row);
 }
 
 export function storageContainsCell(storage, col, row) {
-  return Math.abs((storage.col ?? 0) - col) <= STORAGE_FACILITY_HALF
-    && Math.abs((storage.row ?? 0) - row) <= STORAGE_FACILITY_HALF;
+  return moduleContainsCell(storage, col, row);
 }

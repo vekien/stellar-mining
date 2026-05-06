@@ -57,6 +57,7 @@ function completeCraftTurret(turretType) {
   state.unplacedTurrets = state.unplacedTurretQueue.length;
   const turretDef = getCraft('turrets', turretType);
   addLog(`✅ ${turretDef?.name || 'Turret'} ready to place.`);
+  if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
   if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }

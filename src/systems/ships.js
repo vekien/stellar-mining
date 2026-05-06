@@ -25,13 +25,18 @@ import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
+import { isStorageModule } from '../data/modules.js';
+
+function getStorageModules() {
+  return state.modules.filter(isStorageModule);
+}
 
 const craftTimeouts = {};
 let baseDownNoticeShown = false;
 
 function resolveShipDepot(ship) {
   if (ship.depotType === 'storage' && ship.depotId !== null) {
-    const storage = state.storageFacilities.find(s => s.id === ship.depotId);
+    const storage = getStorageModules().find(s => s.id === ship.depotId);
     if (storage) return { type: 'storage', facility: storage, label: storage.name, operational: isStorageOperational(storage) };
   }
   return { type: 'base', facility: null, label: state.base.name || 'Base Station', operational: (state.base.health || 0) > 0 };
@@ -63,7 +68,7 @@ function isHoldingTileBlocked(col, row) {
   if (col === BASE_COL && row === BASE_ROW) return true;
   if (state.nodes.some(n => n.gr[0] === col && n.gr[1] === row && n.minLevel <= state.base.level)) return true;
   if (state.turrets.some(t => t.col === col && t.row === row)) return true;
-  if (state.storageFacilities.some(s => Math.abs((s.col ?? 0) - col) <= 1 && Math.abs((s.row ?? 0) - row) <= 1)) return true;
+  if (getStorageModules().some(s => Math.abs((s.col ?? 0) - col) <= 1 && Math.abs((s.row ?? 0) - row) <= 1)) return true;
   return false;
 }
 
@@ -632,7 +637,7 @@ window.setShipDepot = function(shipId, depotValue) {
     ship.depotId = null;
   } else if (String(depotValue).startsWith('storage:')) {
     const depotId = Number(String(depotValue).split(':')[1]);
-    const storage = state.storageFacilities.find(s => s.id === depotId);
+    const storage = getStorageModules().find(s => s.id === depotId);
     if (!storage) return;
     ship.depotType = 'storage';
     ship.depotId = depotId;
@@ -656,7 +661,7 @@ export function flushTickEvents(canvas) {
       let depositBlocked = false;
       let floatiePos = null;
       if (ev.depotType === 'storage' && ev.depotId !== null) {
-        const storage = state.storageFacilities.find(s => s.id === ev.depotId);
+        const storage = getStorageModules().find(s => s.id === ev.depotId);
         if (storage) {
           const used = Object.values(storage.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
           const free = Math.max(0, (storage.storageCapacity || 0) - used);
@@ -676,7 +681,7 @@ export function flushTickEvents(canvas) {
       state.solStarted = true;
       addLog(`📦 ${ev.name} delivered ${deposited} ${RESOURCE_DEFS[ev.cargoResource].label} to ${depotLabel}${depositBlocked ? ' (storage full)' : ''}`);
       if (deposited > 0) spawnFloatie(ev.cargoResource, deposited, floatiePos);
-      if (ev.depotType === 'storage' && state.selectedStorage === ev.depotId && window.patchStorageModal) {
+      if (ev.depotType === 'storage' && state.selectedModule === ev.depotId && window.patchStorageModal) {
         const overlay = document.getElementById('storage-modal-overlay');
         if (overlay?.style.display === 'flex') window.patchStorageModal();
       }

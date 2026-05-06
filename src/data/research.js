@@ -108,6 +108,14 @@ export const RESEARCH_TREE = [
         id: 'storage_facilities', name: 'Unlock Storage Facilities', cost: 2, icon: '▤',
         desc: 'Allows placement of storage facility structures anywhere on the map to expand depot capacity. Future expansion — flag is active upon purchase.',
       },
+      {
+        id: 'power_station', name: 'Power Station', cost: 5, icon: '◫',
+        desc: 'Unlocks compact power station modules for future grid infrastructure placement.',
+      },
+      {
+        id: 'power_poles', name: 'Power Poles', cost: 5, icon: '╫',
+        desc: 'Unlocks lightweight power pole relays for future grid routing and expansion.',
+      },
     ],
   },
   {

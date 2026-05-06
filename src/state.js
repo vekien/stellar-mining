@@ -8,6 +8,7 @@ import { RESOURCE_DEFS } from './data/resources.js';
 import { normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel } from './data/ships.js';
 import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
 import { getTurretTypeDef, getTurretStats } from './data/turrets.js';
+import { normalizeModule, STORAGE_FACILITY_ID } from './data/modules.js';
 import { clampCoins } from './helpers.js';
 
 export function makeEmptyResources() {
@@ -73,20 +74,20 @@ export let state = {
   researchUnlocks: {},
   researchUnlocksList: [],
   turrets: [],
-  storageFacilities: [],
+  modules: [],
   placingTurret: false,
-  placingStorage: false,
+  placingModule: false,
   selectedTurret: null,
-  selectedStorage: null,
+  selectedModule: null,
   movingTurret: null,
-  movingStorage: null,
+  movingModule: null,
   unplacedTurrets: 0,
-  unplacedStorages: 0,
+  unplacedModules: 0,
   unplacedTurretQueue: [],
-  unplacedStorageQueue: [],
+  unplacedModuleQueue: [],
   placingTurretType: null,
-  placingStorageType: null,
-  storageCraftTimers: {},
+  placingModuleType: null,
+  moduleCraftTimers: {},
   hpBoostCount: 0,
   shieldBoostCount: 0,
   antiCometCount: 0,
@@ -139,14 +140,14 @@ export function saveGame() {
       antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
       autoRegenCount: state.autoRegenCount,
       researchUnlocksList: state.researchUnlocksList,
-      turrets: state.turrets, storageFacilities: state.storageFacilities,
+      turrets: state.turrets, modules: state.modules,
       unplacedTurrets: state.unplacedTurrets, unplacedTurretQueue: state.unplacedTurretQueue,
-      unplacedStorages: state.unplacedStorages, unplacedStorageQueue: state.unplacedStorageQueue,
+      unplacedModules: state.unplacedModules, unplacedModuleQueue: state.unplacedModuleQueue,
       logHistory: state.logHistory,
       transmissionHistory: state.transmissionHistory,
       shipCraftTimers: state.shipCraftTimers,
       turretCraftTimers: state.turretCraftTimers,
-      storageCraftTimers: state.storageCraftTimers,
+      moduleCraftTimers: state.moduleCraftTimers,
       saveVersion: SAVE_VERSION,
       ships: state.ships.map(s => ({
         id:s.id, name:s.name, type:s.type,
@@ -203,7 +204,12 @@ export function loadGame() {
       if (r.id === 'defense')  { r.id = 'armor_plating';   r.name = 'Armor Plating'; }
     }
     state.turrets = d.turrets ?? [];
-    state.storageFacilities = Array.isArray(d.storageFacilities) ? d.storageFacilities : [];
+    const savedModules = Array.isArray(d.modules)
+      ? d.modules
+      : Array.isArray(d.storageFacilities)
+        ? d.storageFacilities.map(storage => ({ ...storage, type: storage.type || STORAGE_FACILITY_ID }))
+        : [];
+    state.modules = savedModules.map((module, index) => normalizeModule(module, index + 1));
     // Migrate old turrets
     state.turrets.forEach(t => {
       if (!t.type) t.type = 'turret';
@@ -221,16 +227,20 @@ export function loadGame() {
       ? d.unplacedTurretQueue.slice()
       : Array.from({ length: d.unplacedTurrets ?? 0 }, () => 'turret');
     state.unplacedTurrets = state.unplacedTurretQueue.length;
-    state.unplacedStorageQueue = Array.isArray(d.unplacedStorageQueue)
-      ? d.unplacedStorageQueue.slice()
-      : Array.from({ length: d.unplacedStorages ?? 0 }, () => 'storage_facility');
-    state.unplacedStorages = state.unplacedStorageQueue.length;
+    state.unplacedModuleQueue = Array.isArray(d.unplacedModuleQueue)
+      ? d.unplacedModuleQueue.slice()
+      : Array.isArray(d.unplacedStorageQueue)
+        ? d.unplacedStorageQueue.slice()
+        : Array.from({ length: (d.unplacedModules ?? d.unplacedStorages ?? 0) }, () => STORAGE_FACILITY_ID);
+    state.unplacedModules = state.unplacedModuleQueue.length;
     state.logHistory = Array.isArray(d.logHistory) ? d.logHistory.slice(-100) : [];
     state.transmissionHistory = Array.isArray(d.transmissionHistory) ? d.transmissionHistory.slice(0, 20) : [];
     state.log = state.logHistory.slice(0, 3).map(entry => entry.msg);
     state.shipCraftTimers = d.shipCraftTimers && typeof d.shipCraftTimers === 'object' ? d.shipCraftTimers : {};
     state.turretCraftTimers = d.turretCraftTimers && typeof d.turretCraftTimers === 'object' ? d.turretCraftTimers : {};
-    state.storageCraftTimers = d.storageCraftTimers && typeof d.storageCraftTimers === 'object' ? d.storageCraftTimers : {};
+    state.moduleCraftTimers = d.moduleCraftTimers && typeof d.moduleCraftTimers === 'object'
+      ? d.moduleCraftTimers
+      : (d.storageCraftTimers && typeof d.storageCraftTimers === 'object' ? d.storageCraftTimers : {});
     state.hpBoostCount     = d.hpBoostCount     ?? 0;
     state.shieldBoostCount = d.shieldBoostCount ?? 0;
     state.antiCometCount   = d.antiCometCount   ?? 0;

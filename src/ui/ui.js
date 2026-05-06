@@ -29,10 +29,28 @@ export function updateHeaderRP() {
   const rpCap = getResearchPointCap(state.base.level);
   setIfChanged('hdr-rp', `${state.rp}/${rpCap}`);
 }
+export function updateHeaderCraft() {
+  const queuedTurrets = Array.isArray(state.unplacedTurretQueue) ? state.unplacedTurretQueue.length : (state.unplacedTurrets || 0);
+  const queuedModules = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue.length : (state.unplacedModules || 0);
+  const total = queuedTurrets + queuedModules;
+  const el = document.getElementById('hdr-craft');
+  if (!el) return;
+  const text = total > 0 ? String(total) : '';
+  if (_hdrCache.hdrCraftText !== text) {
+    _hdrCache.hdrCraftText = text;
+    el.textContent = text;
+  }
+  const display = total > 0 ? '' : 'none';
+  if (_hdrCache.hdrCraftDisplay !== display) {
+    _hdrCache.hdrCraftDisplay = display;
+    el.style.display = display;
+  }
+}
 export function updateHeader() {
   updateHeaderCoins();
   updateHeaderShips();
   updateHeaderRP();
+  updateHeaderCraft();
 }
 
 export function renderResources() {

@@ -22,7 +22,7 @@
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('command')"><span class="label">COMMAND</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('transmissions')"><span class="label">TRANSMISSIONS</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('resources')"><span class="label">RESOURCES</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('craft')"><span class="label">CRAFT</span></button>
+    <button class="stat-chip hdr-btn" onclick="openHdrPanel('craft')"><span class="label">CRAFT</span><span class="value" id="hdr-craft"></span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('market')"><span class="label">TRADE</span><span class="value" id="hdr-coins">0¢</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('fleet')"><span class="label">SHIPS</span><span class="value" id="hdr-ships">0/5</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
@@ -33,6 +33,7 @@
           <button id="dev-btn-coins">Max: Money</button>
           <button id="dev-btn-resources">Max: Resources</button>
           <button id="dev-btn-rp">Max: Research Points</button>
+          <button id="dev-btn-max-research">Max: Research</button>
           <button id="dev-btn-max-ships">Max: Ships</button>
           <button id="dev-btn-upgrade-base">Upgrade: Base</button>
           <button id="dev-btn-max-upgrades">Upgrade: All Ships</button>
