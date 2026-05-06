@@ -12,13 +12,24 @@ import { refresh } from './ui/refresh.js';
 import { renderTutPointers } from './ui/tutorial.js';
 import { removeReassignTooltip } from './ui/tutorial.js';
 import { cancelTurretPlacement } from './ui/turretUI.js';
-import { cancelStoragePlacement, canPlaceModuleAt, getModuleAtCell, getModuleAtWorld, openStorageModal } from './ui/storageUI.js';
+import { cancelStoragePlacement, canPlaceModuleAt, getModuleAtCell, getModuleAtWorld, getStorageTotalInventory, openStorageModal } from './ui/storageUI.js';
 import { renderBasePanel } from './ui/basePanel.js';
 import { closeRenameOverlay } from './ui/rename.js';
 import { openTurretModal } from './ui/turretUI.js';
 import { assignShip } from './systems/ships.js';
+import { getStoragePowerUsage } from './data/storage.js';
 import { TURRET_BASE_STATS, getTurretTypeDef, getTurretStats } from './data/turrets.js';
-import { createModuleInstance, getModuleDef, STORAGE_FACILITY_ID } from './data/modules.js';
+import {
+  createModuleInstance,
+  getModuleDef,
+  getPowerModuleNetworkInfo,
+  getPowerFuelOutput,
+  getModuleInventoryTotal,
+  isPowerStationModule,
+  isPowerPoleModule,
+  POWER_RESOURCE_CONSUMPTION,
+  STORAGE_FACILITY_ID,
+} from './data/modules.js';
 import { getCraft } from './data/crafts.js';
 
 export function initInput(canvas) {
@@ -158,20 +169,73 @@ export function initInput(canvas) {
       `;
       tt.style.display = 'block';
       moveTooltip(e);
+    } else if (hoveredStorage && (isPowerStationModule(hoveredStorage) || isPowerPoleModule(hoveredStorage))) {
+      canvasState.lastHoveredNode = null;
+      const tt = tooltipEl();
+      const networkInfo = getPowerModuleNetworkInfo(hoveredStorage.id, state.modules);
+      const linkedStations = networkInfo.stations.length + (isPowerStationModule(hoveredStorage) ? 1 : 0);
+      const linkedPoles = networkInfo.poles.length + (isPowerPoleModule(hoveredStorage) ? 1 : 0);
+      const linkedStorages = networkInfo.storages.length;
+      const summaryParts = [
+        linkedStations > 0 ? `${linkedStations}x Power Stations` : '',
+        linkedPoles > 0 ? `${linkedPoles}x Poles` : '',
+        linkedStorages > 0 ? `${linkedStorages}x Storage Facilities` : '',
+      ].filter(Boolean).join(' • ') || 'No linked modules';
+      if (isPowerStationModule(hoveredStorage)) {
+        const fuelType = hoveredStorage.fuelResource || 'iron';
+        const fuelOutput = getPowerFuelOutput(fuelType);
+        const fuelName = RESOURCE_DEFS[fuelType]?.label || 'Fuel';
+        const loadCost = POWER_RESOURCE_CONSUMPTION * linkedStorages;
+        tt.innerHTML = `
+          <div class="tt-name">${hoveredStorage.name}</div>
+          <div>Power Source: <span style="color:#d9c3ff">${fuelName}</span></div>
+          <div>Current Load: <span style="color:#ffe066">${linkedStorages} storages · ${loadCost} ${fuelName}/s</span></div>
+          <div>Stored Fuel: <span style="color:#cde">${fmt(getModuleInventoryTotal(hoveredStorage))} / ${fmt(hoveredStorage.resourceCapacity || 0)}</span></div>
+          <div>Output: <span style="color:#cde">+${fuelOutput} power/second per storage</span></div>
+          <div style="margin-top:4px;color:#d9c3ff;">${summaryParts}</div>
+        `;
+      } else {
+        tt.innerHTML = `
+          <div class="tt-name">${hoveredStorage.name}</div>
+          <div>Relay Range: <span style="color:#cde">${hoveredStorage.relayRange} tiles</span></div>
+          <div style="margin-top:4px;color:#d9c3ff;">${summaryParts}</div>
+        `;
+      }
+      tt.style.display = 'block';
+      moveTooltip(e);
+    } else if (hoveredStorage) {
+      canvasState.lastHoveredNode = null;
+      const tt = tooltipEl();
+      const hpPct = Math.round((hoveredStorage.health / Math.max(1, hoveredStorage.maxHealth)) * 100);
+      const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+      const inventoryRows = Object.entries(hoveredStorage.inventory || {})
+        .filter(([, amount]) => amount > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([type, amount]) => `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${RESOURCE_DEFS[type].color};margin-right:5px;vertical-align:middle;position:relative;top:-1px;box-shadow:0 0 6px ${RESOURCE_DEFS[type].color}88;"></span>${RESOURCE_DEFS[type].label}: ${fmt(amount)}`)
+        .join('<br>');
+      tt.innerHTML = `
+        <div class="tt-name">${hoveredStorage.name}</div>
+        <div>Health: <span style="color:${hpColor}">${fmt(hoveredStorage.health)} / ${fmt(hoveredStorage.maxHealth)}</span></div>
+        <div>Storage: <span style="color:#cde">${fmt(getStorageTotalInventory(hoveredStorage))} / ${fmt(hoveredStorage.storageCapacity)}</span></div>
+        <div>Power Usage: <span style="color:#cde">${getStoragePowerUsage(hoveredStorage).toFixed(1).replace(/\.0$/, '')}/s</span></div>
+        <div style="margin-top:4px;color:#d9c3ff;">Inventory</div>
+        <div style="color:#cde;line-height:1.4;">${inventoryRows || 'Empty'}</div>
+      `;
+      tt.style.display = 'block';
+      moveTooltip(e);
     } else if (hit && hit.minLevel <= state.base.level) {
       canvasState.baseHovered = false;
       const nodeTier = getResourceTier(hit.type) || 1;
       const unmineableByFleet = nodeTier > (state.highestAvailableNodeTier || 1);
-      if (canvasState.lastHoveredNode !== hit.id) {
-        canvasState.lastHoveredNode = hit.id;
-        showTooltip(e, hit.type, { unmineableByFleet });
-      } else {
-        moveTooltip(e);
-      }
+      canvasState.lastHoveredNode = hit.id;
+      showTooltip(e, hit.type, { unmineableByFleet });
     } else if (onBase) {
-      if (canvasState.lastHoveredNode !== null) { canvasState.lastHoveredNode = null; hideTooltip(); }
+      if (canvasState.lastHoveredNode !== null) canvasState.lastHoveredNode = null;
+      hideTooltip();
     } else {
-      if (canvasState.lastHoveredNode !== null) { canvasState.lastHoveredNode = null; hideTooltip(); }
+      if (canvasState.lastHoveredNode !== null) canvasState.lastHoveredNode = null;
+      hideTooltip();
       if (!hoveredTurret && !state.placingTurret && !state.placingModule) { canvasState.turretHoverCol = -1; canvasState.turretHoverRow = -1; }
     }
   });

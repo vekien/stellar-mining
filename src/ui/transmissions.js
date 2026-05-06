@@ -9,6 +9,11 @@ const admiralQueue = [];
 let admiralTimer = 0;
 let admiralDuration = 0;
 let admiralVisible = false;
+let activeTransmissionSig = null;
+
+function getTransmissionSig(text, npcId) {
+  return `${npcId}::${text}`;
+}
 
 export function showOnce(id, text, duration = 10, npcId) {
   if (state.seenMsgs[id]) return;
@@ -18,6 +23,7 @@ export function showOnce(id, text, duration = 10, npcId) {
 
 export function showTransmissionMessage(text, duration = 10, npcId = 'juno') {
   const npc = NPCS[npcId] || NPCS.juno;
+  const sig = getTransmissionSig(text, npcId);
   const dayProgress = (state.solTimer || 0) / SOL_DURATION;
   const solHours = Math.floor(dayProgress * 24);
   const solMins = Math.floor((dayProgress * 24 * 60) % 60);
@@ -41,6 +47,8 @@ export function showTransmissionMessage(text, duration = 10, npcId = 'juno') {
     if (state.transmissionHistory.length > 20) state.transmissionHistory = state.transmissionHistory.slice(0, 20);
     window.patchTransmissionsPanel?.();
   }
+  if (activeTransmissionSig === sig) return;
+  if (admiralQueue.some(msg => getTransmissionSig(msg.text, msg.npcId) === sig)) return;
   admiralQueue.push({ text, duration, npcId });
   if (!admiralVisible) flushAdmiralQueue();
 }
@@ -50,6 +58,7 @@ export function flushAdmiralQueue() {
   if (admiralQueue.length === 0) { admiralVisible = false; return; }
   admiralVisible = true;
   const msg = admiralQueue.shift();
+  activeTransmissionSig = getTransmissionSig(msg.text, msg.npcId);
   admiralDuration = msg.duration;
   admiralTimer = msg.duration;
   const npc = NPCS[msg.npcId] || NPCS.juno;
@@ -82,6 +91,7 @@ export function tickAdmiral(dt) {
     const panel = document.getElementById('admiral-panel');
     if (panel) panel.classList.remove('visible');
     admiralVisible = false;
+    activeTransmissionSig = null;
     setTimeout(flushAdmiralQueue, 600);
   }
 }
@@ -114,6 +124,7 @@ export function dismissTransmission() {
   const panel = document.getElementById('admiral-panel');
   if (panel) panel.classList.remove('visible');
   admiralVisible = false;
+  activeTransmissionSig = null;
   setTimeout(flushAdmiralQueue, 600);
 }
 
@@ -121,5 +132,6 @@ window.dismissAdmiral = function() {
   const panel = document.getElementById('admiral-panel');
   if (panel) panel.classList.remove('visible');
   admiralVisible = false;
+  activeTransmissionSig = null;
   admiralQueue.length = 0;
 };

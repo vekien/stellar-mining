@@ -5,7 +5,7 @@ import { TILE_W, TILE_H } from '../constants.js';
 import { gridToIso } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
-import { STORAGE_FACILITY_ID, POWER_POLE_ID, getModuleFootprintCells, moduleContainsCell, isStorageModule } from '../data/modules.js';
+import { STORAGE_FACILITY_ID, POWER_POLE_ID, getModuleFootprintCells, moduleContainsCell, isStorageModule, isPowerStationModule, getNoFuelNetworkIds, getPowerNetworkState, hasPowerStationFuel } from '../data/modules.js';
 import { canPlaceModuleAt } from '../ui/storageUI.js';
 
 let ctx = null;
@@ -51,15 +51,50 @@ function traceDiamondForRange(col, row, r) {
 }
 
 function drawModuleRange(module) {
-  const range = module.type === POWER_POLE_ID ? (module.relayRange || 0) : (module.powerRange || 0);
+  if (module.type !== POWER_POLE_ID) return;
+  const range = module.relayRange || 0;
   if (range <= 0) return;
   ctx.save();
   traceDiamondForRange(module.col, module.row, range);
-  ctx.fillStyle = 'rgba(172,120,255,0.09)';
+  ctx.fillStyle = 'rgba(255,220,90,0.1)';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(196,156,255,0.25)';
+  ctx.strokeStyle = 'rgba(255,226,120,0.28)';
   ctx.lineWidth = 0.9;
   ctx.stroke();
+  ctx.restore();
+}
+
+export function drawPowerLinks() {
+  const { activeEdges } = getPowerNetworkState(state.modules);
+  if (!activeEdges.length) return;
+  const byId = new Map(state.modules.map((module) => [module.id, module]));
+  const noFuelIds = getNoFuelNetworkIds(state.modules);
+  const pulse = 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 220)));
+  ctx.save();
+  for (const edge of activeEdges) {
+    const from = byId.get(edge.fromId);
+    const to = byId.get(edge.toId);
+    if (!from || !to) continue;
+    const fromIso = gridToIso(from.col, from.row);
+    const toIso = gridToIso(to.col, to.row);
+    const fromX = fromIso.x;
+    const fromY = fromIso.y + TILE_H / 2;
+    const toX = toIso.x;
+    const toY = toIso.y + TILE_H / 2;
+    const alert = noFuelIds.has(edge.fromId) && noFuelIds.has(edge.toId);
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.strokeStyle = alert ? `rgba(255,110,110,${0.45 + pulse})` : 'rgba(255,220,90,0.85)';
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.strokeStyle = alert ? `rgba(255,210,210,${0.18 + (pulse * 0.5)})` : 'rgba(255,245,180,0.38)';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -160,16 +195,23 @@ function drawStorageModule(module, hovered) {
   ctx.shadowBlur = 3;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 1;
-  ctx.fillText(noPower ? 'NO POWER' : 'DEPOT', cx, cy - 34);
+  ctx.fillText('STORAGE', cx, cy - 34);
   ctx.restore();
 }
 
 function drawSingleTileModule(module, hovered) {
   const isPole = module.type === 'power_pole';
-  const fill = hovered ? 'rgba(158,112,255,0.92)' : 'rgba(118,72,214,0.9)';
-  const glow = hovered ? 'rgba(206,180,255,0.36)' : 'rgba(168,120,255,0.24)';
-  const stroke = hovered ? '#e8d9ff' : '#c49cff';
-  const accent = hovered ? '#f4ecff' : '#ead8ff';
+  const noFuelIds = getNoFuelNetworkIds(state.modules);
+  const alert = (isPole && noFuelIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module));
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
+  const fill = alert
+    ? (hovered ? `rgba(220,90,110,${0.82 + (pulse * 0.12)})` : `rgba(178,52,78,${0.78 + (pulse * 0.1)})`)
+    : hovered ? 'rgba(255,224,110,0.94)' : 'rgba(242,196,54,0.92)';
+  const glow = alert
+    ? (hovered ? `rgba(255,156,156,${0.2 + (pulse * 0.18)})` : `rgba(255,110,110,${0.12 + (pulse * 0.14)})`)
+    : hovered ? 'rgba(255,236,160,0.4)' : 'rgba(255,214,90,0.26)';
+  const stroke = alert ? (hovered ? '#ffe2e2' : '#ffb0b0') : hovered ? '#fff1b8' : '#ffd85a';
+  const accent = alert ? (hovered ? '#fff4f4' : '#ffdede') : hovered ? '#fff8da' : '#fff0a8';
   const { cx, cy } = drawDiamond(module.col, module.row, glow, stroke, 1.4);
 
   ctx.beginPath();
@@ -200,7 +242,8 @@ function drawSingleTileModule(module, hovered) {
     ctx.lineTo(cx + 10, cy + 2);
     ctx.lineTo(cx - 10, cy + 2);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(62,24,126,0.9)';
+      ctx.fillStyle = 'rgba(122,88,18,0.92)';
+    if (alert) ctx.fillStyle = 'rgba(108,22,40,0.95)';
     ctx.fill();
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1.1;
@@ -221,7 +264,7 @@ export function drawStorageFacilities() {
   if (!ctx) return;
   for (const module of state.modules) {
     const hovered = canvasState.storageHoverId === module.id;
-    const showRange = !state.placingModule && !isStorageModule(module) && (hovered || state.selectedModule === module.id);
+    const showRange = !state.placingModule && module.type === POWER_POLE_ID && (hovered || state.selectedModule === module.id);
     if (showRange) drawModuleRange(module);
     if (isStorageModule(module)) drawStorageModule(module, hovered);
     else drawSingleTileModule(module, hovered);

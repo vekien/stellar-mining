@@ -13,6 +13,17 @@ import {
   moduleContainsCell,
   normalizeModule,
   isStorageModule,
+  isPowerStationModule,
+  isPowerPoleModule,
+  getModuleInventoryTotal,
+  getPowerFuelOptions,
+  formatPowerFuelRate,
+  getPowerNetworkState,
+  getPowerModuleNetworkInfo,
+  POWER_RESOURCE_CONSUMPTION,
+  getPowerFuelOutput,
+  hasPowerStationFuel,
+  getNoFuelNetworkIds,
 } from '../data/modules.js';
 import { getStoragePowerUsage, isStorageOperational } from '../data/storage.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
@@ -59,7 +70,7 @@ export function getModuleWorldPos(module) {
 }
 
 export function getStorageTotalInventory(storage) {
-  return Object.values(storage.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
+  return getModuleInventoryTotal(storage);
 }
 
 export function getModuleAtCell(col, row) {
@@ -151,6 +162,29 @@ function renderStatRows(rows) {
   return rows.map(([label, value]) => `<tr><td style="color:#4a7aaa;padding:4px 0;">${label}</td><td style="color:#cde;font-weight:bold;text-align:right;">${value}</td></tr>`).join('');
 }
 
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function setTextIfChanged(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  if (el.textContent !== text) el.textContent = text;
+  return el;
+}
+
+function setHtmlIfChanged(id, html) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  if (el.innerHTML !== html) el.innerHTML = html;
+  return el;
+}
+
 export function renderModuleModal() {
   const module = getModuleById(state.selectedModule);
   const body = document.getElementById('storage-modal-body');
@@ -200,13 +234,46 @@ export function renderModuleModal() {
     ${isStorageModule(module) ? `
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ INVENTORY</div>
     <div id="storage-inventory-list" style="background:rgba(10,20,50,0.35);border:1px solid #1a3a6e;border-radius:4px;padding:8px;max-height:180px;overflow-y:auto;"></div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ LINKED NETWORK</div>
+    <div class="power-station-network-panel">
+      <div id="power-station-link-summary" class="power-station-link-summary"></div>
+    </div>
+    ` : (isPowerStationModule(module) || isPowerPoleModule(module)) ? `
+    ${(isPowerStationModule(module) || isPowerPoleModule(module)) ? `
+    <div id="power-station-no-fuel-warning" class="storage-no-power-warning" style="display:none;margin-bottom:8px;">WARNING: NO FUEL</div>
+    ` : ''}
+    ${isPowerStationModule(module) ? `
+    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ FUEL</div>
+    <div class="power-station-panel">
+      <div class="power-station-row">
+        <span class="power-station-label">Power Source</span>
+        <select id="power-station-fuel-select" class="power-station-select" onchange="setPowerStationFuel(${module.id}, this.value)"></select>
+      </div>
+      <div id="power-station-fuel-rate" class="power-station-subtle"></div>
+      <div id="power-station-fuel-cost" class="power-station-cost"></div>
+      <div class="power-station-row power-station-fuel-row"><span class="power-station-value-label">STORED FUEL</span><span id="power-station-used-value" class="power-station-value"></span></div>
+      <div class="power-station-bar"><div id="power-station-used-bar" class="power-station-bar-fill"></div></div>
+    </div>
+    ` : ''}
+    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ LINKED NETWORK</div>
+    <div class="power-station-network-panel">
+      <div id="power-station-link-summary" class="power-station-link-summary"></div>
+    </div>
+    <div id="storage-inventory-list" style="background:rgba(10,20,50,0.35);border:1px solid #1a3a6e;border-radius:4px;padding:8px;max-height:180px;overflow-y:auto;"></div>
     ` : ''}
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ UPGRADE</div>
     <div id="storage-upgrade-reqs" class="bp-craft-reqs" style="margin-bottom:8px;"></div>
-    <button id="storage-upgrade-btn" class="btn primary" style="width:100%;font-size:12px;margin-bottom:6px;" onclick="upgradeStorageFacility(${module.id})"></button>
-    <button class="btn" style="width:100%;font-size:12px;margin-bottom:6px;background:rgba(20,50,80,0.6);border-color:#2a6a8a;color:#8ab;" onclick="startMoveStorage(${module.id})">↔ MOVE ${moduleDef.name.toUpperCase()}</button>
-    <button class="btn" style="width:100%;font-size:12px;margin-bottom:6px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab;" onclick="openStorageRenameOverlay(${module.id})">✎ RENAME ${moduleDef.name.toUpperCase()}</button>
-    <button class="btn danger" style="width:100%;font-size:12px;" onclick="confirmSellStorage(${module.id})">⊘ SELL ${moduleDef.name.toUpperCase()}</button>
+    ${(isPowerPoleModule(module) || isPowerStationModule(module) || isStorageModule(module))
+      ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+          <button id="storage-upgrade-btn" class="btn primary" style="width:100%;font-size:11px;" onclick="upgradeStorageFacility(${module.id})">UPGRADE</button>
+          <button class="btn" style="width:100%;font-size:11px;background:rgba(20,50,80,0.6);border-color:#2a6a8a;color:#8ab;" onclick="startMoveStorage(${module.id})">MOVE</button>
+          <button class="btn" style="width:100%;font-size:11px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab;" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
+          <button class="btn danger" style="width:100%;font-size:11px;" onclick="confirmSellStorage(${module.id})">SELL</button>
+        </div>`
+      : `<button id="storage-upgrade-btn" class="btn primary" style="width:100%;font-size:12px;margin-bottom:6px;" onclick="upgradeStorageFacility(${module.id})"></button>
+        <button class="btn" style="width:100%;font-size:12px;margin-bottom:6px;background:rgba(20,50,80,0.6);border-color:#2a6a8a;color:#8ab;" onclick="startMoveStorage(${module.id})">↔ MOVE ${moduleDef.name.toUpperCase()}</button>
+        <button class="btn" style="width:100%;font-size:12px;margin-bottom:6px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab;" onclick="openStorageRenameOverlay(${module.id})">✎ RENAME ${moduleDef.name.toUpperCase()}</button>
+        <button class="btn danger" style="width:100%;font-size:12px;" onclick="confirmSellStorage(${module.id})">⊘ SELL ${moduleDef.name.toUpperCase()}</button>`}
   `;
   patchModuleModal();
 }
@@ -237,24 +304,30 @@ export function patchModuleModal() {
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
   const canUpgrade = !atMaxTier && state.coins >= upgradeCost.coins && Object.entries(upgradeCost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-  document.getElementById('storage-upgrade-reqs').innerHTML = `<span class="bp-craft-req ${state.coins >= upgradeCost.coins ? 'met' : 'unmet'}">$${fmt(upgradeCost.coins)}</span>${Object.entries(upgradeCost.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')}`;
+  setHtmlIfChanged('storage-upgrade-reqs', `<span class="bp-craft-req ${state.coins >= upgradeCost.coins ? 'met' : 'unmet'}">$${fmt(upgradeCost.coins)}</span>${Object.entries(upgradeCost.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')}`);
   const upBtn = document.getElementById('storage-upgrade-btn');
-  upBtn.textContent = atMaxTier ? '★ MAX TIER' : `⬆ UPGRADE ${moduleDef.name.toUpperCase()}`;
+  upBtn.textContent = atMaxTier ? '★ MAX TIER' : (isPowerPoleModule(module) || isPowerStationModule(module) || isStorageModule(module)) ? 'UPGRADE' : `⬆ UPGRADE ${moduleDef.name.toUpperCase()}`;
   upBtn.disabled = !canUpgrade || (isStorageModule(module) && (module.power || 0) <= 0);
+
+  const invRows = Object.entries(module.inventory || {})
+    .filter(([, amt]) => amt > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, amt]) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(26,58,110,0.35);"><span style="color:${RESOURCE_DEFS[type].color}">${RESOURCE_DEFS[type].label}</span><span style="color:#ffe066">${fmt(amt)}</span></div>`)
+    .join('');
 
   if (isStorageModule(module)) {
     const buyPowerCost = upgradeCost.coins * 5;
     const powerPct = Math.round(((module.power || 0) / Math.max(1, module.powerCapacity || 1)) * 100);
-    const invRows = Object.entries(module.inventory || {})
-      .filter(([, amt]) => amt > 0)
-      .sort((a, b) => b[1] - a[1])
-      .map(([type, amt]) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(26,58,110,0.35);"><span style="color:${RESOURCE_DEFS[type].color}">${RESOURCE_DEFS[type].label}</span><span style="color:#ffe066">${fmt(amt)}</span></div>`)
-      .join('');
     const currentPowerUsage = getStoragePowerUsage(module);
-    document.getElementById('storage-used-value').textContent = `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`;
+    const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules);
+    const linkedPoles = networkInfo.poles;
+    const linkedStorages = networkInfo.storages;
+    const linkedStations = networkInfo.stations;
+    const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
+    setTextIfChanged('storage-used-value', `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
     document.getElementById('storage-used-bar').style.width = `${Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
-    document.getElementById('storage-power-usage').textContent = `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`;
-    document.getElementById('storage-power-value').textContent = `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`;
+    setTextIfChanged('storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
+    setTextIfChanged('storage-power-value', `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`);
     document.getElementById('storage-power-bar').style.width = `${powerPct}%`;
     const noPower = (module.power || 0) <= 0;
     document.getElementById('storage-no-power-warning').style.display = noPower ? '' : 'none';
@@ -262,6 +335,74 @@ export function patchModuleModal() {
     buyPowerBtn.style.display = noPower ? '' : 'none';
     buyPowerBtn.disabled = state.coins < buyPowerCost;
     document.getElementById('storage-inventory-list').innerHTML = invRows || '<div style="font-size:12px;color:#4a6a8a;">No stored resources yet.</div>';
+    const summaryEl = document.getElementById('power-station-link-summary');
+    if (summaryEl && summaryEl.dataset.networkSig !== networkSig) {
+      const tooltipLines = [
+        ...linkedStations.map((station) => `POWER STATION: ${escapeHtml(station.name)}`),
+        ...linkedPoles.map((pole) => `POLE: ${escapeHtml(pole.name)}`),
+        ...linkedStorages.map((storage) => `STORAGE: ${escapeHtml(storage.name)}`),
+      ];
+      const summaryParts = [
+        linkedStations.length > 0 ? `${linkedStations.length}x Power Stations` : '',
+        linkedPoles.length > 0 ? `${linkedPoles.length}x Poles` : '',
+        linkedStorages.length > 0 ? `${linkedStorages.length}x Storage Facilities` : '',
+      ].filter(Boolean);
+      const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
+      summaryEl.dataset.networkSig = networkSig;
+      summaryEl.textContent = summaryParts.join(' • ') || 'No linked modules';
+      summaryEl.onmouseover = (event) => showHintTooltip(event, tooltipText);
+      summaryEl.onmouseout = () => hideTooltip();
+    }
+  } else if (isPowerStationModule(module) || isPowerPoleModule(module)) {
+    const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules);
+    const linkedPoles = networkInfo.poles;
+    const linkedStorages = networkInfo.storages;
+    const linkedStations = networkInfo.stations;
+    const noFuelIds = getNoFuelNetworkIds(state.modules);
+    const noFuelWarning = document.getElementById('power-station-no-fuel-warning');
+    const fuelCost = POWER_RESOURCE_CONSUMPTION * linkedStorages.length;
+    const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
+    if (isPowerStationModule(module)) {
+      const fuelSelect = document.getElementById('power-station-fuel-select');
+      if (fuelSelect) {
+        const optionsHtml = getPowerFuelOptions().map((option) => `<option value="${option.type}" ${module.fuelResource === option.type ? 'selected' : ''}>${option.label}</option>`).join('');
+        if (fuelSelect.innerHTML !== optionsHtml) fuelSelect.innerHTML = optionsHtml;
+      }
+      const fuelType = module.fuelResource || 'iron';
+      const fuelName = RESOURCE_DEFS[fuelType].label;
+      const powerOutput = getPowerFuelOutput(fuelType);
+      const noFuel = !hasPowerStationFuel(module);
+      const perStorageText = `Per storage: ${POWER_RESOURCE_CONSUMPTION} ${fuelName} -> +${powerOutput} power/second`;
+      const networkLoadText = linkedStorages.length > 0
+        ? `Current load: ${linkedStorages.length} storages -> ${fuelCost} ${fuelName} consumed each second`
+        : 'Current load: no connected storage facilities';
+      setTextIfChanged('power-station-fuel-rate', perStorageText);
+      setTextIfChanged('power-station-fuel-cost', networkLoadText);
+      setTextIfChanged('power-station-used-value', `${fmt(getModuleInventoryTotal(module))} / ${fmt(module.resourceCapacity || 0)}`);
+      document.getElementById('power-station-used-bar').style.width = `${Math.max(0, Math.min(100, (getModuleInventoryTotal(module) / Math.max(1, module.resourceCapacity || 1)) * 100))}%`;
+      if (noFuelWarning) noFuelWarning.style.display = noFuel ? '' : 'none';
+    } else if (isPowerPoleModule(module)) {
+      if (noFuelWarning) noFuelWarning.style.display = noFuelIds.has(module.id) ? '' : 'none';
+    }
+    const summaryEl = document.getElementById('power-station-link-summary');
+    if (summaryEl && summaryEl.dataset.networkSig !== networkSig) {
+      const tooltipLines = [
+        ...linkedStations.map((station) => `POWER STATION: ${escapeHtml(station.name)}`),
+        ...linkedPoles.map((pole) => `POLE: ${escapeHtml(pole.name)}`),
+        ...linkedStorages.map((storage) => `STORAGE: ${escapeHtml(storage.name)}`),
+      ];
+      const summaryParts = [
+        linkedStations.length > 0 ? `${linkedStations.length}x Power Stations` : '',
+        linkedPoles.length > 0 ? `${linkedPoles.length}x Poles` : '',
+        linkedStorages.length > 0 ? `${linkedStorages.length}x Storage Facilities` : '',
+      ].filter(Boolean);
+      const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
+      summaryEl.dataset.networkSig = networkSig;
+      summaryEl.textContent = summaryParts.join(' • ') || 'No linked modules';
+      summaryEl.onmouseover = (event) => showHintTooltip(event, tooltipText);
+      summaryEl.onmouseout = () => hideTooltip();
+    }
+    setHtmlIfChanged('storage-inventory-list', invRows || '<div style="font-size:12px;color:#4a6a8a;">No stored fuel yet.</div>');
   }
 }
 
@@ -350,9 +491,9 @@ window.sellStorageFacility = function(moduleId, refundCoins) {
   const module = getModuleById(moduleId);
   if (!module) return;
   if (!addCoins(refundCoins)) return;
-  if (isStorageModule(module)) {
+  if (isStorageModule(module) || isPowerStationModule(module)) {
     for (const ship of state.ships) {
-      if (ship.depotType === 'storage' && ship.depotId === moduleId) {
+      if ((ship.depotType === 'storage' || ship.depotType === 'power_station') && ship.depotId === moduleId) {
         ship.depotType = 'base';
         ship.depotId = null;
         if (ship.status === 'returning' && ship.cargo > 0) {
@@ -368,6 +509,13 @@ window.sellStorageFacility = function(moduleId, refundCoins) {
   state.selectedModule = null;
   addLog(`${module.name} sold — recovered ${fmt(refundCoins)}¢.`);
   if (refresh.ui) refresh.ui();
+};
+
+window.setPowerStationFuel = function(moduleId, fuelResource) {
+  const module = getModuleById(moduleId);
+  if (!module || !isPowerStationModule(module)) return;
+  module.fuelResource = fuelResource;
+  patchModuleModal();
 };
 
 window.startCraftModule = function(moduleType = STORAGE_FACILITY_ID) {

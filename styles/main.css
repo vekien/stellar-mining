@@ -171,6 +171,81 @@
   .ships-cargo { color: #ffe066; }
   .ships-sell { color: #6fff9a; }
 
+  .power-station-panel {
+    padding: 8px 10px;
+    border: 1px solid #5a3a7a;
+    border-radius: 6px;
+    background: rgba(28,12,44,0.3);
+    margin-bottom: 10px;
+  }
+  .power-station-network-panel {
+    padding: 8px 10px;
+    border: 1px solid #5a3a7a;
+    border-radius: 6px;
+    background: rgba(22,12,36,0.32);
+    margin-bottom: 10px;
+  }
+  .power-station-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .power-station-fuel-row {
+    margin-bottom: 6px;
+  }
+  .power-station-label {
+    font-size: 14px;
+    color: #cde;
+  }
+  .power-station-value-label {
+    font-size: 16px;
+    color: #cde;
+  }
+  .power-station-select {
+    min-width: 190px;
+    background: rgba(10,20,50,0.75);
+    border: 1px solid #5a3a7a;
+    border-radius: 4px;
+    color: #cde;
+    padding: 5px 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+  }
+  .power-station-subtle {
+    font-size: 12px;
+    color: #d9c3ff;
+    margin-bottom: 8px;
+  }
+  .power-station-cost {
+    font-size: 12px;
+    color: #ffe066;
+    margin-bottom: 8px;
+  }
+  .power-station-value {
+    font-size: 17px;
+    color: #ffe066;
+    font-weight: bold;
+  }
+  .power-station-bar {
+    height: 5px;
+    background: #140f22;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .power-station-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg,#7c4dff,#c49cff);
+    border-radius: 3px;
+    transition: width 0.4s;
+  }
+  .power-station-link-summary {
+    font-size: 13px;
+    color: #d9c3ff;
+    cursor: help;
+  }
+
   /* resources panel */
   .resources-stats-row { display: flex; gap: 8px; margin-bottom: 16px; }
   .resources-stat-card { background: rgba(10,20,50,0.5); border: 1px solid #1a3a6e; border-radius: 5px; padding: 10px 14px; flex: 1; min-width: 0; text-align: center; }
@@ -1636,7 +1711,7 @@
     width: 100%;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     gap: 12px;
   }
   .event-warning-title {
@@ -1644,19 +1719,21 @@
     text-shadow: 0 0 14px rgba(255,210,120,0.45);
     margin-bottom: 10px;
   }
-  .event-warning-close {
+  .event-warning-dismiss {
+    margin-top: 4px;
+    min-width: 120px;
+    padding: 6px 12px;
     background: rgba(20,10,8,0.55);
     border: 1px solid rgba(255,210,150,0.35);
     border-radius: 4px;
     color: #ffd9b5;
-    width: 24px;
-    height: 24px;
     cursor: pointer;
-    font-size: 13px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    letter-spacing: 1px;
     line-height: 1;
-    flex-shrink: 0;
   }
-  .event-warning-close:hover {
+  .event-warning-dismiss:hover {
     color: #fff;
     border-color: #ffd089;
     background: rgba(50,18,10,0.7);

@@ -32,9 +32,10 @@ export function showEventWarning(label, detail, duration = 6000) {
   banner._eventWarningToken = (banner._eventWarningToken || 0) + 1;
   const token = banner._eventWarningToken;
   inner.innerHTML = `
-    <div class="event-warning-head"><div class="event-warning-title">${label}</div><button class="event-warning-close" onclick="closeEventWarning()">✕</button></div>
+    <div class="event-warning-head"><div class="event-warning-title">${label}</div></div>
     ${detail ? `<div class="event-warning-detail">${detail}</div>` : ''}
     <div class="event-warning-progress-wrap"><div class="event-warning-progress"></div></div>
+    <button class="event-warning-dismiss" onclick="closeEventWarning()">DISMISS</button>
   `;
   banner.classList.add('visible');
   const bar = inner.querySelector('.event-warning-progress');

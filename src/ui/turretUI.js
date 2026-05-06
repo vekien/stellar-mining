@@ -147,9 +147,11 @@ export function renderTurretModal() {
       })()}
     </div>
     <div style="font-size:11px;color:#4a6a4a;margin-bottom:8px;">Upgrade boosts: ${hpUpgrade > 0 ? `+${hpUpgrade} HP` : 'HP unchanged'} · ${turretDef.baseDamage > 0 ? `+${dmgUpgrade} Damage` : 'Stun scales to 8s by Lv50'} · +${turretRangeUpgrade} Range${turretDef.baseDamage > 0 && (turretDef.minFireRate || 0) > 0 ? ` · fire rate improves to ${turretDef.minFireRate}s by Lv50` : ''}</div>
-    <button class="btn primary" style="width:100%;font-size:12px;margin-bottom:6px;" ${canUpgrade?'':'disabled'} onclick="upgradeTurret(${turret.id})">${atMaxLevel ? '★ MAX LEVEL' : '⬆ UPGRADE TURRET'}</button>
-    <button class="btn" style="width:100%;font-size:12px;margin-bottom:6px;background:rgba(20,50,80,0.6);border-color:#2a6a8a;color:#8ab;" onclick="startMoveTurret(${turret.id})">↔ MOVE TURRET</button>
-    <button class="btn danger" style="width:100%;font-size:12px;" onclick="confirmScrapTurret(${turret.id})">⊘ SELL TURRET</button>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+      <button class="btn primary" style="width:100%;font-size:11px;" ${canUpgrade?'':'disabled'} onclick="upgradeTurret(${turret.id})">${atMaxLevel ? '★ MAX' : 'UPGRADE'}</button>
+      <button class="btn" style="width:100%;font-size:11px;background:rgba(20,50,80,0.6);border-color:#2a6a8a;color:#8ab;" onclick="startMoveTurret(${turret.id})">MOVE</button>
+      <button class="btn danger" style="width:100%;font-size:11px;" onclick="confirmScrapTurret(${turret.id})">SELL</button>
+    </div>
   `;
 }
 

@@ -2,7 +2,7 @@
 // FLEET UI — ship list, filters, action panel, trade tab
 // ============================================================
 import { state } from '../state.js';
-import { isStorageModule } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, getModuleFreeCapacity } from '../data/modules.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
@@ -429,14 +429,15 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const roleLabel = ROLE_LABELS[role] || role;
   const isUnique = SHIP_DEFS[ship.type]?.unique === true;
   const storageModules = state.modules.filter(isStorageModule);
-  const assignedDepot = ship.depotType === 'storage' && ship.depotId !== null
-    ? storageModules.find(s => s.id === ship.depotId) || null
+  const powerStations = state.modules.filter(isPowerStationModule);
+  const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'power_station')
+    ? [...storageModules, ...powerStations].find(s => s.id === ship.depotId) || null
     : null;
   const holdingReason = ship.status === 'holding'
     ? assignedDepot
-      ? (assignedDepot.power || 0) <= 0
+      ? ship.depotType === 'storage' && (assignedDepot.power || 0) <= 0
         ? `Blocked: ${assignedDepot.name} has no power`
-        : Object.values(assignedDepot.inventory || {}).reduce((sum, n) => sum + (n || 0), 0) >= (assignedDepot.storageCapacity || 0)
+        : getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
           ? `Blocked: ${assignedDepot.name} is full`
         : (assignedDepot.health || 0) <= 0
           ? `Blocked: ${assignedDepot.name} is fully damaged`
@@ -537,8 +538,9 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
       ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row"><span class="ship-data-label">MINE SPD</span><span class="ship-data-value">${formatMineSpeedPercent(ship.mineSpeed)}</span></div>` : ''}`;
   }
 
-  const depotOptions = `<option value="base" ${ship.depotType !== 'storage' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
-    + storageModules.map(storage => `<option value="storage:${storage.id}" ${ship.depotType === 'storage' && ship.depotId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('');
+  const depotOptions = `<option value="base" ${ship.depotType === 'base' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
+    + storageModules.map(storage => `<option value="storage:${storage.id}" ${ship.depotType === 'storage' && ship.depotId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('')
+    + powerStations.map(station => `<option value="power_station:${station.id}" ${ship.depotType === 'power_station' && ship.depotId === station.id ? 'selected' : ''}>${station.name}</option>`).join('');
   const depotHtml = (ship.capacity || 0) > 0
     ? `<div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
         <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ DEPOT</div>

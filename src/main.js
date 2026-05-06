@@ -32,10 +32,16 @@ import { initDevPanel } from './ui/devPanel.js';
 import './ui/storageUI.js';
 import { NPCS } from './data/npcs.js';
 import { getStoragePowerUsage } from './data/storage.js';
-import { isStorageModule } from './data/modules.js';
+import {
+  isStorageModule,
+  isPowerStationModule,
+  getPowerNetworkState,
+  getPowerFuelOutput,
+  POWER_RESOURCE_CONSUMPTION,
+} from './data/modules.js';
 
 let _baseDestroyedNoticeShown = false;
-let _storageOfflineNoticeShown = false;
+let _storageOfflineNoticeSol = null;
 
 function hasOfflineStorage() {
   return state.modules.some(storage => isStorageModule(storage) && ((storage.power || 0) <= 0 || (storage.health || 0) <= 0));
@@ -47,8 +53,8 @@ function showStartupInfrastructureWarnings() {
     showTransmissionMessage(NPCS.doran.transmissionLines.base_destroyed, 18, 'doran');
     return;
   }
-  if (hasOfflineStorage()) {
-    _storageOfflineNoticeShown = true;
+  if (hasOfflineStorage() && _storageOfflineNoticeSol !== state.sol) {
+    _storageOfflineNoticeSol = state.sol;
     showTransmissionMessage(NPCS.doran.transmissionLines.storage_no_power, 18, 'doran');
   }
 }
@@ -296,15 +302,33 @@ function gameLoop() {
   _storagePowerTimer += dt;
   if (_storagePowerTimer >= 1) {
     _storagePowerTimer -= 1;
+    if (_storageOfflineNoticeSol !== null && _storageOfflineNoticeSol !== state.sol) _storageOfflineNoticeSol = null;
     let storageWentOffline = false;
     for (const storage of state.modules.filter(isStorageModule)) {
       const prevPower = storage.power || 0;
       storage.power = Math.max(0, prevPower - getStoragePowerUsage(storage));
       if (prevPower > 0 && storage.power <= 0) storageWentOffline = true;
     }
-    if (!hasOfflineStorage()) _storageOfflineNoticeShown = false;
-    if (storageWentOffline && !_storageOfflineNoticeShown) {
-      _storageOfflineNoticeShown = true;
+    const networkState = getPowerNetworkState(state.modules);
+    for (const station of state.modules.filter(isPowerStationModule)) {
+      if ((station.health || 0) <= 0) continue;
+      const linkedStorageIds = networkState.stationLinkedStorages.get(station.id) || [];
+      if (!linkedStorageIds.length) continue;
+      const fuelType = station.fuelResource || 'iron';
+      const availableFuel = station.inventory?.[fuelType] || 0;
+      const fuelCost = POWER_RESOURCE_CONSUMPTION * linkedStorageIds.length;
+      if (availableFuel < fuelCost) continue;
+      const output = getPowerFuelOutput(fuelType);
+      if (output <= 0) continue;
+      station.inventory[fuelType] = Math.max(0, availableFuel - fuelCost);
+      for (const storageId of linkedStorageIds) {
+        const storage = state.modules.find(module => module.id === storageId);
+        if (!storage || !isStorageModule(storage)) continue;
+        storage.power = Math.min(storage.powerCapacity || 0, (storage.power || 0) + output);
+      }
+    }
+    if (storageWentOffline && _storageOfflineNoticeSol !== state.sol) {
+      _storageOfflineNoticeSol = state.sol;
       showTransmissionMessage(NPCS.doran.transmissionLines.storage_no_power, 18, 'doran');
     }
     if (state.selectedModule && window.patchStorageModal) {

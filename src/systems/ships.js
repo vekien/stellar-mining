@@ -25,10 +25,14 @@ import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
-import { isStorageModule } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, getModuleFreeCapacity } from '../data/modules.js';
 
 function getStorageModules() {
   return state.modules.filter(isStorageModule);
+}
+
+function getPowerStations() {
+  return state.modules.filter(isPowerStationModule);
 }
 
 const craftTimeouts = {};
@@ -39,12 +43,11 @@ function resolveShipDepot(ship) {
     const storage = getStorageModules().find(s => s.id === ship.depotId);
     if (storage) return { type: 'storage', facility: storage, label: storage.name, operational: isStorageOperational(storage) };
   }
+  if (ship.depotType === 'power_station' && ship.depotId !== null) {
+    const station = getPowerStations().find(s => s.id === ship.depotId);
+    if (station) return { type: 'power_station', facility: station, label: station.name, operational: (station.health || 0) > 0 };
+  }
   return { type: 'base', facility: null, label: state.base.name || 'Base Station', operational: (state.base.health || 0) > 0 };
-}
-
-function getStorageFreeCapacity(storage) {
-  const used = Object.values(storage?.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
-  return Math.max(0, (storage?.storageCapacity || 0) - used);
 }
 
 function getShipDepotDestination(ship) {
@@ -53,6 +56,10 @@ function getShipDepotDestination(ship) {
     const pos = gridToWorld(depot.facility.col, depot.facility.row);
     return { x: pos.x, y: pos.y + TILE_H / 2 - 20, depotType: 'storage', depotId: depot.facility.id };
   }
+  if (depot.type === 'power_station' && depot.facility) {
+    const pos = gridToWorld(depot.facility.col, depot.facility.row);
+    return { x: pos.x, y: pos.y + TILE_H / 2 - 20, depotType: 'power_station', depotId: depot.facility.id };
+  }
   const bp = BASE_POS();
   return { x: bp.x, y: bp.y + TILE_H / 2 - 20, depotType: 'base', depotId: null };
 }
@@ -60,6 +67,7 @@ function getShipDepotDestination(ship) {
 function getHoldingAnchor(ship) {
   const depot = resolveShipDepot(ship);
   if (depot.type === 'storage' && depot.facility) return { col: depot.facility.col, row: depot.facility.row, size: 1 };
+  if (depot.type === 'power_station' && depot.facility) return { col: depot.facility.col, row: depot.facility.row, size: 0 };
   return { col: BASE_COL, row: BASE_ROW, size: 0 };
 }
 
@@ -265,7 +273,12 @@ export function tickShip(ship, dt) {
           setNextHoldingDestination(ship);
           return;
         }
-        if (depot.type === 'storage' && depot.facility && getStorageFreeCapacity(depot.facility) <= 0) {
+        if (depot.type === 'storage' && depot.facility && getModuleFreeCapacity(depot.facility) <= 0) {
+          ship.status = 'holding';
+          setNextHoldingDestination(ship);
+          return;
+        }
+        if (depot.type === 'power_station' && depot.facility && getModuleFreeCapacity(depot.facility) < ship.cargo) {
           ship.status = 'holding';
           setNextHoldingDestination(ship);
           return;
@@ -641,6 +654,12 @@ window.setShipDepot = function(shipId, depotValue) {
     if (!storage) return;
     ship.depotType = 'storage';
     ship.depotId = depotId;
+  } else if (String(depotValue).startsWith('power_station:')) {
+    const depotId = Number(String(depotValue).split(':')[1]);
+    const station = getPowerStations().find(s => s.id === depotId);
+    if (!station) return;
+    ship.depotType = 'power_station';
+    ship.depotId = depotId;
   }
   if (ship.status === 'returning' && ship.cargo > 0) {
     const depotDest = getShipDepotDestination(ship);
@@ -663,8 +682,7 @@ export function flushTickEvents(canvas) {
       if (ev.depotType === 'storage' && ev.depotId !== null) {
         const storage = getStorageModules().find(s => s.id === ev.depotId);
         if (storage) {
-          const used = Object.values(storage.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
-          const free = Math.max(0, (storage.storageCapacity || 0) - used);
+          const free = getModuleFreeCapacity(storage);
           deposited = Math.min(ev.amount, free);
           storage.inventory[ev.cargoResource] = (storage.inventory[ev.cargoResource] || 0) + deposited;
           depotLabel = storage.name;
@@ -674,25 +692,38 @@ export function flushTickEvents(canvas) {
         } else {
           state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
         }
+      } else if (ev.depotType === 'power_station' && ev.depotId !== null) {
+        const station = getPowerStations().find(s => s.id === ev.depotId);
+        if (station) {
+          const free = getModuleFreeCapacity(station);
+          deposited = free >= ev.amount ? ev.amount : 0;
+          if (deposited > 0) station.inventory[ev.cargoResource] = (station.inventory[ev.cargoResource] || 0) + deposited;
+          depotLabel = station.name;
+          depositBlocked = deposited < ev.amount;
+          const w = gridToWorld(station.col, station.row);
+          floatiePos = { x: w.x, y: w.y - 12 };
+        } else {
+          state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
+        }
       } else {
         state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
       }
       state.trips++;
       state.solStarted = true;
-      addLog(`📦 ${ev.name} delivered ${deposited} ${RESOURCE_DEFS[ev.cargoResource].label} to ${depotLabel}${depositBlocked ? ' (storage full)' : ''}`);
+      addLog(`📦 ${ev.name} delivered ${deposited} ${RESOURCE_DEFS[ev.cargoResource].label} to ${depotLabel}${depositBlocked ? ' (depot full)' : ''}`);
       if (deposited > 0) spawnFloatie(ev.cargoResource, deposited, floatiePos);
-      if (ev.depotType === 'storage' && state.selectedModule === ev.depotId && window.patchStorageModal) {
+      if ((ev.depotType === 'storage' || ev.depotType === 'power_station') && state.selectedModule === ev.depotId && window.patchStorageModal) {
         const overlay = document.getElementById('storage-modal-overlay');
         if (overlay?.style.display === 'flex') window.patchStorageModal();
       }
       if (state.tutStep === 3) { state.tutStep=4; state.seenMsgs['tut_mining_done']=true; document.querySelectorAll('.tut-pointer').forEach(el=>el.remove()); }
       import('../ui/tutorial.js').then(({ checkTradeTutorial }) => checkTradeTutorial());
-      if (!state.firstDeposit && ev.depotType !== 'storage') {
+      if (!state.firstDeposit && ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
         state.firstDeposit = true;
         state.redirectTutActive = true;
         setTimeout(() => showOnce('first_deposit', NPCS.juno.transmissionLines.first_deposit, 15, 'juno'), 800);
       }
-      if (!state.firstCraftable && ev.depotType !== 'storage') {
+      if (!state.firstCraftable && ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
         const canBuildAny = CRAFT_RECIPES.some(r => Object.entries(r.reqs).every(([res, amt]) => (state.resources[res]||0) >= amt));
         if (canBuildAny) {
           state.firstCraftable = true;

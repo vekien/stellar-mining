@@ -212,6 +212,18 @@ function getShipNodeLabel(ship) {
   return node ? RESOURCE_DEFS[node.type].label : '—';
 }
 
+function getShipDepotLabel(ship) {
+  if (ship.depotType === 'storage' && ship.depotId !== null) {
+    const storage = state.modules.find(module => module.id === ship.depotId);
+    return storage?.name || '—';
+  }
+  if (ship.depotType === 'power_station' && ship.depotId !== null) {
+    const station = state.modules.find(module => module.id === ship.depotId);
+    return station?.name || '—';
+  }
+  return state.base.name || 'Base Station';
+}
+
 function getShipTierValue(ship) {
   return ship.tier || ship.mineTier || 1;
 }
@@ -238,6 +250,7 @@ function getFleetSortValue(ship, key) {
   if (key === 'role') return SHIP_DEFS[ship.type]?.role || 'mining';
   if (key === 'tier') return getShipTierValue(ship);
   if (key === 'node') return getShipNodeLabel(ship);
+  if (key === 'depot') return getShipDepotLabel(ship);
   if (key === 'status') return getShipStatusLabel(ship);
   if (key === 'cargo') return ship.cargo || 0;
   if (key === 'level') return (ship.capacityLevel || 0) + (ship.flySpeedLevel || 0) + (ship.mineSpeedLevel || 0);
@@ -320,14 +333,17 @@ function refreshFleetPanelPartial() {
     }
     const status = getShipStatusLabel(ship);
     const nodeLabel = getShipNodeLabel(ship);
+    const depotLabel = getShipDepotLabel(ship);
     const tier = shipTierPill(ship);
     const cargo = `${ship.cargo}/${ship.capacity}`;
 
     const nodeEl = row.querySelector('[data-cell="node"]');
+    const depotEl = row.querySelector('[data-cell="depot"]');
     const statusEl = row.querySelector('[data-cell="status"]');
     const cargoEl = row.querySelector('[data-cell="cargo"]');
     const tierEl = row.querySelector('[data-cell="tier"]');
     if (nodeEl && nodeEl.textContent !== nodeLabel) nodeEl.textContent = nodeLabel;
+    if (depotEl && depotEl.textContent !== depotLabel) depotEl.textContent = depotLabel;
     if (statusEl && statusEl.textContent !== status) statusEl.textContent = status;
     if (cargoEl && cargoEl.textContent !== cargo) cargoEl.textContent = cargo;
     if (tierEl && tierEl.innerHTML !== tier) tierEl.innerHTML = tier;
@@ -1052,6 +1068,7 @@ export function openHdrPanel(type, options = {}) {
       const role = (SHIP_DEFS[s.type]?.role || 'mining');
       const totalLevel = (s.capacityLevel || 0) + (s.flySpeedLevel || 0) + (s.mineSpeedLevel || 0);
       const sellVal = getShipSellValue(s);
+      const depotLabel = getShipDepotLabel(s);
       return `<tr data-ship-id="${s.id}">
         <td class="ships-lv">${totalLevel}</td>
         <td class="ships-nowrap">${s.name}</td>
@@ -1059,6 +1076,7 @@ export function openHdrPanel(type, options = {}) {
         <td class="ships-role ships-nowrap">${role}</td>
         <td data-cell="tier">${shipTierPill(s)}</td>
         <td data-cell="node" class="ships-nowrap">${getShipNodeLabel(s)}</td>
+        <td data-cell="depot" class="ships-nowrap">${depotLabel}</td>
         <td data-cell="status" class="ships-nowrap">${status}</td>
         <td data-cell="cargo" class="ships-cargo ships-nowrap">${s.cargo}/${s.capacity}</td>
         <td class="ships-sell ships-nowrap">${fmtSell(sellVal)}</td>
@@ -1073,12 +1091,13 @@ export function openHdrPanel(type, options = {}) {
           <col style="width:14%;">
           <col style="width:9%;">
           <col style="width:7%;">
+          <col style="width:14%;">
           <col style="width:12%;">
-          <col style="width:12%;">
-          <col style="width:12%;">
-          <col style="width:12%;">
+          <col style="width:10%;">
+          <col style="width:9%;">
+          <col style="width:10%;">
         </colgroup>
-        <thead><tr>${fleetHeaderCell('LV', 'level')}${fleetHeaderCell('NAME', 'name')}${fleetHeaderCell('TYPE', 'type')}${fleetHeaderCell('ROLE', 'role')}${fleetHeaderCell('TIER', 'tier')}${fleetHeaderCell('NODE', 'node')}${fleetHeaderCell('STATUS', 'status')}${fleetHeaderCell('CARGO', 'cargo')}${fleetHeaderCell('SELL', 'sell')}</tr></thead>
+        <thead><tr>${fleetHeaderCell('LV', 'level')}${fleetHeaderCell('NAME', 'name')}${fleetHeaderCell('TYPE', 'type')}${fleetHeaderCell('ROLE', 'role')}${fleetHeaderCell('TIER', 'tier')}${fleetHeaderCell('NODE', 'node')}${fleetHeaderCell('DROP OFF', 'depot')}${fleetHeaderCell('STATUS', 'status')}${fleetHeaderCell('CARGO', 'cargo')}${fleetHeaderCell('SELL', 'sell')}</tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
   }
