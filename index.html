@@ -39,6 +39,8 @@
           <button id="dev-btn-assign-random">Ships: Assign Random</button>
           <button id="dev-btn-sol">World: Next Sol</button>
           <button id="dev-btn-flood-nodes">World: Iron Flood</button>
+          <button id="dev-btn-solar-flare">Event: Solar Flare</button>
+          <button id="dev-btn-comet">Event: Comet</button>
           <button id="dev-btn-transmission">UI: Test Transmission</button>
         </div>
       </div>
@@ -222,6 +224,14 @@
 </div>
 
 <div id="tooltip"></div>
+
+<div id="currency-max-popup-overlay" onclick="closeCurrencyMaxPopup()">
+  <div id="currency-max-popup" onclick="event.stopPropagation()">
+    <div class="currency-max-popup-title">SALE BLOCKED</div>
+    <div class="currency-max-popup-body">Cannot sell! Currency is maxed out.<br>Consider alternate means of liquidation.</div>
+    <button class="btn" style="width:100%;margin-top:12px;" onclick="closeCurrencyMaxPopup()">CLOSE</button>
+  </div>
+</div>
 
 <div id="event-warning"><div id="event-warning-inner"></div></div>
 

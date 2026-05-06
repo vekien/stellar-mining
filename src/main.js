@@ -6,7 +6,7 @@ import { generateNodes } from './data/nodes.js';
 import { MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
-import { SOL_DURATION, MARKET_BOOST_MIN, MARKET_BOOST_MAX } from './data/sol.js';
+import { SOL_DURATION } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
 import { initRenderer, resizeRenderer, render, setOnCameraMove, W, H } from './render/renderer.js';
@@ -15,7 +15,7 @@ import {
   tickFloaties, tickSolarFlare, tickComet,
   tickScreenShake, tickRangePulses, tickNodeParticles,
 } from './render/animations.js';
-import { scheduleNextEvent, tickSOL, getAvailableMarketResourceTypes } from './systems/sol.js';
+import { scheduleNextEvent, tickSOL, rollMarketDemands } from './systems/sol.js';
 import { fireRandomEvent } from './systems/events.js';
 import { tickAdmiral } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
@@ -86,9 +86,7 @@ if (!state.shownAboutWindow) {
 
 // Ensure a market boost exists from the very first SOL
 if (!state.marketBoost) {
-  const types = getAvailableMarketResourceTypes();
-  const multiplier = Number((MARKET_BOOST_MIN + Math.random() * (MARKET_BOOST_MAX - MARKET_BOOST_MIN)).toFixed(2));
-  state.marketBoost = { type: types[Math.floor(Math.random() * types.length)], multiplier };
+  rollMarketDemands();
 } else if (!state.marketBoost.multiplier) {
   state.marketBoost.multiplier = 1.5;
 }
@@ -278,9 +276,9 @@ function gameLoop() {
 }
 
 // ── Fast rAF patch loop — cargo bars + status badges ──────────
-const _STATUS_LABELS = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING' };
-const _STATUS_MSGS   = { flying:'▶ En Route', mining:'⛏ Mining', returning:'↩ Returning', pausing:'↩ Returning', idle:'● Idle' };
-const _STATUS_COLORS = { flying:'#48f', mining:'#c6f', returning:'#fa6', pausing:'#fa6', idle:'#4d8' };
+const _STATUS_LABELS = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING', holding:'HOLDING' };
+const _STATUS_MSGS   = { flying:'▶ En Route', mining:'⛏ Mining', returning:'↩ Returning', pausing:'↩ Returning', holding:'◌ Holding Pattern', idle:'● Idle' };
+const _STATUS_COLORS = { flying:'#48f', mining:'#c6f', returning:'#fa6', pausing:'#fa6', holding:'#f88', idle:'#4d8' };
 let _lastPatchTs = 0;
 let _lastPatchSig = '';
 const PATCH_FRAME_MS = 1000 / 20;

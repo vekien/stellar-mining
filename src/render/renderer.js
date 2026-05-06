@@ -24,6 +24,7 @@ let gridCacheSig = '';
 let lastRenderTs = 0;
 let fpsAvg = 60;
 let lastFpsSampleTs = 0;
+let _lastCamMoveSig = '';
 const RENDER_FRAME_MS = 1000 / 60;
 
 export function initRenderer(mainCtx, w, h) {
@@ -267,46 +268,76 @@ export function drawBase(col, row) {
   const {x,y} = gridToIso(col, row);
   const cx = x, cy = y+TILE_H/2;
   const { baseHovered } = canvasState;
+  const baseDown = (state.base.health || 0) <= 0;
+  const flashPulse = 0.5 + 0.5 * Math.sin(performance.now() / 140);
+  const strokeColor = baseDown ? (flashPulse > 0.5 ? '#ff3d3d' : '#ff9a9a') : (baseHovered ? '#8ff' : '#4af');
+  const coreFill = baseDown ? '#3a0d12' : '#102040';
+  const towerFill = baseDown ? '#5a1118' : '#1a3a6e';
+  const beaconColor = baseDown ? '#ff5555' : '#8ff';
+  const textColor = baseDown ? '#ff7a7a' : '#4af';
 
   if (baseHovered) {
     const t = performance.now() / 600;
     const pulse = 0.3+0.15*Math.sin(t);
     const glowR = ctx.createRadialGradient(cx,cy,0,cx,cy,72);
-    glowR.addColorStop(0, `rgba(80,200,255,${pulse})`);
-    glowR.addColorStop(1, 'rgba(80,200,255,0)');
+    if (baseDown) {
+      glowR.addColorStop(0, `rgba(255,70,70,${0.22 + flashPulse * 0.2})`);
+      glowR.addColorStop(1, 'rgba(255,70,70,0)');
+    } else {
+      glowR.addColorStop(0, `rgba(80,200,255,${pulse})`);
+      glowR.addColorStop(1, 'rgba(80,200,255,0)');
+    }
     ctx.fillStyle = glowR; ctx.beginPath(); ctx.arc(cx,cy,72,0,Math.PI*2); ctx.fill();
   }
 
   ctx.beginPath(); ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy); ctx.closePath();
-  ctx.fillStyle = '#102040'; ctx.fill();
-  ctx.strokeStyle = baseHovered ? '#8ff' : '#4af';
+  ctx.fillStyle = coreFill; ctx.fill();
+  ctx.strokeStyle = strokeColor;
   ctx.lineWidth = baseHovered ? 2 : 1; ctx.stroke();
 
   const tw=18, th=36;
-  ctx.fillStyle = '#1a3a6e'; ctx.fillRect(cx-tw/2,cy-th,tw,th);
-  ctx.strokeStyle = baseHovered ? '#8ff' : '#4af'; ctx.lineWidth=1; ctx.strokeRect(cx-tw/2,cy-th,tw,th);
+  ctx.fillStyle = towerFill; ctx.fillRect(cx-tw/2,cy-th,tw,th);
+  ctx.strokeStyle = strokeColor; ctx.lineWidth=1; ctx.strokeRect(cx-tw/2,cy-th,tw,th);
   const grd = ctx.createRadialGradient(cx,cy-th-4,1,cx,cy-th-4,14);
-  grd.addColorStop(0,'rgba(80,200,255,0.9)'); grd.addColorStop(1,'rgba(80,200,255,0)');
+  if (baseDown) {
+    grd.addColorStop(0,`rgba(255,90,90,${0.75 + flashPulse * 0.2})`); grd.addColorStop(1,'rgba(255,90,90,0)');
+  } else {
+    grd.addColorStop(0,'rgba(80,200,255,0.9)'); grd.addColorStop(1,'rgba(80,200,255,0)');
+  }
   ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(cx,cy-th-4,14,0,Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.moveTo(cx,cy-th); ctx.lineTo(cx,cy-th-12);
-  ctx.strokeStyle='#4af'; ctx.lineWidth=1.5; ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx,cy-th-12,3,0,Math.PI*2); ctx.fillStyle='#8ff'; ctx.fill();
-  ctx.fillStyle='#4af'; ctx.font='bold 9px Orbitron,monospace'; ctx.textAlign='center'; ctx.fillText('BASE',cx,cy-th-20);
+  ctx.strokeStyle = textColor; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy-th-12,3,0,Math.PI*2); ctx.fillStyle = beaconColor; ctx.fill();
+  ctx.fillStyle = textColor; ctx.font='bold 9px Orbitron,monospace'; ctx.textAlign='center'; ctx.fillText('BASE',cx,cy-th-20);
 
-  if (baseHovered) {
-    const baseName = state.base.name || 'Base Station';
-    const label = `${baseName} — TIER ${toRoman(state.base.level)}`;
-    const labelY = cy-th-36;
-    ctx.font = 'bold 11px Orbitron,monospace';
-    const tw2 = ctx.measureText(label).width;
-    const pad = 7;
-    ctx.fillStyle = 'rgba(4,12,35,0.88)';
-    ctx.strokeStyle = '#4af'; ctx.lineWidth = 1;
-    const rx = cx-tw2/2-pad, ry = labelY-13, rw = tw2+pad*2, rh = 18;
-    ctx.beginPath(); ctx.roundRect(rx,ry,rw,rh,3); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#8ff'; ctx.textAlign = 'center';
-    ctx.fillText(label, cx, labelY);
-  }
+}
+
+function drawBaseHoverLabel(col, row) {
+  if (!canvasState.baseHovered) return;
+  const { x, y } = gridToIso(col, row);
+  const cx = x;
+  const cy = y + TILE_H / 2;
+  const th = 36;
+  const baseName = state.base.name || 'Base Station';
+  const label = `${baseName} — TIER ${toRoman(state.base.level)}`;
+  const labelY = cy - th - 36;
+  ctx.font = 'bold 11px Orbitron,monospace';
+  const tw2 = ctx.measureText(label).width;
+  const pad = 7;
+  ctx.fillStyle = 'rgba(4,12,35,0.88)';
+  ctx.strokeStyle = '#4af';
+  ctx.lineWidth = 1;
+  const rx = cx - tw2 / 2 - pad;
+  const ry = labelY - 13;
+  const rw = tw2 + pad * 2;
+  const rh = 18;
+  ctx.beginPath();
+  ctx.roundRect(rx, ry, rw, rh, 3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#8ff';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, cx, labelY);
 }
 
 export function drawNode(node) {
@@ -438,7 +469,7 @@ export function drawShipWorld(ship) {
   ctx.beginPath(); ctx.moveTo(0,-size); ctx.lineTo(size*.6,0); ctx.lineTo(0,size*.5); ctx.lineTo(-size*.6,0); ctx.closePath();
   ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle='#fff6'; ctx.lineWidth=0.7; ctx.stroke();
 
-  if (ship.status==='flying'||ship.status==='returning') {
+  if (ship.status==='flying'||ship.status==='returning'||ship.status==='holding') {
     // Short nozzle glow at engine mouth — trail handles the rest
     const ng = ctx.createLinearGradient(0,size*.5,0,size*2.4);
     ng.addColorStop(0,col+'ee'); ng.addColorStop(0.5,col+'66'); ng.addColorStop(1,col+'00');
@@ -570,7 +601,9 @@ export function render(ts) {
   }
 
   const cameraMoving = tickCamera();
-  if (cameraMoving && _onCameraMove) _onCameraMove();
+  const camSig = `${cam.x.toFixed(2)}|${cam.y.toFixed(2)}|${cam.zoom.toFixed(3)}`;
+  if (_onCameraMove && (cameraMoving || camSig !== _lastCamMoveSig)) _onCameraMove();
+  _lastCamMoveSig = camSig;
 
   if (state.settings?.showBackgroundStars !== false) drawStars(ts);
   ctx.clearRect(0,0,W,H);
@@ -598,6 +631,7 @@ export function render(ts) {
   drawComet();
   drawFloaties();
   drawNodeParticles();
+  drawBaseHoverLabel(BASE_COL, BASE_ROW);
   ctx.restore();
   const zoomPct = document.getElementById('zoom-pct');
   if (zoomPct) zoomPct.textContent = `${Math.round(cam.zoom*100)}%`;

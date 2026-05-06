@@ -26,6 +26,17 @@ import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 
 const craftTimeouts = {};
+let baseDownNoticeShown = false;
+
+function initHoldingOrbit(ship) {
+  const base = BASE_POS();
+  const ox = ship.x - base.x;
+  const oy = ship.y - (base.y + TILE_H / 2 - 20);
+  ship.holdOrbitRadius = Math.max(26, Math.min(58, Math.hypot(ox, oy) || (30 + Math.random() * 18)));
+  ship.holdOrbitAngle = Math.atan2(oy, ox);
+  ship.holdOrbitDir = Math.random() < 0.5 ? -1 : 1;
+  ship.holdOrbitSpeed = 0.8 + Math.random() * 0.45;
+}
 
 function getShipCraftTimeMs(recipeId) {
   return SHIP_CRAFT_TIME_MS[recipeId] || DEFAULT_CRAFT_TIME_MS;
@@ -149,6 +160,42 @@ export function assignShip(ship, node) {
 export let tickEvents = [];
 
 export function tickShip(ship, dt) {
+  if (state.base.health > 0) baseDownNoticeShown = false;
+  const baseDown = state.base.health <= 0;
+  if (baseDown && !baseDownNoticeShown) {
+    baseDownNoticeShown = true;
+    showTransmissionMessage(NPCS.juno.transmissionLines.base_down_no_deposit, 12, 'juno');
+  }
+
+  if (ship.status === 'holding' && !baseDown) {
+    const bp = BASE_POS();
+    ship.destX = bp.x;
+    ship.destY = bp.y + TILE_H / 2 - 20;
+    ship.status = 'returning';
+    delete ship.holdOrbitRadius;
+    delete ship.holdOrbitAngle;
+    delete ship.holdOrbitDir;
+    delete ship.holdOrbitSpeed;
+  }
+
+  if (ship.status === 'holding') {
+    if (!Number.isFinite(ship.holdOrbitRadius) || !Number.isFinite(ship.holdOrbitAngle) || !Number.isFinite(ship.holdOrbitSpeed)) {
+      initHoldingOrbit(ship);
+    }
+    const base = BASE_POS();
+    ship.holdOrbitAngle += dt * ship.holdOrbitSpeed * (ship.holdOrbitDir || 1);
+    const x = base.x + Math.cos(ship.holdOrbitAngle) * ship.holdOrbitRadius;
+    const y = base.y + TILE_H / 2 - 20 + Math.sin(ship.holdOrbitAngle) * (ship.holdOrbitRadius * 0.55);
+    const tangent = ship.holdOrbitAngle + ((ship.holdOrbitDir || 1) > 0 ? Math.PI / 2 : -Math.PI / 2);
+    ship.heading = tangent + Math.PI / 2;
+    if (!ship.trail) ship.trail = [];
+    ship.trail.push({ x: ship.x, y: ship.y });
+    if (ship.trail.length > 80) ship.trail.shift();
+    ship.x = x;
+    ship.y = y;
+    return;
+  }
+
   const FLY_SPEED = 80 * flySpeedToMultiplier(ship.flySpeed);
 
   if (ship.status==='flying'||ship.status==='returning') {
@@ -166,6 +213,11 @@ export function tickShip(ship, dt) {
         ship.status='mining'; ship.mineTimer=0;
         if (state.tutStep === 2) state.tutStep = 3;
       } else {
+        if (baseDown) {
+          ship.status = 'holding';
+          initHoldingOrbit(ship);
+          return;
+        }
         
         if (ship.cargo>0 && ship.cargoResource && RESOURCE_DEFS[ship.cargoResource]) {
           tickEvents.push({ type:'deposit', name:ship.name, cargoResource:ship.cargoResource, amount:ship.cargo });
@@ -285,7 +337,7 @@ window.confirmSellShip = function(shipId, sellVal) {
 window.sellShip = function(shipId, sellVal) {
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
   if (state.ships.length <= 1) { addLog('⚠ Cannot sell your last ship!'); return; }
-  addCoins(sellVal);
+  if (!addCoins(sellVal)) return;
   state.ships = state.ships.filter(s => s.id !== shipId);
   updateHeaderShips();
   if (state.selectedShip === shipId) { state.selectedShip=null; state.pendingAssign=null; state.followShip=null; document.getElementById('main-canvas').style.cursor=''; removeReassignTooltip(); }

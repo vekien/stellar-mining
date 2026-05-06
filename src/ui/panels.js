@@ -140,6 +140,7 @@ function getShipStatusLabel(ship) {
   return ship.status === 'flying' ? '▶ Flying'
     : ship.status === 'mining' ? '⛏ Mining'
     : ship.status === 'returning' ? '◀ Returning'
+    : ship.status === 'holding' ? '◌ Holding'
     : '— Idle';
 }
 
@@ -853,41 +854,54 @@ export function openHdrPanel(type, options = {}) {
   else if (type === 'market') {
     heading.textContent = 'TRADE';
     const hasAny = Object.values(state.resources).some(v => v > 0);
+    const demandMap = new Map();
+    if (state.marketBoost?.type) demandMap.set(state.marketBoost.type, state.marketBoost.multiplier ?? 1.5);
+    for (const d of (state.extraDemands || [])) demandMap.set(d.type, d.multiplier ?? 1.5);
     let tradeHtml = '';
-    if (state.marketBoost) {
-      const bd = RESOURCE_DEFS[state.marketBoost.type];
-      const boostMult = state.marketBoost.multiplier ?? 1.5;
+    if (demandMap.size) {
+      const demandCells = Array.from(demandMap.entries()).map(([type, mult]) => {
+        const def = RESOURCE_DEFS[type];
+        return `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 8px;border:1px solid rgba(255,255,255,0.12);border-radius:4px;background:rgba(10,25,50,0.35);color:${def.color};text-shadow:0 0 10px ${def.color}55;">
+          <span class="trade-demand-dot" style="background:${def.color};box-shadow:0 0 8px ${def.color}aa;"></span>
+          <span>${def.label}<span class="trade-demand-gap"></span><span class="trade-demand-mult">${mult}x!</span></span>
+        </div>`;
+      }).join('');
       tradeHtml += `<div class="trade-demand-card">
         <div class="trade-demand-title">SOL ${state.sol} - DEMAND</div>
-        <div class="trade-demand-body" style="color:${bd.color};text-shadow:0 0 10px ${bd.color}55;">
-          <span class="trade-demand-dot" style="background:${bd.color};box-shadow:0 0 8px ${bd.color}aa;"></span>
-          <span>${bd.label}<span class="trade-demand-gap"></span><span class="trade-demand-mult">${boostMult}x!</span></span>
-        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">${demandCells}</div>
       </div>`;
     }
     if (!hasAny) {
       tradeHtml += `<div class="trade-empty">⏳ No resources to sell yet.</div>`;
     } else {
+      const defaultSellQty = (amt) => {
+        if (amt >= 10000) return 1000;
+        if (amt >= 1000) return 100;
+        if (amt >= 100) return 10;
+        return 1;
+      };
       tradeHtml += '<div class="sell-grid">';
       for (const [type, def] of Object.entries(RESOURCE_DEFS)) {
         const amt = state.resources[type] || 0;
         if (amt <= 0) continue;
-        const sellAmt = amt < 100 ? 1 : amt < 1000 ? 10 : amt < 10000 ? 25 : 100;
+        const sellAmt = defaultSellQty(amt);
         const price   = getSellPrice(type);
-        const earnedSellAmt = sellAmt * price;
         const earnedAll = amt * price;
-        const boosted = state.marketBoost?.type === type;
+        const boostMult = demandMap.get(type);
+        const boosted = Number.isFinite(boostMult);
         const priceHtml = boosted
-          ? `<span class="trade-price">$${price} <span class="trade-price-boost" title="Market boosted this SOL — ${state.marketBoost?.multiplier ?? 1.5}× sell price!">✦</span></span>`
+          ? `<span class="trade-price">$${price} <span class="trade-price-boost" title="Market boosted this SOL — ${boostMult}× sell price!">✦</span></span>`
           : `<span class="trade-price">$${price}</span>`;
         tradeHtml += `<div class="sell-row">
           <span class="trade-res-dot" style="background:${def.color};"></span>
           ${priceHtml}
           <span class="res-name-s">${def.label}</span>
           <span class="res-qty">${fmt(amt)}</span>
-          <button class="sell-btn-s" onmousedown="sellResource('${type}',${sellAmt});openHdrPanel('market',{refresh:true,preserveScroll:true})">SELL ${fmt(sellAmt)} <span class="trade-sell-earned">· $${fmt(earnedSellAmt)}</span></button>
-          <button class="sell-btn-s" onmousedown="sellResource('${type}',100);openHdrPanel('market',{refresh:true,preserveScroll:true})" ${amt < 100 ? 'disabled' : ''}>SELL 100 <span class="trade-sell-earned">· $${fmt(100 * price)}</span></button>
-          <button class="sell-btn-s" onmousedown="sellResource('${type}',${amt});openHdrPanel('market',{refresh:true,preserveScroll:true})">ALL <span class="trade-sell-earned">· $${fmt(earnedAll)}</span></button>
+          <div class="trade-actions">
+            <input id="sell-qty-${type}" type="number" min="1" max="${amt}" step="1" value="${sellAmt}" class="sell-qty-input" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
+            <button class="sell-btn-s" onmousedown="const _inp=document.getElementById('sell-qty-${type}');const _raw=Math.floor(Number(_inp?.value||0));const _qty=Math.max(1,Math.min(${amt},Number.isFinite(_raw)?_raw:1));if(_inp)_inp.value=_qty;sellResource('${type}',_qty);openHdrPanel('market',{refresh:true,preserveScroll:true})">SELL QTY</button>
+            <button class="sell-btn-s sell-btn-all" onmousedown="sellResource('${type}',${amt});openHdrPanel('market',{refresh:true,preserveScroll:true})">SELL ALL <span class="trade-sell-earned">$${fmt(earnedAll)}</span></button>
+          </div>
         </div>`;
       }
       tradeHtml += '</div>';
@@ -1008,6 +1022,9 @@ export function openHdrPanel(type, options = {}) {
 
     } else if (_codexTab === 'resources') {
       const resourceTier = {};
+      const boostMap = new Map();
+      if (state.marketBoost?.type) boostMap.set(state.marketBoost.type, state.marketBoost.multiplier ?? 1.5);
+      for (const d of (state.extraDemands || [])) boostMap.set(d.type, d.multiplier ?? 1.5);
       for (const [tier, def] of Object.entries(MINE_TIERS)) {
         for (const r of def.resources) {
           if (!resourceTier[r]) resourceTier[r] = { tier: Number(tier), label: def.label, color: def.color };
@@ -1017,8 +1034,8 @@ export function openHdrPanel(type, options = {}) {
         const tierInfo = resourceTier[key];
         const abundanceHint = getResourceAbundanceHint(key);
         const abundanceColor = abundanceHint === 'Abundant' ? '#78d69c' : abundanceHint === 'Uncommon' ? '#ffd36b' : '#ff8c8c';
-        const boost = state.marketBoost && state.marketBoost.type === key;
-        const mult = state.marketBoost?.multiplier ?? 1.5;
+        const mult = boostMap.get(key);
+        const boost = Number.isFinite(mult);
         const sellDisplay = boost ? `<span style="color:#ffe066;">$${Math.round(def.sellPrice * mult)} ★ BOOSTED</span>` : `<span class="codex-resources-sell">$${def.sellPrice}</span>`;
         return `<div class="codex-resources-card" style="border-left: 5px solid ${def.color};">
           <div class="codex-resources-header">

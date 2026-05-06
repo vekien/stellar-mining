@@ -117,7 +117,7 @@ export function saveGame() {
       resources: state.resources, shipIdCounter,
       worldSeed: state.worldSeed,
       base: state.base,
-      sol: state.sol, rp: state.rp, marketBoost: state.marketBoost,
+      sol: state.sol, rp: state.rp, marketBoost: state.marketBoost, extraDemands: state.extraDemands,
       settings: state.settings,
       solStarted: state.solStarted, tutStep: state.tutStep,
       firstDeposit: state.firstDeposit, firstCraftable: state.firstCraftable,
@@ -158,6 +158,7 @@ export function loadGame() {
     state.sol  = d.sol ?? 1;
     state.rp   = d.rp  ?? 0;
     state.marketBoost = d.marketBoost ?? null;
+    state.extraDemands = Array.isArray(d.extraDemands) ? d.extraDemands : [];
     state.settings = {
       showGrid: d.settings?.showGrid ?? true,
       showBackgroundStars: d.settings?.showBackgroundStars ?? true,

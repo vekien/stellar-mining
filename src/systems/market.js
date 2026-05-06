@@ -26,15 +26,20 @@ export function getSellPrice(type) {
   return base;
 }
 
+function isDemandedType(type) {
+  if (state.marketBoost?.type === type) return true;
+  return !!state.extraDemands?.some(d => d.type === type);
+}
+
 window.sellResource = function(type, amount) {
   const have = state.resources[type] || 0;
   const sell = Math.min(have, amount);
   if (sell <= 0) return;
   const price = getSellPrice(type);
   const earned = sell * price;
+  if (!addCoins(earned)) return;
   state.resources[type] -= sell;
-  addCoins(earned);
-  const boosted = state.marketBoost?.type === type ? ' ✦' : '';
+  const boosted = isDemandedType(type) ? ' ✦' : '';
   addLog(`💰 Sold ${fmt(sell)}x ${RESOURCE_DEFS[type].label} for ${fmt(earned)} coins${boosted}`);
   const maxBaseTier = BASE_MAX_SHIPS.length;
   if (state.coins >= 50000 && state.base.level < maxBaseTier) {

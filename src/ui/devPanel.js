@@ -20,6 +20,7 @@ import { updateHeader } from './ui.js';
 import { assignShip, spawnShip } from '../systems/ships.js';
 import { BASE_MAX_SHIPS } from '../data/base.js';
 import { BASE_COL, BASE_ROW } from '../constants.js';
+import { fireEventById } from '../systems/events.js';
 
 const LOREM = `Transmission check — this is a test signal from sector relay delta-niner.<br><br>` +
   `All systems nominal. <strong>Fleet status confirmed.</strong> Resource extraction proceeding within expected parameters.<br><br>` +
@@ -162,6 +163,14 @@ function devFloodIronNodes() {
   if (refresh.ui) refresh.ui();
 }
 
+function devSpawnSolarFlare() {
+  fireEventById('solar_flare');
+}
+
+function devSpawnComet() {
+  fireEventById('comet');
+}
+
 export function initDevPanel() {
   const panel = document.getElementById('dev-panel');
   const menu  = document.getElementById('dev-menu');
@@ -185,4 +194,6 @@ export function initDevPanel() {
   document.getElementById('dev-btn-unique-ships').addEventListener('click',   e => { e.stopPropagation(); devAddUniqueShips(); });
   document.getElementById('dev-btn-max-ships').addEventListener('click',      e => { e.stopPropagation(); devFillMaxShips(); });
   document.getElementById('dev-btn-flood-nodes').addEventListener('click',    e => { e.stopPropagation(); devFloodIronNodes(); });
+  document.getElementById('dev-btn-solar-flare').addEventListener('click',    e => { e.stopPropagation(); devSpawnSolarFlare(); });
+  document.getElementById('dev-btn-comet').addEventListener('click',          e => { e.stopPropagation(); devSpawnComet(); });
 }

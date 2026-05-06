@@ -33,6 +33,21 @@ export function getAvailableMarketResourceTypes() {
   return unlocked.size ? Array.from(unlocked) : Object.keys(RESOURCE_DEFS);
 }
 
+export function rollMarketDemands() {
+  const types = getAvailableMarketResourceTypes();
+  const shuffled = types.slice().sort(() => Math.random() - 0.5);
+  const demandCount = state.researchUnlocks?.multi_demand ? Math.min(3, shuffled.length) : Math.min(1, shuffled.length);
+  const picked = shuffled.slice(0, demandCount);
+  if (!picked.length) {
+    state.marketBoost = null;
+    state.extraDemands = [];
+    return;
+  }
+  const boosted = picked[0];
+  state.marketBoost = { type: boosted, multiplier: randomDemandMultiplier() };
+  state.extraDemands = picked.slice(1).map(t => ({ type: t, multiplier: randomDemandMultiplier() }));
+}
+
 export function tickSOL(dt) {
   if (!state.solStarted) return;
   state.solTimer += dt;
@@ -46,15 +61,10 @@ export function tickSOL(dt) {
     if (state.rp < rpCap) { state.rp++; updateHeaderRP(); addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
 
     // Random in-demand resource(s)
-    const types = getAvailableMarketResourceTypes();
-    const shuffled = types.slice().sort(() => Math.random() - 0.5);
-    const demandCount = state.researchUnlocks?.multi_demand ? Math.min(3, 1 + Math.floor(Math.random() * 3)) : 1;
-    const picked = shuffled.slice(0, Math.min(demandCount, shuffled.length));
-    const boosted = picked[0];
-    const multiplier = randomDemandMultiplier();
-    state.marketBoost = { type: boosted, multiplier };
-    state.extraDemands = picked.slice(1).map(t => ({ type: t, multiplier: randomDemandMultiplier() }));
-    const demandLabels = [RESOURCE_DEFS[boosted].label, ...state.extraDemands.map(d => RESOURCE_DEFS[d.type].label)];
+    rollMarketDemands();
+    const demandLabels = state.marketBoost
+      ? [RESOURCE_DEFS[state.marketBoost.type].label, ...state.extraDemands.map(d => RESOURCE_DEFS[d.type].label)]
+      : [];
     addLog(`📈 Market boost: ${demandLabels.join(', ')} selling at premium this SOL!`);
     addLog(`☀ SOL ${state.sol} begins.`);
     patchSolPanel('sol');

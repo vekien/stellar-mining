@@ -33,7 +33,44 @@ export function clampCoins(n) {
 // ── Coin helpers — mutate state.coins and push update to header ──
 let _headerCoinCb = null;
 export function setHeaderCoinCb(fn) { _headerCoinCb = fn; }
-export function addCoins(n) { _stateRef.coins = clampCoins((_stateRef.coins || 0) + n); _headerCoinCb?.(); }
+let _lastMaxCoinWarnTs = 0;
+let _currencyMaxPopupTimer = null;
+
+function showCurrencyMaxPopup() {
+  const overlay = document.getElementById('currency-max-popup-overlay');
+  if (!overlay) return;
+  overlay.classList.add('show');
+  if (_currencyMaxPopupTimer) clearTimeout(_currencyMaxPopupTimer);
+  _currencyMaxPopupTimer = setTimeout(() => overlay.classList.remove('show'), 3000);
+}
+
+window.closeCurrencyMaxPopup = function() {
+  const overlay = document.getElementById('currency-max-popup-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('show');
+  if (_currencyMaxPopupTimer) {
+    clearTimeout(_currencyMaxPopupTimer);
+    _currencyMaxPopupTimer = null;
+  }
+};
+
+export function addCoins(n) {
+  if (!_stateRef) return false;
+  const delta = Math.floor(Number(n) || 0);
+  if (delta <= 0) return true;
+  if ((_stateRef.coins || 0) >= MAX_COINS) {
+    showCurrencyMaxPopup();
+    const now = Date.now();
+    if (now - _lastMaxCoinWarnTs > 1200) {
+      _lastMaxCoinWarnTs = now;
+      addLog('⚠ Cannot sell! Currency is maxed out. Consider alternate means of liquidation.');
+    }
+    return false;
+  }
+  _stateRef.coins = clampCoins((_stateRef.coins || 0) + delta);
+  _headerCoinCb?.();
+  return true;
+}
 export function spendCoins(n) { _stateRef.coins = clampCoins((_stateRef.coins || 0) - n); _headerCoinCb?.(); }
 
 // ── Canvas log entries ──

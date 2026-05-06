@@ -207,7 +207,7 @@ window.confirmScrapTurret = function(id) {
 window.doScrapTurret = function(id, refundCoins, refundIron, refundCopper) {
   const soldTurret = state.turrets.find(t => t.id === id);
   const soldTurretName = getTurretTypeDef(soldTurret?.type).name;
-  addCoins(refundCoins);
+  if (!addCoins(refundCoins)) return;
   state.resources.iron   = (state.resources.iron   || 0) + refundIron;
   state.resources.copper = (state.resources.copper || 0) + refundCopper;
   state.turrets = state.turrets.filter(t => t.id !== id);

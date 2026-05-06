@@ -20,6 +20,10 @@ export const NPCS = {
         `${C}, Admiral Juno here. Excellent work — your <strong>Base Station upgrade</strong> has expanded operational radius and increased local fleet availability.<br><br>` +
         `New deposits have appeared in range, including <strong>Oxygen</strong> and <strong>Silicon</strong>. Prioritize survey assignments and secure extraction lanes.<br><br>` +
         `Stay alert: this expansion edges us closer to <strong>pirate territory</strong>. Expect resistance as we push outward.`,
+      base_down_no_deposit:
+        `${C}, Juno here. Your base is currently <strong>offline</strong>.<br><br>` +
+        `While integrity is at <strong>0 HP</strong>, incoming ships <strong>cannot deposit cargo</strong>.<br><br>` +
+        `Repair the Base Station to restore docking and transfer operations.`,
     },
   },
   sera: {

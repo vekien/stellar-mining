@@ -384,10 +384,12 @@ export function renderActionPanel() {
                     : ship.status === 'mining'    ? '⛏ Mining'
                     : ship.status === 'returning' ? '↩ Returning'
                     : ship.status === 'pausing'   ? '↩ Returning'
+                    : ship.status === 'holding'   ? '◌ Holding Pattern'
                     : '● Idle';
   const statusColor = ship.status === 'mining'    ? '#c6f'
                     : ship.status === 'flying'    ? '#48f'
                     : ship.status === 'returning' || ship.status === 'pausing' ? '#fa6'
+                    : ship.status === 'holding'   ? '#f88'
                     : '#4d8';
 
   const stats    = SHIP_DEFS[ship.type] || SHIP_DEFS.scout;
@@ -773,14 +775,16 @@ export function renderTab() {
       content.innerHTML = `<div style="margin-top:10px;padding:14px;background:rgba(10,25,60,0.5);border:1px solid #1a3a6e;border-radius:4px;text-align:center;color:#3a5a7a;font-size:13px;line-height:1.7">⏳ Waiting for resources...<br><span style="font-size:11px;color:#2a4060">Assign a ship to start mining.</span></div>`;
       return;
     }
-    const boostMult = state.marketBoost?.multiplier ?? 1.5;
+    const demandMap = new Map();
+    if (state.marketBoost?.type) demandMap.set(state.marketBoost.type, state.marketBoost.multiplier ?? 1.5);
+    for (const d of (state.extraDemands || [])) demandMap.set(d.type, d.multiplier ?? 1.5);
     let html = '';
-    if (state.marketBoost) {
-      const bd = RESOURCE_DEFS[state.marketBoost.type];
-      html += `<div style="font-size:14px;background:rgba(20,60,10,0.6);border:1px solid #4a8020;border-radius:4px;padding:8px 10px;margin-bottom:8px;text-align:center;line-height:1.25">
-        <span style="font-weight:bold;color:${bd.color}">${bd.label}</span> <span style="color:#cde">in demand!</span>
-        <span style="color:#ffe066;font-weight:bold"> · ${boostMult}× this SOL</span>
-      </div>`;
+    if (demandMap.size) {
+      const demandLines = Array.from(demandMap.entries()).map(([type, mult]) => {
+        const def = RESOURCE_DEFS[type];
+        return `<span style="font-weight:bold;color:${def.color}">${def.label}</span> <span style="color:#ffe066;font-weight:bold">${mult}×</span>`;
+      });
+      html += `<div style="font-size:14px;background:rgba(20,60,10,0.6);border:1px solid #4a8020;border-radius:4px;padding:8px 10px;margin-bottom:8px;text-align:center;line-height:1.5">${demandLines.join('<span style="color:#6a8;"> · </span>')}</div>`;
     }
     html += '<div class="sell-grid">';
     for (const [type, def] of Object.entries(RESOURCE_DEFS)) {
@@ -788,7 +792,8 @@ export function renderTab() {
       if (amt <= 0) continue;
       const sellAmt = amt < 100 ? 1 : amt < 1000 ? 10 : amt < 10000 ? 25 : 100;
       const price   = getSellPrice(type);
-      const boosted = state.marketBoost?.type === type;
+      const boostMult = demandMap.get(type);
+      const boosted = Number.isFinite(boostMult);
       const priceHtml = boosted
         ? `<span style="color:#6fff9a;font-size:12px;flex-shrink:0">$${price} <span title="Market boosted this SOL — ${boostMult}× sell price!" style="cursor:help;">✦</span></span>`
         : `<span style="color:#6fff9a;font-size:12px;flex-shrink:0">$${price}</span>`;

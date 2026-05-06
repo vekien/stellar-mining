@@ -12,6 +12,8 @@ import {
 import { addLog } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { updateHeaderRP } from '../ui/ui.js';
+import { rollMarketDemands } from './sol.js';
+import { saveGame } from '../state.js';
 
 // ── Compute current max shield from purchases ─────────────────
 export function getMaxShield() {
@@ -91,6 +93,13 @@ window.purchaseResearch = function(unlockId) {
       addLog(`▲ Market Influence active! All sell prices increased by 10%.`);
       break;
 
+    case 'multi_demand':
+      state.researchUnlocks[unlockId] = true;
+      trackUnlock(unlockId, def.name, 1);
+      rollMarketDemands();
+      addLog(`■ Multi-Demand active! 3 resources are now in demand each SOL.`);
+      break;
+
     default:
       state.researchUnlocks[unlockId] = true;
       trackUnlock(unlockId, def.name, 1);
@@ -100,6 +109,7 @@ window.purchaseResearch = function(unlockId) {
 
   if (refresh.ui) refresh.ui();
   if (refresh.basePanel) refresh.basePanel();
+  saveGame();
   // Re-open research panel to reflect new state
   if (window.openHdrPanel) { window.openHdrPanel('research', { refresh: true, preserveScroll: true }); }
 };
