@@ -3,6 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { NPCS } from '../data/npcs.js';
+import { SOL_DURATION } from '../constants.js';
 
 const admiralQueue = [];
 let admiralTimer = 0;
@@ -16,6 +17,30 @@ export function showOnce(id, text, duration = 10, npcId) {
 }
 
 export function showTransmissionMessage(text, duration = 10, npcId = 'juno') {
+  const npc = NPCS[npcId] || NPCS.juno;
+  const dayProgress = (state.solTimer || 0) / SOL_DURATION;
+  const solHours = Math.floor(dayProgress * 24);
+  const solMins = Math.floor((dayProgress * 24 * 60) % 60);
+  const solTime = `${String(solHours).padStart(2,'0')}:${String(solMins).padStart(2,'0')}`;
+  const historyEntry = {
+    sol: state.sol ?? 1,
+    solTime,
+    npcId,
+    npcName: npc.name,
+    npcRole: npc.role || npc.ship,
+    text,
+  };
+  const last = state.transmissionHistory[0];
+  const isDuplicate = !!last
+    && last.sol === historyEntry.sol
+    && last.solTime === historyEntry.solTime
+    && last.npcId === historyEntry.npcId
+    && last.text === historyEntry.text;
+  if (!isDuplicate) {
+    state.transmissionHistory.unshift(historyEntry);
+    if (state.transmissionHistory.length > 20) state.transmissionHistory = state.transmissionHistory.slice(0, 20);
+    window.patchTransmissionsPanel?.();
+  }
   admiralQueue.push({ text, duration, npcId });
   if (!admiralVisible) flushAdmiralQueue();
 }

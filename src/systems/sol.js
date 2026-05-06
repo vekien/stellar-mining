@@ -82,6 +82,12 @@ export function tickSOL(dt) {
       showTransmissionMessage(NPCS.rigs.transmissionLines.sol_idle({ names, count: idleShips.length }), 20, 'rigs');
     }
 
+    const holdingShips = state.ships.filter(s => s.status === 'holding');
+    if (holdingShips.length > 0) {
+      const names = holdingShips.map(s => `<strong>${s.name}</strong>`).join(', ');
+      showTransmissionMessage(NPCS.rigs.transmissionLines.sol_holding({ names, count: holdingShips.length }), 18, 'rigs');
+    }
+
     saveGame();
   }
 }

@@ -148,14 +148,20 @@ export function renderFleetFilters() {
   idleToggle.textContent = 'Idle';
   idleToggle.onclick = () => { ff.idleOnly = !ff.idleOnly; renderShipsList(); };
 
+  const holdingToggle = document.createElement('button');
+  holdingToggle.className = 'fleet-filter' + (ff.holdingOnly ? ' active' : '');
+  holdingToggle.textContent = 'Holding';
+  holdingToggle.onclick = () => { ff.holdingOnly = !ff.holdingOnly; renderShipsList(); };
+
   const clr = document.createElement('button');
   clr.className = 'fleet-filter fleet-filter-clear';
   clr.textContent = 'Clear';
   clr.onclick = () => {
-    Object.assign(state.fleetFilter, { type:null, role:null, node:null, idleOnly:false, sort:null, sortDir:1 });
+    Object.assign(state.fleetFilter, { type:null, role:null, node:null, idleOnly:false, holdingOnly:false, sort:null, sortDir:1 });
     renderShipsList();
   };
   clearRow.appendChild(idleToggle);
+  clearRow.appendChild(holdingToggle);
   clearRow.appendChild(clr);
   container.appendChild(clearRow);
 }
@@ -168,6 +174,7 @@ export function renderShipsList() {
 
   let ships = state.ships.filter(ship => {
     if (ff.idleOnly && ship.status !== 'idle') return false;
+    if (ff.holdingOnly && ship.status !== 'holding') return false;
     if (ff.type) {
       const typeName = CRAFT_RECIPES.find(r => r.id === ship.type)?.name || 'Starter';
       if (typeName !== ff.type) return false;

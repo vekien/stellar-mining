@@ -1126,6 +1126,114 @@
     animation: storageWarningStripeScroll 1.4s linear infinite;
     text-shadow: none;
   }
+  .transmission-history-body {
+    font-size: 15px;
+    color: #cde;
+    line-height: 1.6;
+  }
+  .tx-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 12px;
+    min-height: 420px;
+  }
+  .tx-list-card {
+    border: 1px solid #1a3a6e;
+    border-radius: 6px;
+    background: rgba(8,16,36,0.75);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .tx-list-title {
+    padding: 10px 12px;
+    border-bottom: 1px solid #1a3a6e;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #4af;
+  }
+  .tx-list {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .tx-item {
+    text-align: left;
+    padding: 10px 12px;
+    border: none;
+    border-bottom: 1px solid rgba(26,58,110,0.35);
+    background: transparent;
+    color: #8ab;
+    cursor: pointer;
+  }
+  .tx-item.active {
+    background: rgba(20,60,120,0.35);
+    color: #cde;
+  }
+  .tx-item-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .tx-item-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: #7aa8d6;
+  }
+  .tx-item.active .tx-item-name { color: #8fd2ff; }
+  .tx-item-sol {
+    font-size: 10px;
+    color: #6a8aaa;
+    white-space: nowrap;
+  }
+  .tx-item-meta {
+    font-size: 11px;
+    color: #5a8ab0;
+    margin-top: 5px;
+  }
+  .tx-detail-card {
+    border: 1px solid #1a3a6e;
+    border-radius: 6px;
+    background: rgba(10,20,50,0.45);
+    padding: 14px 16px;
+  }
+  .tx-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .tx-detail-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: #8fd2ff;
+  }
+  .tx-detail-role {
+    font-size: 13px;
+    color: #5a8ab0;
+  }
+  .tx-detail-time {
+    font-size: 11px;
+    color: #6a8aaa;
+    white-space: nowrap;
+  }
+  .tx-empty {
+    font-size: 14px;
+    color: #4a6a8a;
+    padding: 12px;
+  }
+  .transmission-history-body strong {
+    color: #ffe066;
+    font-weight: 700;
+  }
+  .transmission-history-body span[style*='color:#f88'] {
+    color: #f88 !important;
+  }
   @keyframes storageWarningStripeScroll {
     from { background-position: 0 0; }
     to { background-position: 40px 0; }

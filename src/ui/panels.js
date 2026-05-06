@@ -64,6 +64,56 @@ let _fleetCompSig = '';
 let _fleetSortKey = 'name';
 let _fleetSortDir = 1;
 let _stockpileMineableKeys = null;
+let _selectedTransmissionIndex = 0;
+
+function renderTransmissionsPanel(body) {
+  body.innerHTML = `
+    <div class="tx-layout">
+      <div class="tx-list-card">
+        <div class="tx-list-title">RECENT SIGNALS</div>
+        <div id="tx-list" class="tx-list"></div>
+      </div>
+      <div id="tx-detail" class="tx-detail-card"></div>
+    </div>`;
+  patchTransmissionsPanel();
+}
+
+export function patchTransmissionsPanel() {
+  const overlay = document.getElementById('hdr-modal-overlay');
+  if (_hdrPanelOpen !== 'transmissions' || !overlay?.classList.contains('open')) return;
+  const history = Array.isArray(state.transmissionHistory) ? state.transmissionHistory.slice(0, 20) : [];
+  const listEl = document.getElementById('tx-list');
+  const detailEl = document.getElementById('tx-detail');
+  if (!listEl || !detailEl) return;
+  if (!history.length) {
+    listEl.innerHTML = '<div class="tx-empty">No transmissions recorded yet.</div>';
+    detailEl.innerHTML = '<div class="tx-empty">No transmission selected.</div>';
+    return;
+  }
+  _selectedTransmissionIndex = Math.max(0, Math.min(_selectedTransmissionIndex, history.length - 1));
+  const selected = history[_selectedTransmissionIndex];
+  listEl.innerHTML = history.map((entry, idx) => `
+    <button onclick="selectTransmissionHistory(${idx})" class="tx-item${idx===_selectedTransmissionIndex?' active':''}">
+      <div class="tx-item-top">
+        <span class="tx-item-name">${entry.npcName || 'Unknown'}</span>
+      </div>
+      <div class="tx-item-meta">SOL ${entry.sol} - ${entry.solTime || '--:--'} - ${entry.npcRole || ''}</div>
+    </button>`).join('');
+  detailEl.innerHTML = `
+    <div class="tx-detail-head">
+      <div>
+        <div class="tx-detail-name">${selected.npcName || 'Unknown'}</div>
+        <div class="tx-detail-role">${selected.npcRole || ''}</div>
+      </div>
+      <div class="tx-detail-time">SOL ${selected.sol} · ${selected.solTime || '--:--'}</div>
+    </div>
+    <div class="transmission-history-body">${selected.text || ''}</div>`;
+}
+
+window.selectTransmissionHistory = function(idx) {
+  _selectedTransmissionIndex = idx;
+  patchTransmissionsPanel();
+};
 
 function getResourceAbundanceHint(resourceKey) {
   const firstBand = NODE_BANDS.find((band) => band.types.includes(resourceKey));
@@ -76,6 +126,7 @@ function getResourceAbundanceHint(resourceKey) {
 // Expose for research.js (re-opens after purchase)
 window.openHdrPanel  = openHdrPanel;
 window.patchSolPanel = patchSolPanel;
+window.patchTransmissionsPanel = patchTransmissionsPanel;
 window._hdrPanelOpen = null;
 // Sync module-level var when research.js pokes the global
 Object.defineProperty(window, '_hdrPanelOpen', {
@@ -107,6 +158,7 @@ export function refreshHdrPanelIfOpen() {
   if (_hdrPanelOpen === 'stats') return;
   if (_hdrPanelOpen === 'resources') return;
   if (_hdrPanelOpen === 'market') return;
+  if (_hdrPanelOpen === 'transmissions') return;
   if (_hdrPanelOpen === 'fleet') {
     refreshFleetPanelPartial();
     return;
@@ -595,6 +647,12 @@ export function openHdrPanel(type, options = {}) {
       </div>`;
     body.dataset.cmdTab = activeCmd;
     window.setCmdTab = (id) => { body.dataset.cmdTab = id; _hdrPanelOpen = null; openHdrPanel('command'); };
+  }
+
+  // ── TRANSMISSIONS ──────────────────────────────────────────
+  else if (type === 'transmissions') {
+    heading.textContent = 'TRANSMISSIONS';
+    renderTransmissionsPanel(body);
   }
 
   // ── CRAFT ─────────────────────────────────────────────────

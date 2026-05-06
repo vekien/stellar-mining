@@ -230,7 +230,7 @@ export function tickShip(ship, dt) {
     ship.status = 'returning';
   }
 
-  const FLY_SPEED = 80 * flySpeedToMultiplier(ship.flySpeed);
+  const FLY_SPEED = ship.status === 'holding' ? 100 : 80 * flySpeedToMultiplier(ship.flySpeed);
 
   if (ship.status==='flying'||ship.status==='returning'||ship.status==='holding') {
     // Trail: record world position every frame, keep last 28 points

@@ -32,13 +32,14 @@ export let state = {
   activeTab: 'log',
   log: [],
   logHistory: [],
+  transmissionHistory: [],
   renamingShip: null,
   renamingBase: false,
   renamingStorage: null,
   pendingAssign: null,
   basePanelOpen: false,
   bpTab: 'overview',
-  fleetFilter: { type: null, role: null, node: null, idleOnly: false, sort: null, sortDir: 1 },
+  fleetFilter: { type: null, role: null, node: null, idleOnly: false, holdingOnly: false, sort: null, sortDir: 1 },
   shipCraftTimers: {},
   shipCraftNotices: {},
   turretCraftTimers: {},
@@ -126,7 +127,7 @@ export function saveGame() {
       resources: state.resources, shipIdCounter,
       worldSeed: state.worldSeed,
       base: state.base,
-      sol: state.sol, rp: state.rp, marketBoost: state.marketBoost, extraDemands: state.extraDemands,
+      sol: state.sol, solTimer: state.solTimer, rp: state.rp, marketBoost: state.marketBoost, extraDemands: state.extraDemands,
       settings: state.settings,
       solStarted: state.solStarted, tutStep: state.tutStep,
       firstDeposit: state.firstDeposit, firstCraftable: state.firstCraftable,
@@ -142,6 +143,7 @@ export function saveGame() {
       unplacedTurrets: state.unplacedTurrets, unplacedTurretQueue: state.unplacedTurretQueue,
       unplacedStorages: state.unplacedStorages, unplacedStorageQueue: state.unplacedStorageQueue,
       logHistory: state.logHistory,
+      transmissionHistory: state.transmissionHistory,
       shipCraftTimers: state.shipCraftTimers,
       turretCraftTimers: state.turretCraftTimers,
       storageCraftTimers: state.storageCraftTimers,
@@ -170,6 +172,7 @@ export function loadGame() {
     state.worldSeed = Number.isFinite(d.worldSeed) ? d.worldSeed : null;
     state.base = { name:'Base Station', level:1, health:10000, maxHealth:10000, shield:0, ...(d.base||{}) };
     state.sol  = d.sol ?? 1;
+    state.solTimer = d.solTimer ?? 0;
     state.rp   = d.rp  ?? 0;
     state.marketBoost = d.marketBoost ?? null;
     state.extraDemands = Array.isArray(d.extraDemands) ? d.extraDemands : [];
@@ -223,6 +226,7 @@ export function loadGame() {
       : Array.from({ length: d.unplacedStorages ?? 0 }, () => 'storage_facility');
     state.unplacedStorages = state.unplacedStorageQueue.length;
     state.logHistory = Array.isArray(d.logHistory) ? d.logHistory.slice(-100) : [];
+    state.transmissionHistory = Array.isArray(d.transmissionHistory) ? d.transmissionHistory.slice(0, 20) : [];
     state.log = state.logHistory.slice(0, 3).map(entry => entry.msg);
     state.shipCraftTimers = d.shipCraftTimers && typeof d.shipCraftTimers === 'object' ? d.shipCraftTimers : {};
     state.turretCraftTimers = d.turretCraftTimers && typeof d.turretCraftTimers === 'object' ? d.turretCraftTimers : {};
@@ -243,7 +247,6 @@ export function loadGame() {
     state.base.health = Math.min(state.base.health ?? state.base.maxHealth, state.base.maxHealth);
     // scheduleNextEvent() called by main.js after loadGame() if nextEventTimer === null
     state.activeWarning = null;
-    state.solTimer = 0;
     shipIdCounter = d.shipIdCounter ?? 1;
     state.ships = (d.ships||[]).map(sd => {
       const base = gridToWorld(BASE_COL, BASE_ROW);
