@@ -15,6 +15,7 @@ import {
 } from './animations.js';
 import { drawStars } from './stars.js';
 import { drawTurrets, drawTurretPlacementHover, setTurretCtx } from './turrets.js';
+import { drawStorageFacilities, drawStoragePlacementHover, setStorageCtx } from './storage.js';
 
 let ctx = null;
 export let W = 0, H = 0;
@@ -32,6 +33,7 @@ export function initRenderer(mainCtx, w, h) {
   W = w; H = h;
   setAnimCtx(ctx);
   setTurretCtx(ctx);
+  setStorageCtx(ctx);
 }
 
 export function resizeRenderer(w, h) { W = w; H = h; }
@@ -417,7 +419,8 @@ export function drawNode(node) {
 
 export function drawShipWorld(ship) {
   const size = ship.type==='freighter'?11:ship.type==='hauler'?9:8;
-  const col  = ship.type==='freighter'?'#ffaa30':ship.type==='hauler'?'#80d0ff':ship.type==='swift'?'#ff80c0':'#60d090';
+  const baseCol = ship.type==='freighter'?'#ffaa30':ship.type==='hauler'?'#80d0ff':ship.type==='swift'?'#ff80c0':'#60d090';
+  const col  = ship.status === 'holding' ? '#9aa3ae' : baseCol;
   const isSelected = state.selectedShip === ship.id;
 
   // ── Curved trail (world space, drawn before ship body) ──────
@@ -621,12 +624,14 @@ export function render(ts) {
   drawRangePulses();
   const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
   for (const n of sn) drawNode(n);
+  drawStorageFacilities();
   drawBase(BASE_COL, BASE_ROW);
   drawSelectedShipLine();
   const ss = [...state.ships].sort((a,b)=>a.y-b.y);
   for (const s of ss) drawShipWorld(s);
   drawTurrets();
   drawTurretPlacementHover();
+  drawStoragePlacementHover();
   drawSolarFlare();
   drawComet();
   drawFloaties();

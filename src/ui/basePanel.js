@@ -50,9 +50,9 @@ export function renderBasePanel() {
   if (!document.getElementById('bp-header-bar')) {
     const headerBar = document.createElement('div');
     headerBar.id = 'bp-header-bar';
-    headerBar.style.cssText = 'display:flex;align-items:stretch;border-bottom:1px solid #1a3a6e;flex-shrink:0;';
-    headerBar.innerHTML = `<div style="flex:1;padding:8px 12px;font-family:\'Orbitron\',sans-serif;font-size:11px;letter-spacing:2px;color:#4af;">BASE STATION</div>
-    <button onclick="dismissBasePanel()" style="background:none;border:none;border-left:1px solid #1a3a6e;color:#4a6a8a;font-size:16px;padding:0 12px;cursor:pointer;flex-shrink:0;" onmouseover="this.style.color='#cde'" onmouseout="this.style.color='#4a6a8a'">✕</button>`;
+    headerBar.className = 'panel-shell-head';
+    headerBar.innerHTML = `<div class="panel-shell-title">BASE STATION</div>
+    <button class="panel-shell-close" onclick="dismissBasePanel()">✕</button>`;
     panel.appendChild(headerBar);
     const bodyEl = document.createElement('div');
     bodyEl.id = 'bp-body';

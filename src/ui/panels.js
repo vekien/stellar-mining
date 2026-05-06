@@ -16,9 +16,11 @@ import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
+import { getStorageFacilityStats } from '../data/storage.js';
 import { fmt } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
+import { cancelStoragePlacement } from './storageUI.js';
 import { renderBasePanel } from './basePanel.js';
 import { removeReassignTooltip, renderTutPointers } from './tutorial.js';
 
@@ -43,6 +45,15 @@ setInterval(() => {
     const fillEl  = document.getElementById(`craft-turret-fill-${turretType}`);
     const labelEl = document.getElementById(`craft-turret-label-${turretType}`);
     if (fillEl)  fillEl.style.width = `${pct}%`;
+    if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
+  }
+  for (const [moduleType, timer] of Object.entries(state.storageCraftTimers || {})) {
+    if (!timer || Date.now() >= timer.endsAt) continue;
+    const remainMs = Math.max(0, timer.endsAt - Date.now());
+    const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
+    const fillEl  = document.getElementById(`craft-module-fill-${moduleType}`);
+    const labelEl = document.getElementById(`craft-module-label-${moduleType}`);
+    if (fillEl) fillEl.style.width = `${pct}%`;
     if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
   }
 }, 100);
@@ -501,6 +512,7 @@ export function openHdrPanel(type, options = {}) {
 
   if (state.basePanelOpen) { state.basePanelOpen = false; if (window.renderBasePanel) window.renderBasePanel(); }
   cancelTurretPlacement();
+  cancelStoragePlacement();
   if (type === 'market' && state.tutStep === 10) {
     state.tutStep = 11;
     document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
@@ -766,6 +778,48 @@ export function openHdrPanel(type, options = {}) {
 
       tabContent = defHtml;
 
+    } else if (activeCraftTab === 'modules') {
+      const storageUnlocked = !!state.researchUnlocks['storage_facilities'];
+      const storageStats = getStorageFacilityStats(1);
+      const queue = Array.isArray(state.unplacedStorageQueue) ? state.unplacedStorageQueue : Array.from({ length: state.unplacedStorages || 0 }, () => 'storage_facility');
+      const queued = queue.filter(t => t === 'storage_facility').length;
+      const builtCount = (state.storageFacilities || []).length;
+      const moduleDef = getCraft('modules', 'storage_facility');
+      const timer = state.storageCraftTimers?.storage_facility;
+      const timerActive = !!(timer && Date.now() < timer.endsAt);
+      const remainMs = timerActive ? Math.max(0, timer.endsAt - Date.now()) : 0;
+      const remainSec = Math.ceil(remainMs / 1000);
+      const pct = timerActive ? Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100)) : 0;
+      const canCoins = state.coins >= (moduleDef?.cost || 0);
+      const reqPills = moduleDef
+        ? Object.entries(moduleDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')
+        : '';
+      const canBuild = !!moduleDef && canCoins && Object.entries(moduleDef.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
+
+      tabContent = !storageUnlocked
+        ? `<div class="craft-defense-empty">
+            🔒 Storage Facilities are still locked.<br><br>
+            <span style="font-size:13px;">Unlock <strong style="color:#8ab">Storage Facilities</strong> in the Research panel first.</span>
+          </div>`
+        : `<div class="craft-defense-card">
+            <div class="craft-defense-head">
+              <div class="craft-defense-title">${moduleDef?.name?.toUpperCase() || 'STORAGE FACILITY'}</div>
+              <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
+            </div>
+            <div class="craft-defense-desc">Deploy a 3x3 depot that stores its own cargo inventory separately from the Base Station.</div>
+            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
+              <span class="craft-stat">HEALTH <span style="color:#ffe066;">${fmt(storageStats.maxHealth)}</span></span>
+              <span class="craft-stat">STORAGE <span style="color:#ffe066;">${fmt(storageStats.storageCapacity)}</span></span>
+              <span class="craft-stat">POWER USE <span style="color:#ffe066;">${storageStats.powerUsage}/s</span></span>
+              <span class="craft-stat">POWER CAP <span style="color:#ffe066;">${fmt(storageStats.powerCapacity)}</span></span>
+            </div>
+            <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${canCoins ? 'met' : 'unmet'}">$${fmt(moduleDef?.cost || 0)}</span>${reqPills}</div>
+            ${queued > 0
+              ? `<button class="btn place craft-defense-btn" onclick="beginPlacingStorage('storage_facility')">PLACE STORAGE (${queued})</button>`
+              : timerActive
+              ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-module-fill-storage_facility" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-module-label-storage_facility">CRAFTING ${remainSec}s</span></button>`
+              : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startCraftModule('storage_facility')">BUILD STORAGE</button>`}
+          </div>`;
     } else {
       tabContent = `<div class="craft-placeholder">
         <div class="craft-placeholder-icon">⬡</div>

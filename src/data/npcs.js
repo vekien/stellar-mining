@@ -135,6 +135,16 @@ export const NPCS = {
     ship: 'Power & Fuel Systems · Sector Operations',
     portrait: 'assets/images/npcs/doran.jpg',
     bio: "Chief Doran keeps the lights on across the entire sector. A veteran of three deep-space construction projects, he oversees all power grid and fuel distribution infrastructure. Quiet, methodical, and deeply unimpressed by anyone who doesn't respect load capacity.",
+    transmissionLines: {
+      storage_no_power:
+        `${C}, Chief Doran here. One of your storage facilities has gone <strong>offline</strong> — its internal power reserve is completely drained.<br><br>` +
+        `While it has <strong>no power</strong>, ships cannot unload cargo there and will be forced to hold position nearby.<br><br>` +
+        `We will eventually support battery jump-starts and proper grid hookups. For now, treat an unpowered depot as unavailable and route traffic elsewhere.`,
+      base_destroyed:
+        `${C}, Chief Doran. Your <strong>Base Station</strong> has suffered catastrophic structural failure and is now effectively out of action.<br><br>` +
+        `Until the hull is repaired, ships cannot unload there and local operations will be disrupted.<br><br>` +
+        `Get integrity back above <strong>0 HP</strong> before you rely on the tower again.`,
+    },
   },
   scarlett: {
     id: 'scarlett',

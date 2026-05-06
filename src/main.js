@@ -17,7 +17,7 @@ import {
 } from './render/animations.js';
 import { scheduleNextEvent, tickSOL, rollMarketDemands } from './systems/sol.js';
 import { fireRandomEvent } from './systems/events.js';
-import { tickAdmiral } from './ui/transmissions.js';
+import { tickAdmiral, showTransmissionMessage } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
 import './systems/research.js';
 import { getMaxShield } from './systems/research.js';
@@ -29,6 +29,28 @@ import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayCli
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
 import { initInput } from './input.js';
 import { initDevPanel } from './ui/devPanel.js';
+import './ui/storageUI.js';
+import { NPCS } from './data/npcs.js';
+import { getStoragePowerUsage } from './data/storage.js';
+
+let _baseDestroyedNoticeShown = false;
+let _storageOfflineNoticeShown = false;
+
+function hasOfflineStorage() {
+  return state.storageFacilities.some(storage => (storage.power || 0) <= 0 || (storage.health || 0) <= 0);
+}
+
+function showStartupInfrastructureWarnings() {
+  if ((state.base.health || 0) <= 0) {
+    _baseDestroyedNoticeShown = true;
+    showTransmissionMessage(NPCS.doran.transmissionLines.base_destroyed, 18, 'doran');
+    return;
+  }
+  if (hasOfflineStorage()) {
+    _storageOfflineNoticeShown = true;
+    showTransmissionMessage(NPCS.doran.transmissionLines.storage_no_power, 18, 'doran');
+  }
+}
 
 // ── Canvas + contexts ─────────────────────────────────────────
 const canvas  = document.getElementById('main-canvas');
@@ -98,6 +120,7 @@ for (const s of state.ships) {
 
 focusOnBase(2.0);
 updateHeader();
+showStartupInfrastructureWarnings();
 
 // Re-dispatch ships that had a target node when the game was saved.
 // Stagger launch so they do not all fire at once on load.
@@ -219,6 +242,7 @@ window.switchTab      = function(tab) {
 // ── Passive tick timers ───────────────────────────────────────
 let _shieldRegenTimer = 0;  // accumulates toward shield regen interval
 let _autoRegenTimer   = 0;  // accumulates toward 1 s
+let _storagePowerTimer = 0;
 
 // ── Game loop ─────────────────────────────────────────────────
 let lastTick = performance.now();
@@ -238,6 +262,12 @@ function gameLoop() {
   tickNodeParticles(dt);
   tickSOL(dt);
   tickAdmiral(dt);
+
+  if ((state.base.health || 0) > 0) _baseDestroyedNoticeShown = false;
+  else if (!_baseDestroyedNoticeShown) {
+    _baseDestroyedNoticeShown = true;
+    showTransmissionMessage(NPCS.doran.transmissionLines.base_destroyed, 18, 'doran');
+  }
 
   // ── Shield regeneration ─────────────────────────────────────
   if ((state.shieldBoostCount || 0) > 0) {
@@ -259,6 +289,26 @@ function gameLoop() {
       const hpPerSec = state.autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE;
       state.base.health = Math.min(state.base.maxHealth, state.base.health + hpPerSec);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+    }
+  }
+
+  _storagePowerTimer += dt;
+  if (_storagePowerTimer >= 1) {
+    _storagePowerTimer -= 1;
+    let storageWentOffline = false;
+    for (const storage of state.storageFacilities) {
+      const prevPower = storage.power || 0;
+      storage.power = Math.max(0, prevPower - getStoragePowerUsage(storage));
+      if (prevPower > 0 && storage.power <= 0) storageWentOffline = true;
+    }
+    if (!hasOfflineStorage()) _storageOfflineNoticeShown = false;
+    if (storageWentOffline && !_storageOfflineNoticeShown) {
+      _storageOfflineNoticeShown = true;
+      showTransmissionMessage(NPCS.doran.transmissionLines.storage_no_power, 18, 'doran');
+    }
+    if (state.selectedStorage && window.patchStorageModal) {
+      const overlay = document.getElementById('storage-modal-overlay');
+      if (overlay?.style.display === 'flex') window.patchStorageModal();
     }
   }
 

@@ -5,6 +5,7 @@
 export const canvasState = {
   turretHoverCol: -1,
   turretHoverRow: -1,
+  storageHoverId: null,
   baseHovered: false,
   lastHoveredNode: null,
 };

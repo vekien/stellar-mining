@@ -1,7 +1,7 @@
 // ============================================================
 // SHIP SYSTEMS — tick, assign, recall, spawn, craft, upgrade
 // ============================================================
-import { TILE_H, BASE_COL, BASE_ROW } from '../constants.js';
+import { TILE_H, BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS } from '../constants.js';
 import { state, bumpShipIdCounter } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
@@ -24,18 +24,73 @@ import { showOnce, showTransmissionMessage, dismissTransmission } from '../ui/tr
 import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
+import { isStorageOperational } from '../data/storage.js';
 
 const craftTimeouts = {};
 let baseDownNoticeShown = false;
 
-function initHoldingOrbit(ship) {
-  const base = BASE_POS();
-  const ox = ship.x - base.x;
-  const oy = ship.y - (base.y + TILE_H / 2 - 20);
-  ship.holdOrbitRadius = Math.max(26, Math.min(58, Math.hypot(ox, oy) || (30 + Math.random() * 18)));
-  ship.holdOrbitAngle = Math.atan2(oy, ox);
-  ship.holdOrbitDir = Math.random() < 0.5 ? -1 : 1;
-  ship.holdOrbitSpeed = 0.8 + Math.random() * 0.45;
+function resolveShipDepot(ship) {
+  if (ship.depotType === 'storage' && ship.depotId !== null) {
+    const storage = state.storageFacilities.find(s => s.id === ship.depotId);
+    if (storage) return { type: 'storage', facility: storage, label: storage.name, operational: isStorageOperational(storage) };
+  }
+  return { type: 'base', facility: null, label: state.base.name || 'Base Station', operational: (state.base.health || 0) > 0 };
+}
+
+function getStorageFreeCapacity(storage) {
+  const used = Object.values(storage?.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
+  return Math.max(0, (storage?.storageCapacity || 0) - used);
+}
+
+function getShipDepotDestination(ship) {
+  const depot = resolveShipDepot(ship);
+  if (depot.type === 'storage' && depot.facility) {
+    const pos = gridToWorld(depot.facility.col, depot.facility.row);
+    return { x: pos.x, y: pos.y + TILE_H / 2 - 20, depotType: 'storage', depotId: depot.facility.id };
+  }
+  const bp = BASE_POS();
+  return { x: bp.x, y: bp.y + TILE_H / 2 - 20, depotType: 'base', depotId: null };
+}
+
+function getHoldingAnchor(ship) {
+  const depot = resolveShipDepot(ship);
+  if (depot.type === 'storage' && depot.facility) return { col: depot.facility.col, row: depot.facility.row, size: 1 };
+  return { col: BASE_COL, row: BASE_ROW, size: 0 };
+}
+
+function isHoldingTileBlocked(col, row) {
+  if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) return true;
+  if (col === BASE_COL && row === BASE_ROW) return true;
+  if (state.nodes.some(n => n.gr[0] === col && n.gr[1] === row && n.minLevel <= state.base.level)) return true;
+  if (state.turrets.some(t => t.col === col && t.row === row)) return true;
+  if (state.storageFacilities.some(s => Math.abs((s.col ?? 0) - col) <= 1 && Math.abs((s.row ?? 0) - row) <= 1)) return true;
+  return false;
+}
+
+function setNextHoldingDestination(ship) {
+  const anchor = getHoldingAnchor(ship);
+  const candidates = [];
+  for (let dc = -4; dc <= 4; dc++) {
+    for (let dr = -4; dr <= 4; dr++) {
+      const col = anchor.col + dc;
+      const row = anchor.row + dr;
+      if (Math.abs(dc) <= anchor.size && Math.abs(dr) <= anchor.size) continue;
+      if (isHoldingTileBlocked(col, row)) continue;
+      candidates.push({ col, row });
+    }
+  }
+  if (!candidates.length) {
+    const depotDest = getShipDepotDestination(ship);
+    ship.destX = depotDest.x;
+    ship.destY = depotDest.y;
+    ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
+    return;
+  }
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  const pos = gridToWorld(pick.col, pick.row);
+  ship.destX = pos.x;
+  ship.destY = pos.y + TILE_H / 2 - 20;
+  ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
 }
 
 function getShipCraftTimeMs(recipeId) {
@@ -103,6 +158,7 @@ export function spawnShip(type = 'scout') {
     hpLevel:        isUnique ? 100 : 0,
     attackLevel:    isUnique ? 100 : 0,
     atkRateLevel:   isUnique ? 100 : 0,
+    depotType: 'base', depotId: null,
     cargo:0, cargoResource:null,
     status:'idle', targetNode:null,
     heading: Math.random() * Math.PI * 2,
@@ -167,38 +223,16 @@ export function tickShip(ship, dt) {
     showTransmissionMessage(NPCS.juno.transmissionLines.base_down_no_deposit, 12, 'juno');
   }
 
-  if (ship.status === 'holding' && !baseDown) {
-    const bp = BASE_POS();
-    ship.destX = bp.x;
-    ship.destY = bp.y + TILE_H / 2 - 20;
+  if (ship.status === 'holding' && !baseDown && resolveShipDepot(ship).operational) {
+    const depotDest = getShipDepotDestination(ship);
+    ship.destX = depotDest.x;
+    ship.destY = depotDest.y;
     ship.status = 'returning';
-    delete ship.holdOrbitRadius;
-    delete ship.holdOrbitAngle;
-    delete ship.holdOrbitDir;
-    delete ship.holdOrbitSpeed;
-  }
-
-  if (ship.status === 'holding') {
-    if (!Number.isFinite(ship.holdOrbitRadius) || !Number.isFinite(ship.holdOrbitAngle) || !Number.isFinite(ship.holdOrbitSpeed)) {
-      initHoldingOrbit(ship);
-    }
-    const base = BASE_POS();
-    ship.holdOrbitAngle += dt * ship.holdOrbitSpeed * (ship.holdOrbitDir || 1);
-    const x = base.x + Math.cos(ship.holdOrbitAngle) * ship.holdOrbitRadius;
-    const y = base.y + TILE_H / 2 - 20 + Math.sin(ship.holdOrbitAngle) * (ship.holdOrbitRadius * 0.55);
-    const tangent = ship.holdOrbitAngle + ((ship.holdOrbitDir || 1) > 0 ? Math.PI / 2 : -Math.PI / 2);
-    ship.heading = tangent + Math.PI / 2;
-    if (!ship.trail) ship.trail = [];
-    ship.trail.push({ x: ship.x, y: ship.y });
-    if (ship.trail.length > 80) ship.trail.shift();
-    ship.x = x;
-    ship.y = y;
-    return;
   }
 
   const FLY_SPEED = 80 * flySpeedToMultiplier(ship.flySpeed);
 
-  if (ship.status==='flying'||ship.status==='returning') {
+  if (ship.status==='flying'||ship.status==='returning'||ship.status==='holding') {
     // Trail: record world position every frame, keep last 28 points
     if (!ship.trail) ship.trail = [];
     ship.trail.push({ x: ship.x, y: ship.y });
@@ -208,19 +242,33 @@ export function tickShip(ship, dt) {
     const dist = Math.sqrt(dx*dx+dy*dy);
 
     if (dist < 6) {
-      ship.x = ship.destX; ship.y = ship.destY;
       if (ship.status==='flying') {
+        ship.x = ship.destX; ship.y = ship.destY;
         ship.status='mining'; ship.mineTimer=0;
         if (state.tutStep === 2) state.tutStep = 3;
+      } else if (ship.status === 'holding') {
+        setNextHoldingDestination(ship);
       } else {
         if (baseDown) {
           ship.status = 'holding';
-          initHoldingOrbit(ship);
+          setNextHoldingDestination(ship);
           return;
         }
+        const depot = resolveShipDepot(ship);
+        if (!depot.operational) {
+          ship.status = 'holding';
+          setNextHoldingDestination(ship);
+          return;
+        }
+        if (depot.type === 'storage' && depot.facility && getStorageFreeCapacity(depot.facility) <= 0) {
+          ship.status = 'holding';
+          setNextHoldingDestination(ship);
+          return;
+        }
+        ship.x = ship.destX; ship.y = ship.destY;
         
         if (ship.cargo>0 && ship.cargoResource && RESOURCE_DEFS[ship.cargoResource]) {
-          tickEvents.push({ type:'deposit', name:ship.name, cargoResource:ship.cargoResource, amount:ship.cargo });
+          tickEvents.push({ type:'deposit', name:ship.name, cargoResource:ship.cargoResource, amount:ship.cargo, depotType: ship.depotType || 'base', depotId: ship.depotId ?? null });
         }
 
         ship.cargo=0;
@@ -292,7 +340,8 @@ export function tickShip(ship, dt) {
       ship.mineTimer = 0;
       if (ship.cargo >= ship.capacity) {
         ship.status='returning';
-        const bp = BASE_POS(); ship.destX=bp.x; ship.destY=bp.y+TILE_H/2-20;
+        const depotDest = getShipDepotDestination(ship);
+        ship.destX=depotDest.x; ship.destY=depotDest.y;
         ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
       }
     }
@@ -311,10 +360,11 @@ window.recallShip = function(shipId) {
     ship.status='idle'; ship.pauseTimer=0;
     addLog(`⟵ ${ship.name} recalled`);
   } else {
-    const bp = BASE_POS(); ship.destX=bp.x; ship.destY=bp.y+TILE_H/2-20;
+    const depotDest = getShipDepotDestination(ship);
+    ship.destX=depotDest.x; ship.destY=depotDest.y;
     ship.status='returning';
     ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
-    addLog(`⟵ ${ship.name} returning to base`);
+    addLog(`⟵ ${ship.name} returning to depot`);
   }
   if (refresh.ui) refresh.ui();
 };
@@ -574,24 +624,70 @@ window.doAssign = function(shipId, nodeId) {
   if (ship && node) assignShip(ship, node);
 };
 
+window.setShipDepot = function(shipId, depotValue) {
+  const ship = state.ships.find(s => s.id === shipId);
+  if (!ship) return;
+  if (depotValue === 'base' || !depotValue) {
+    ship.depotType = 'base';
+    ship.depotId = null;
+  } else if (String(depotValue).startsWith('storage:')) {
+    const depotId = Number(String(depotValue).split(':')[1]);
+    const storage = state.storageFacilities.find(s => s.id === depotId);
+    if (!storage) return;
+    ship.depotType = 'storage';
+    ship.depotId = depotId;
+  }
+  if (ship.status === 'returning' && ship.cargo > 0) {
+    const depotDest = getShipDepotDestination(ship);
+    ship.destX = depotDest.x;
+    ship.destY = depotDest.y;
+    ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
+  }
+  if (refresh.ui) refresh.ui();
+};
+
 // ── Flush deposit events (called by game loop) ──
 export function flushTickEvents(canvas) {
   for (const ev of tickEvents) {
     if (ev.type === 'deposit') {
       console.log(`[deposit] ${ev.name} depositing ${ev.amount}x ${ev.cargoResource}`);
-      state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
+      let deposited = ev.amount;
+      let depotLabel = state.base.name || 'Base Station';
+      let depositBlocked = false;
+      let floatiePos = null;
+      if (ev.depotType === 'storage' && ev.depotId !== null) {
+        const storage = state.storageFacilities.find(s => s.id === ev.depotId);
+        if (storage) {
+          const used = Object.values(storage.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
+          const free = Math.max(0, (storage.storageCapacity || 0) - used);
+          deposited = Math.min(ev.amount, free);
+          storage.inventory[ev.cargoResource] = (storage.inventory[ev.cargoResource] || 0) + deposited;
+          depotLabel = storage.name;
+          depositBlocked = deposited < ev.amount;
+          const w = gridToWorld(storage.col, storage.row);
+          floatiePos = { x: w.x, y: w.y - 12 };
+        } else {
+          state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
+        }
+      } else {
+        state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
+      }
       state.trips++;
       state.solStarted = true;
-      addLog(`📦 ${ev.name} returned with ${ev.amount} ${RESOURCE_DEFS[ev.cargoResource].label}`);
-      spawnFloatie(ev.cargoResource, ev.amount);
+      addLog(`📦 ${ev.name} delivered ${deposited} ${RESOURCE_DEFS[ev.cargoResource].label} to ${depotLabel}${depositBlocked ? ' (storage full)' : ''}`);
+      if (deposited > 0) spawnFloatie(ev.cargoResource, deposited, floatiePos);
+      if (ev.depotType === 'storage' && state.selectedStorage === ev.depotId && window.patchStorageModal) {
+        const overlay = document.getElementById('storage-modal-overlay');
+        if (overlay?.style.display === 'flex') window.patchStorageModal();
+      }
       if (state.tutStep === 3) { state.tutStep=4; state.seenMsgs['tut_mining_done']=true; document.querySelectorAll('.tut-pointer').forEach(el=>el.remove()); }
       import('../ui/tutorial.js').then(({ checkTradeTutorial }) => checkTradeTutorial());
-      if (!state.firstDeposit) {
+      if (!state.firstDeposit && ev.depotType !== 'storage') {
         state.firstDeposit = true;
         state.redirectTutActive = true;
         setTimeout(() => showOnce('first_deposit', NPCS.juno.transmissionLines.first_deposit, 15, 'juno'), 800);
       }
-      if (!state.firstCraftable) {
+      if (!state.firstCraftable && ev.depotType !== 'storage') {
         const canBuildAny = CRAFT_RECIPES.some(r => Object.entries(r.reqs).every(([res, amt]) => (state.resources[res]||0) >= amt));
         if (canBuildAny) {
           state.firstCraftable = true;

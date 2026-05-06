@@ -250,8 +250,8 @@ export function drawNodeParticles() {
 // ── Floaties (deposit numbers) ──
 export const floaties = [];
 
-export function spawnFloatie(resourceType, amount) {
-  const base = gridToWorld(BASE_COL, BASE_ROW);
+export function spawnFloatie(resourceType, amount, worldPos = null) {
+  const base = worldPos || gridToWorld(BASE_COL, BASE_ROW);
   const def  = RESOURCE_DEFS[resourceType];
   floaties.push({
     wx: base.x + (Math.random()-0.5)*20,

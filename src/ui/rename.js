@@ -49,9 +49,34 @@ export function openBaseRenameOverlay() {
   overlay.onclick = e => { if (e.target === overlay) commitRename(input.value); };
 }
 
+export function openStorageRenameOverlay(storageId) {
+  const storage = state.storageFacilities.find(s => s.id === storageId);
+  if (!storage) return;
+  state.selectedStorage = storageId;
+  state.renamingShip = null;
+  state.renamingBase = false;
+  state.renamingStorage = storageId;
+  const overlay = document.getElementById('rename-overlay');
+  const input   = document.getElementById('rename-input-field');
+  const titleEl = document.querySelector('#rename-box .rename-title');
+  input.value = storage.name;
+  input.placeholder = 'Enter storage name...';
+  if (titleEl) titleEl.textContent = '✎ Name Your Storage';
+  overlay.classList.add('show');
+  setTimeout(() => { input.focus(); input.select(); }, 30);
+
+  input.onkeydown = e => {
+    if (e.key === 'Enter')  { e.preventDefault(); commitRename(input.value); }
+    if (e.key === 'Escape') { closeRenameOverlay(); }
+    e.stopPropagation();
+  };
+  overlay.onclick = e => { if (e.target === overlay) commitRename(input.value); };
+}
+
 export function closeRenameOverlay() {
   state.renamingShip = null;
   state.renamingBase = false;
+  state.renamingStorage = null;
   document.getElementById('rename-overlay').classList.remove('show');
 }
 
@@ -60,6 +85,9 @@ export function commitRename(newName) {
   const wasBase = state.renamingBase;
   if (state.renamingBase) {
     state.base.name = cleanName || state.base.name || 'Base Station';
+  } else if (state.renamingStorage) {
+    const storage = state.storageFacilities.find(s => s.id === state.renamingStorage);
+    if (storage) storage.name = cleanName || storage.name;
   } else {
     const ship = state.ships.find(s => s.id === state.renamingShip);
     if (ship) ship.name = cleanName || ship.name;
@@ -69,10 +97,12 @@ export function commitRename(newName) {
     state.basePanelOpen = true;
     renderBasePanel();
   }
+  if (state.selectedStorage && window.renderStorageModal) window.renderStorageModal();
   if (refresh.ui) refresh.ui();
 }
 
 window.openRenameOverlay = openRenameOverlay;
 window.openBaseRenameOverlay = openBaseRenameOverlay;
+window.openStorageRenameOverlay = openStorageRenameOverlay;
 window.closeRenameOverlay = closeRenameOverlay;
 window.commitRename = commitRename;

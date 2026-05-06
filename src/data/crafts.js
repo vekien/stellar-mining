@@ -91,6 +91,16 @@ export const CRAFTS = {
     },
   ],
 
+  modules: [
+    {
+      id: 'storage_facility',
+      name: 'Storage Facility',
+      desc: '3x3 depot module with isolated cargo storage',
+      cost: 12000,
+      reqs: { iron: 1200, copper: 900, oxygen: 500, nickel: 300, silicon: 400 },
+    },
+  ],
+
   base: [
     {
       id: 'hull_reinforcement',

@@ -21,6 +21,7 @@ import { refresh } from './refresh.js';
 import { getSellPrice } from '../systems/market.js';
 import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial, renderTutPointers } from './tutorial.js';
 import { cancelTurretPlacement } from './turretUI.js';
+import { cancelStoragePlacement } from './storageUI.js';
 
 let _fleetFiltersVisible = false;
 
@@ -215,7 +216,7 @@ export function renderShipsList() {
     const role    = SHIP_DEFS[ship.type]?.role || 'mining';
     const hasCargo = role === 'mining' || role === 'transport' || role === 'unique';
     const pct = hasCargo ? ship.cargo / Math.max(1, ship.capacity) * 100 : 0;
-    const statusLabels = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING' };
+    const statusLabels = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING', holding:'HOLDING' };
 
     const safeTierNum = Math.min(10, Math.max(1, ship.mineTier || 1));
     const tierRarityColor = TIER_COLORS[safeTierNum] || '#e8eaf0';
@@ -318,6 +319,7 @@ export function renderShipsList() {
         canvas.style.cursor = ''; removeReassignTooltip();
       } else {
         cancelTurretPlacement();
+        cancelStoragePlacement();
         state.selectedShip = ship.id;
         if (state.tutStep === 0) {
           state.tutStep = 1;
@@ -418,6 +420,22 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const role = SHIP_DEFS[ship.type]?.role || 'mining';
   const roleLabel = ROLE_LABELS[role] || role;
   const isUnique = SHIP_DEFS[ship.type]?.unique === true;
+  const assignedDepot = ship.depotType === 'storage' && ship.depotId !== null
+    ? state.storageFacilities.find(s => s.id === ship.depotId) || null
+    : null;
+  const holdingReason = ship.status === 'holding'
+    ? assignedDepot
+      ? (assignedDepot.power || 0) <= 0
+        ? `Blocked: ${assignedDepot.name} has no power`
+        : Object.values(assignedDepot.inventory || {}).reduce((sum, n) => sum + (n || 0), 0) >= (assignedDepot.storageCapacity || 0)
+          ? `Blocked: ${assignedDepot.name} is full`
+        : (assignedDepot.health || 0) <= 0
+          ? `Blocked: ${assignedDepot.name} is fully damaged`
+          : 'Blocked: assigned depot unavailable'
+      : (state.base.health || 0) <= 0
+        ? `Blocked: ${state.base.name || 'Base Station'} is fully damaged`
+        : 'Blocked: assigned depot unavailable'
+    : '';
 
   // ── Info section ───────────────────────────────────────────────
   let infoRows = `
@@ -510,8 +528,26 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
       ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row"><span class="ship-data-label">MINE SPD</span><span class="ship-data-value">${formatMineSpeedPercent(ship.mineSpeed)}</span></div>` : ''}`;
   }
 
+  const depotOptions = `<option value="base" ${ship.depotType !== 'storage' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
+    + state.storageFacilities.map(storage => `<option value="storage:${storage.id}" ${ship.depotType === 'storage' && ship.depotId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('');
+  const depotHtml = (ship.capacity || 0) > 0
+    ? `<div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
+        <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ DEPOT</div>
+        <div class="ship-data-section">
+          <div class="ship-data-row" style="align-items:flex-start;">
+            <span class="ship-data-label">Dropoff</span>
+            <select onchange="setShipDepot(${ship.id}, this.value)" style="min-width:190px;background:rgba(10,20,50,0.75);border:1px solid #2a4a7a;border-radius:4px;color:#cde;padding:5px 8px;font-family:'Share Tech Mono',monospace;font-size:12px;">
+              ${depotOptions}
+            </select>
+          </div>
+          ${holdingReason ? `<div style="margin-top:8px;padding:8px 10px;border:1px solid rgba(255,214,102,0.65);border-radius:6px;background:rgba(70,55,8,0.18);color:#ffd966;font-size:12px;line-height:1.4;">${holdingReason}</div>` : ''}
+        </div>
+      </div>`
+    : '';
+
   const statsHtml = `
     <div class="ship-data-section">${infoRows}</div>
+    ${depotHtml}
     <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ STATS</div>
       <div class="ship-data-section">${statsRows}</div>

@@ -10,7 +10,7 @@ import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
 import { getTurretTypeDef, getTurretStats } from './data/turrets.js';
 import { clampCoins } from './helpers.js';
 
-function makeEmptyResources() {
+export function makeEmptyResources() {
   return Object.fromEntries(Object.keys(RESOURCE_DEFS).map((k) => [k, 0]));
 }
 
@@ -34,6 +34,7 @@ export let state = {
   logHistory: [],
   renamingShip: null,
   renamingBase: false,
+  renamingStorage: null,
   pendingAssign: null,
   basePanelOpen: false,
   bpTab: 'overview',
@@ -71,12 +72,20 @@ export let state = {
   researchUnlocks: {},
   researchUnlocksList: [],
   turrets: [],
+  storageFacilities: [],
   placingTurret: false,
+  placingStorage: false,
   selectedTurret: null,
+  selectedStorage: null,
   movingTurret: null,
+  movingStorage: null,
   unplacedTurrets: 0,
+  unplacedStorages: 0,
   unplacedTurretQueue: [],
+  unplacedStorageQueue: [],
   placingTurretType: null,
+  placingStorageType: null,
+  storageCraftTimers: {},
   hpBoostCount: 0,
   shieldBoostCount: 0,
   antiCometCount: 0,
@@ -129,16 +138,21 @@ export function saveGame() {
       antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
       autoRegenCount: state.autoRegenCount,
       researchUnlocksList: state.researchUnlocksList,
-      turrets: state.turrets, unplacedTurrets: state.unplacedTurrets, unplacedTurretQueue: state.unplacedTurretQueue,
+      turrets: state.turrets, storageFacilities: state.storageFacilities,
+      unplacedTurrets: state.unplacedTurrets, unplacedTurretQueue: state.unplacedTurretQueue,
+      unplacedStorages: state.unplacedStorages, unplacedStorageQueue: state.unplacedStorageQueue,
       logHistory: state.logHistory,
       shipCraftTimers: state.shipCraftTimers,
       turretCraftTimers: state.turretCraftTimers,
+      storageCraftTimers: state.storageCraftTimers,
       saveVersion: SAVE_VERSION,
       ships: state.ships.map(s => ({
         id:s.id, name:s.name, type:s.type,
         capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
         capacityLevel:s.capacityLevel, flySpeedLevel:s.flySpeedLevel, mineSpeedLevel:s.mineSpeedLevel,
         targetNode: s.targetNode,
+        depotType: s.depotType,
+        depotId: s.depotId,
       })),
     }));
   } catch(e) {}
@@ -186,6 +200,7 @@ export function loadGame() {
       if (r.id === 'defense')  { r.id = 'armor_plating';   r.name = 'Armor Plating'; }
     }
     state.turrets = d.turrets ?? [];
+    state.storageFacilities = Array.isArray(d.storageFacilities) ? d.storageFacilities : [];
     // Migrate old turrets
     state.turrets.forEach(t => {
       if (!t.type) t.type = 'turret';
@@ -203,10 +218,15 @@ export function loadGame() {
       ? d.unplacedTurretQueue.slice()
       : Array.from({ length: d.unplacedTurrets ?? 0 }, () => 'turret');
     state.unplacedTurrets = state.unplacedTurretQueue.length;
+    state.unplacedStorageQueue = Array.isArray(d.unplacedStorageQueue)
+      ? d.unplacedStorageQueue.slice()
+      : Array.from({ length: d.unplacedStorages ?? 0 }, () => 'storage_facility');
+    state.unplacedStorages = state.unplacedStorageQueue.length;
     state.logHistory = Array.isArray(d.logHistory) ? d.logHistory.slice(-100) : [];
     state.log = state.logHistory.slice(0, 3).map(entry => entry.msg);
     state.shipCraftTimers = d.shipCraftTimers && typeof d.shipCraftTimers === 'object' ? d.shipCraftTimers : {};
     state.turretCraftTimers = d.turretCraftTimers && typeof d.turretCraftTimers === 'object' ? d.turretCraftTimers : {};
+    state.storageCraftTimers = d.storageCraftTimers && typeof d.storageCraftTimers === 'object' ? d.storageCraftTimers : {};
     state.hpBoostCount     = d.hpBoostCount     ?? 0;
     state.shieldBoostCount = d.shieldBoostCount ?? 0;
     state.antiCometCount   = d.antiCometCount   ?? 0;
@@ -248,6 +268,7 @@ export function loadGame() {
         atkRateLevel:   sd.atkRateLevel   ?? 0,
         cargo:0, cargoResource:null,
         status:'idle', targetNode: sd.targetNode ?? null,
+        depotType: sd.depotType || 'base', depotId: sd.depotId ?? null,
         heading: Math.random() * Math.PI * 2,
         turnRadiusRandomness: Number.isFinite(sd.turnRadiusRandomness)
           ? sd.turnRadiusRandomness

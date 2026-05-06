@@ -32,7 +32,7 @@ export function showEventWarning(label, detail, duration = 6000) {
   banner._eventWarningToken = (banner._eventWarningToken || 0) + 1;
   const token = banner._eventWarningToken;
   inner.innerHTML = `
-    <div class="event-warning-title">${label}</div>
+    <div class="event-warning-head"><div class="event-warning-title">${label}</div><button class="event-warning-close" onclick="closeEventWarning()">✕</button></div>
     ${detail ? `<div class="event-warning-detail">${detail}</div>` : ''}
     <div class="event-warning-progress-wrap"><div class="event-warning-progress"></div></div>
   `;
@@ -55,6 +55,17 @@ export function showEventWarning(label, detail, duration = 6000) {
   rafId = requestAnimationFrame(tick);
   banner._eventWarningRafId = rafId;
 }
+
+export function closeEventWarning() {
+  const banner = document.getElementById('event-warning');
+  if (!banner) return;
+  if (banner._eventWarningRafId) cancelAnimationFrame(banner._eventWarningRafId);
+  banner._eventWarningRafId = null;
+  banner._eventWarningToken = (banner._eventWarningToken || 0) + 1;
+  banner.classList.remove('visible');
+}
+
+window.closeEventWarning = closeEventWarning;
 
 export const RANDOM_EVENTS = [
   {
