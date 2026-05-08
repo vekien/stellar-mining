@@ -57,7 +57,7 @@ export const NPCS = {
     bio: "Rigs runs the Scrap Yard on the edge of Sector 7 with two hands, a blowtorch, and zero patience for paperwork. She can strip a wrecked ship down to raw materials faster than anyone in the belt — and she always knows where the good salvage is.",
     shipLines: {
       scout:     "She's light, she's quick, and she'll get to that node before anyone else. Don't expect her to haul much back — but for scouting new deposits, she's exactly what you need.",
-      swift:     "Pure speed. If you need resources fast and don't care about volume, the Sprinter is your girl. She burns hard and turns fast — just don't ask her to carry much.",
+      swift:     "Pure speed. If you need resources fast and don't care about volume, the Swift is your girl. She burns hard and turns fast — just don't ask her to carry much.",
       hauler:    "Now we're talking. The Hauler is built for volume — slow and steady, but she'll bring back more per run than anything in the light class. Great for your main iron and copper routes.",
       freighter: `This is the big one, ${C}. The Freighter moves like a barge but carries like a warehouse. Assign her to your richest node and let her work. You won't be disappointed.`,
       default:   `She's all yours, ${C}. Get her out there.`,

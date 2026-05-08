@@ -12,7 +12,7 @@ export const CRAFTS = {
       reqs: { iron: 75, copper: 50 },
     },
     {
-      id: 'swift', name: 'Sprinter', desc: 'Extreme speed, low capacity',
+      id: 'swift', name: 'Swift', desc: 'Extreme speed, low capacity',
       reqs: { iron: 150, copper: 150 },
     },
     {
