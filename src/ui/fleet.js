@@ -63,11 +63,35 @@ export function getShipTransportSummary(ship) {
   if (ship.loadingPickup) {
     return { label: 'Loading', value: getShipCargoSummary(ship) };
   }
+  if (ship.unloadingDepot) {
+    return { label: 'Unloading', value: getShipCargoSummary(ship) };
+  }
   const cargoSummary = getShipCargoSummary(ship);
   if (cargoSummary === 'None') {
     return { label: 'Returning', value: getShipPickupLabel(ship) };
   }
   return { label: 'Transporting', value: cargoSummary };
+}
+
+export function getShipTransportStatusHtml(ship) {
+  const summary = getShipTransportSummary(ship);
+  const cargoEntries = Object.entries(ship.cargoManifest || {}).filter(([, amount]) => amount > 0);
+  if (!cargoEntries.length) {
+    return `<div style="font-size:12px;color:#cde;line-height:1.4;">${summary.value}</div>`;
+  }
+  const rows = cargoEntries
+    .sort((a, b) => b[1] - a[1])
+    .map(([resourceType, amount]) => {
+      const def = RESOURCE_DEFS[resourceType];
+      return `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(26,58,110,0.35);">
+        <span style="display:flex;align-items:center;gap:7px;color:${def?.color || '#cde'};min-width:0;">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${def?.color || '#cde'};flex:0 0 auto;"></span>
+          <span>${def?.label || resourceType}</span>
+        </span>
+        <span style="color:#ffe066;flex:0 0 auto;">${fmt(amount)}</span>
+      </div>`;
+    }).join('');
+  return `<div style="background:rgba(10,20,50,0.35);border:1px solid #1a3a6e;border-radius:4px;padding:8px;max-height:132px;overflow-y:auto;">${rows}</div>`;
 }
 
 export function getShipTransportSummaryLabel(ship) {
@@ -76,6 +100,7 @@ export function getShipTransportSummaryLabel(ship) {
 
 export function getShipStatusMeta(ship) {
   if (ship.loadingPickup) return { badge: 'LOADING', message: '⇣ Loading', color: '#ffd966' };
+  if (ship.unloadingDepot) return { badge: 'UNLOADING', message: '⇡ Unloading', color: '#9bd6ff' };
   if (ship.status === 'flying') return { badge: 'EN ROUTE', message: '▶ En Route', color: '#48f' };
   if (ship.status === 'mining') return { badge: 'MINING', message: '⛏ Mining', color: '#c6f' };
   if (ship.status === 'returning' || ship.status === 'pausing') return { badge: 'RETURNING', message: '↩ Returning', color: '#fa6' };
@@ -617,9 +642,9 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
               ${depotOptions}
             </select>
           </div>
-          ${role === 'transport' ? `<div class="ship-data-row" style="align-items:flex-start;">
-            <span class="ship-data-label" id="action-panel-transporting-label">${transportSummary.label}</span>
-            <span class="ship-data-value" id="action-panel-transporting" style="max-width:190px;text-align:right;line-height:1.4;">${transportSummary.value}</span>
+          ${role === 'transport' ? `<div style="margin-top:8px;">
+            <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;" id="action-panel-transporting-label">${transportSummary.label}</div>
+            <div id="action-panel-transporting">${getShipTransportStatusHtml(ship)}</div>
           </div>` : ''}
           <div id="action-panel-route-error" style="margin-top:8px;padding:8px 10px;border:1px solid rgba(255,120,120,0.65);border-radius:6px;background:rgba(70,15,15,0.22);color:#ff9a9a;font-size:12px;line-height:1.4;display:${routeError ? 'block' : 'none'};">${routeError || ''}</div>
           <div id="action-panel-holding-reason" style="margin-top:8px;padding:8px 10px;border:1px solid rgba(255,214,102,0.65);border-radius:6px;background:rgba(70,55,8,0.18);color:#ffd966;font-size:12px;line-height:1.4;display:${holdingReason ? 'block' : 'none'};">${holdingReason || ''}</div>
@@ -638,14 +663,9 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   // ── Actions ────────────────────────────────────────────────────
   const canMine = (ship.mineSpeed || 0) > 0;
   const actionsHtml = (role === 'combat' || role === 'garrison')
-    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⚔ Combat vessel — cannot be assigned to nodes.</div>
-       <div class="ship-action-row" style="margin-top:8px;">
-          <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
-        </div>`
+    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⚔ Combat vessel — cannot be assigned to nodes.</div>`
     : role === 'transport'
-    ? `<div class="ship-action-row" style="margin-top:8px;">
-          <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
-        </div>`
+    ? ``
     : !canMine
     ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⊘ No mining equipment — cannot be assigned to a node.</div>`
     : isIdle
@@ -653,13 +673,14 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
        <div style="font-size:11px;color:#456;margin-bottom:8px;">Dimmed nodes need a higher tier.<br>Press <span style="color:#8ab">Esc</span> to deselect.</div>`
     : `<div class="ship-action-row" style="margin-top:8px;">
          <button class="btn danger" style="flex:1;font-size:12px" onclick="recallShip(${ship.id})">⟵ RECALL</button>
-         <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
        </div>`;
 
+  const followBtn = `<button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>`;
   const bottomActions = `<div class="ship-action-row">
+    ${followBtn}
     <button class="btn" style="flex:1;font-size:12px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab" onclick="openRenameOverlay(${ship.id})">✎ RENAME</button>
-    <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id}, ${sellVal})">⊘ SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
   </div><div class="ship-action-row" style="margin-top:8px;">
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id}, ${sellVal})">SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
     <button class="btn" style="flex:1;font-size:12px;background:rgba(30,45,20,0.6);border-color:#4f6a32;color:#9fd28c" ${state.ships.length <= 1 ? 'disabled title="Cannot salvage your last ship"' : ''} onclick="openSalvageOverlay(${ship.id})">♻ SALVAGE</button>
   </div>`;
 
@@ -688,6 +709,12 @@ window.goHome = function() {
   if (refresh.ui) refresh.ui();
 };
 
+function getShipDispositionWarning(ship) {
+  const role = SHIP_DEFS[ship.type]?.role || 'mining';
+  if (role !== 'transport' || (ship.cargo || 0) <= 0) return 'This cannot be undone.';
+  return 'This cannot be undone.<br><span style="color:#ff9a9a;">Warning: loaded transport cargo will be lost.</span>';
+}
+
 window.openSellOverlay = function(shipId) {
   if (state.ships.length <= 1) return;
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
@@ -703,7 +730,7 @@ window.openSellOverlay = function(shipId) {
   if (titleEl) titleEl.textContent = '⊘ Sell Ship';
   if (nameEl)  nameEl.textContent  = ship.name;
   if (valueEl) valueEl.textContent = `$${fmt(sellVal)}`;
-  if (hintEl) hintEl.textContent = 'This cannot be undone.';
+  if (hintEl) hintEl.innerHTML = getShipDispositionWarning(ship);
   if (confirmEl) confirmEl.textContent = 'CONFIRM SELL';
   const overlay = document.getElementById('sell-overlay');
   if (overlay) overlay.classList.add('show');
@@ -724,7 +751,7 @@ window.openSalvageOverlay = function(shipId) {
   if (titleEl) titleEl.textContent = '♻ Salvage Ship';
   if (nameEl)  nameEl.textContent  = ship.name;
   if (valueEl) valueEl.innerHTML = salvage.map(({ type, amount }) => `<span style="color:${RESOURCE_DEFS[type]?.color || '#6fff9a'};">${fmt(amount)} ${RESOURCE_DEFS[type]?.label || type}</span>`).join(' + ');
-  if (hintEl) hintEl.textContent = 'This cannot be undone.';
+  if (hintEl) hintEl.innerHTML = getShipDispositionWarning(ship);
   if (confirmEl) confirmEl.textContent = 'CONFIRM SALVAGE';
   const overlay = document.getElementById('sell-overlay');
   if (overlay) overlay.classList.add('show');

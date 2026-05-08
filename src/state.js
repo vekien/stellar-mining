@@ -311,6 +311,7 @@ export function loadGame() {
            pickupId: sd.pickupId ?? null,
            loadBuffer: sd.loadBuffer ?? 0,
            loadingPickup: false,
+           unloadingDepot: false,
            status:'idle', targetNode: sd.targetNode ?? null,
         depotType: sd.depotType || 'base', depotId: sd.depotId ?? null,
         heading: Math.random() * Math.PI * 2,

@@ -1,3 +1,5 @@
+import { MINE_TIERS, RESOURCE_DEFS } from './resources.js';
+
 // ============================================================
 // SHIP & UPGRADE DATA
 // ============================================================
@@ -20,8 +22,8 @@ export function formatFlySpeed(speed) {
 export function formatMineSpeedPercent(speed) {
   return `${Math.round((speed || 0) * 10)}%`;
 }
-export function formatLoadSpeedPercent(speed) {
-  return `${Math.round((speed || 0) * 10)}%`;
+export function formatLoadSpeed(speed) {
+  return `${Math.round(speed || 0)}/s`;
 }
 export function formatAtkRatePercent(rate) {
   return `${Math.round((rate || 0) * 100)}%`;
@@ -51,7 +53,7 @@ export const CARGO_PROFILE = {
   hauler:      { min: 50,   max: 700,  p: 1.0 },
   freighter:   { min: 100,  max: 1000, p: 1.0 },
   courier:     { min: 500,  max: 2000, p: 1.0 },
-  deep_hauler: { min: 1000, max: 5000, p: 1.0 },
+  deep_hauler: { min: 1000, max: 10000, p: 1.0 },
 };
 
 export const FLY_SPEED_PROFILE = {
@@ -59,8 +61,8 @@ export const FLY_SPEED_PROFILE = {
   swift:       { min: 220, max: 650,  p: 1.0 },
   hauler:      { min: 60,  max: 300,  p: 1.0 },
   freighter:   { min: 60,  max: 200,  p: 1.0 },
-  courier:     { min: 200, max: 800,  p: 1.0 },
-  deep_hauler: { min: 200, max: 1000, p: 1.0 },
+  courier:     { min: 25, max: 100,  p: 1.0 },
+  deep_hauler: { min: 25, max: 80, p: 1.0 },
   viper:       { min: 200, max: 800,  p: 1.0 },
   interceptor: { min: 200, max: 600,  p: 1.0 },
   destroyer:   { min: 100, max: 300,  p: 1.0 },
@@ -74,8 +76,8 @@ export const MINE_SPEED_PROFILE = {
 };
 
 export const LOAD_SPEED_PROFILE = {
-  courier:     { min: 5, max: 100, p: 1.0 },  // 50% → 1000%
-  deep_hauler: { min: 5, max: 100, p: 1.0 },  // 50% → 1000%
+  courier:     { min: 10, max: 250, p: 1.0 },
+  deep_hauler: { min: 50, max: 1000, p: 1.0 },
 };
 
 export const HP_PROFILE = {
@@ -134,6 +136,15 @@ export function atkRateFromLevel(shipType, level) {
   return raw !== null ? parseFloat(raw.toFixed(2)) : 1.0;
 }
 
+export function getShipSalvageRewards(ship) {
+  const tier = Math.max(1, Math.min(10, ship?.tier || ship?.mineTier || 1));
+  const resources = MINE_TIERS[tier]?.resources || MINE_TIERS[1].resources;
+  const amount = Math.max(10, tier * 20);
+  return resources
+    .filter((resourceType) => !!RESOURCE_DEFS[resourceType])
+    .map((resourceType) => ({ type: resourceType, amount }));
+}
+
 // Get the max value for a stat profile (used in codex MAX labels)
 export function profileMax(profile, shipType) {
   return profile[shipType]?.max ?? null;
@@ -144,54 +155,151 @@ export const SHIP_CRAFT_TIME_MS = {
   swift:     10000,
   hauler:    14000,
   freighter: 18000,
+  courier:   20000,
+  deep_hauler: 45000,
 };
 
 // Base stats for each ship type (values at level 0)
+const RENDER_SCOUT = {
+  size: 8,
+  color: '#60d090',
+  trailOffsets: [0],
+  trailWidth: 6,
+  trailOpacity: 0.8,
+  trailLength: 70,
+  turnRateFar: 3,
+  turnRateNear: 10,
+  directBlendDistance: 60,
+  arrivalRadius: 6,
+  glowRadiusExtra: 2,
+  glowOpacity: 0.3,
+};
+
+const RENDER_SWIFT = {
+  size: 8,
+  color: '#ff80c0',
+  trailOffsets: [0],
+  trailWidth: 6,
+  trailOpacity: 0.8,
+  trailLength: 50,
+  turnRateFar: 3,
+  turnRateNear: 10,
+  directBlendDistance: 60,
+  arrivalRadius: 6,
+  glowRadiusExtra: 2,
+  glowOpacity: 0.3,
+};
+
+const RENDER_HAULER = {
+  size: 10,
+  color: '#80d0ff',
+  trailOffsets: [0],
+  trailWidth: 6,
+  trailOpacity: 0.8,
+  trailLength: 80,
+  turnRateFar: 3,
+  turnRateNear: 10,
+  directBlendDistance: 60,
+  arrivalRadius: 6,
+  glowRadiusExtra: 2,
+  glowOpacity: 0.3,
+};
+
+const RENDER_FREIGHTER = {
+  size: 12,
+  color: '#ffaa30',
+  trailOffsets: [0],
+  trailWidth: 6,
+  trailOpacity: 0.8,
+  trailLength: 100,
+  turnRateFar: 3,
+  turnRateNear: 10,
+  directBlendDistance: 60,
+  arrivalRadius: 6,
+  glowRadiusExtra: 2,
+  glowOpacity: 0.3,
+};
+
+const RENDER_COURIER = {
+  size: 18,
+  color: '#cacaca',
+  trailOffsets: [-5, 5],
+  trailWidth: 8,
+  trailOpacity: 0.4,
+  trailLength: 120,
+  turnRateFar: 0.8,
+  turnRateNear: 3.2,
+  directBlendDistance: 180,
+  arrivalRadius: 1.5,
+  glowRadiusExtra: 6,
+  glowOpacity: 0.1,
+};
+
+const RENDER_TITAN = {
+  size: 26,
+  color: '#e6e6e6',
+  trailOffsets: [-6, 6],
+  trailWidth: 10,
+  trailOpacity: 0.3,
+  trailLength: 150,
+  turnRateFar: 0.4,
+  turnRateNear: 2.0,
+  directBlendDistance: 220,
+  arrivalRadius: 1.25,
+  glowRadiusExtra: 6,
+  glowOpacity: 0.1,
+};
+
 export const SHIP_DEFS = {
 
   // ── Mining ─────────────────────────────────────────────────────
   scout: {
-    role: 'mining', capacity: 12,  flySpeed: 140, mineSpeed: 2.5, mineTier: 1,
+    role: 'mining', capacity: 12,  flySpeed: 140, mineSpeed: 2.5, mineTier: 1, render: RENDER_SCOUT,
   },
   swift: {
-    role: 'mining', capacity: 6,   flySpeed: 220, mineSpeed: 2.5, mineTier: 1,
+    role: 'mining', capacity: 6,   flySpeed: 220, mineSpeed: 2.5, mineTier: 1, render: RENDER_SWIFT,
   },
   hauler: {
-    role: 'mining', capacity: 50,  flySpeed: 60,  mineSpeed: 2.5, mineTier: 2,
+    role: 'mining', capacity: 50,  flySpeed: 60,  mineSpeed: 2.5, mineTier: 2, render: RENDER_HAULER,
   },
   freighter: {
-    role: 'mining', capacity: 100, flySpeed: 60,  mineSpeed: 2.5, mineTier: 3,
+    role: 'mining', capacity: 100, flySpeed: 60,  mineSpeed: 2.5, mineTier: 3, render: RENDER_FREIGHTER,
   },
 
   // ── Cargo Transport ────────────────────────────────────────────
   courier: {
-    role: 'transport', capacity: 500,  flySpeed: 200, mineSpeed: 0, loadSpeed: 5, mineTier: 2,
+    role: 'transport', capacity: 500,  flySpeed: 25, mineSpeed: 0, loadSpeed: 10, mineTier: 2, render: RENDER_COURIER,
   },
   deep_hauler: {
-    role: 'transport', capacity: 1000, flySpeed: 200, mineSpeed: 0, loadSpeed: 5, mineTier: 4,
+    role: 'transport', capacity: 1000, flySpeed: 25, mineSpeed: 0, loadSpeed: 50, mineTier: 4, render: RENDER_TITAN,
   },
 
   // ── Combat ─────────────────────────────────────────────────────
   viper: {
     role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4,
+    render: RENDER_SCOUT,
     hp: 800,  attack: 45,  attackSpeed: 1.8,
   },
   interceptor: {
     role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4,
+    render: RENDER_SCOUT,
     hp: 2500, attack: 60,  attackSpeed: 1.2,
   },
   destroyer: {
     role: 'combat', capacity: 0, flySpeed: 100, mineSpeed: 0, mineTier: 5,
+    render: RENDER_FREIGHTER,
     hp: 5000, attack: 100, attackSpeed: 0.4,
   },
 
   // ── Garrison ───────────────────────────────────────────────────
   bulwark: {
     role: 'garrison', capacity: 0, flySpeed: 12, mineSpeed: 0, mineTier: 4,
+    render: RENDER_FREIGHTER,
     hp: 18000, attack: 400, attackSpeed: 0.7, range: 8,
   },
   colossus: {
     role: 'garrison', capacity: 0, flySpeed: 5, mineSpeed: 0, mineTier: 5,
+    render: RENDER_TITAN,
     hp: 50000, attack: 900, attackSpeed: 0.3, range: 14,
   },
 
@@ -199,18 +307,22 @@ export const SHIP_DEFS = {
   // Acquired through events — always Tier 10, stats are final (no upgrade range)
   sentinel: {
     role: 'unique', unique: true, capacity: 25,  flySpeed: 380, mineSpeed: 1.0, mineTier: 10,
+    render: RENDER_SCOUT,
     hp: 30000, attack: 600,
   },
   serenity: {
     role: 'unique', unique: true, capacity: 220, flySpeed: 160, mineSpeed: 1.6, mineTier: 10,
+    render: RENDER_HAULER,
     hp: 14000, attack: 180,
   },
   normandy: {
     role: 'unique', unique: true, capacity: 35,  flySpeed: 450, mineSpeed: 0,   mineTier: 10,
+    render: RENDER_SWIFT,
     hp: 22000, attack: 750,
   },
   ebon_hawk: {
     role: 'unique', unique: true, capacity: 80,  flySpeed: 320, mineSpeed: 0.6, mineTier: 10,
+    render: RENDER_HAULER,
     hp: 16000, attack: 280,
   },
 

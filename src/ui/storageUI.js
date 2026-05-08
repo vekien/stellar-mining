@@ -20,7 +20,7 @@ import {
   formatPowerFuelRate,
   getPowerNetworkState,
   getPowerModuleNetworkInfo,
-  POWER_RESOURCE_CONSUMPTION,
+  getPowerResourceConsumption,
   getPowerFuelOutput,
   hasPowerStationFuel,
   getNoFuelNetworkIds,
@@ -191,6 +191,7 @@ export function renderModuleModal() {
   const title = document.getElementById('storage-modal-title');
   if (!module || !body) return;
   const moduleDef = getModuleDef(module.type);
+  const summaryRows = moduleDef.summary(module);
   const buyPowerCost = isStorageModule(module) ? getModuleUpgradeCost(module).coins * 5 : 0;
   const moduleTier = Math.max(1, Math.min(10, module.level || 1));
   const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
@@ -209,28 +210,62 @@ export function renderModuleModal() {
     </div>
     <div style="padding:8px 10px;border:1px solid #2a6040;border-radius:6px;background:rgba(12,45,26,0.16);margin-bottom:6px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:18px;color:#cde;">HEALTH</span><span id="storage-health-value" style="font-size:17px;padding:2px 8px;line-height:1.2;font-weight:bold;"></span></div>
-      <div style="height:5px;background:#0a1530;border-radius:3px;overflow:hidden;margin-bottom:6px;">
+      <div style="height:5px;background:#000000;border-radius:3px;overflow:hidden;margin-bottom:6px;">
         <div id="storage-health-bar" style="height:100%;border-radius:3px;transition:width 0.4s;"></div>
       </div>
     </div>
+    ${(isPowerStationModule(module) || isStorageModule(module) || isPowerPoleModule(module)) ? `<div id="module-operational-banner" class="module-status-banner module-status-banner-online">ONLINE</div>` : ''}
     ${isStorageModule(module) ? `
     <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ POWER</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:13px;color:#5a8ab0;"><span style="cursor:help;" onmouseover="showHintTooltip(event, 'Power usage scales with stored cargo: 1/s at empty, up to 10/s at full capacity.');" onmouseout="hideTooltip()">Power Usage</span><span id="storage-power-usage" style="color:#cde;font-weight:bold;"></span></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0 6px;font-size:13px;color:#5a8ab0;"><span>Power Capacity</span><span id="storage-power-value" style="color:#48f;font-weight:bold;"></span></div>
-      <div style="background:#0a1428;border-radius:3px;height:5px;margin-bottom:8px;overflow:hidden;"><div id="storage-power-bar" style="height:100%;background:linear-gradient(90deg,#1a6aff,#48f);transition:width 0.3s;"></div></div>
+      <div class="storage-power-panel">
+        <div class="storage-power-head">
+          <span class="storage-power-icon">ϟ</span>
+          <span class="storage-power-title">POWER GRID</span>
+        </div>
+        <table class="storage-power-table">
+          <thead>
+            <tr>
+              <th><span style="cursor:help;" onmouseover="showHintTooltip(event, 'Power usage scales with stored cargo: 1/s at empty, up to 10/s at full capacity.');" onmouseout="hideTooltip()">Usage</span></th>
+              <th>Capacity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="storage-power-usage"></td>
+              <td id="storage-power-value"></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#ffe066;font-family:'Orbitron',sans-serif;font-size:15px;line-height:1;text-shadow:0 0 10px rgba(255,224,102,0.35);">ϟ</span>
+          <div style="flex:1;background:#000000;border-radius:3px;height:5px;overflow:hidden;"><div id="storage-power-bar" style="height:100%;background:linear-gradient(90deg,#caa020,#ffe066);transition:width 0.3s;"></div></div>
+        </div>
+      </div>
       <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO POWER</div>
       <button id="storage-buy-power-btn" class="btn primary" style="width:100%;font-size:12px;margin-top:8px;display:none;" onclick="buyStoragePower(${module.id})">BUY POWER <span style="color:#ffe066;">- $${fmt(buyPowerCost)}</span></button>
     </div>
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ STORAGE</div>
     <div style="padding:8px 10px;border:1px solid #2a4a7a;border-radius:6px;background:rgba(10,20,50,0.28);margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:16px;color:#cde;">STORAGE USED</span><span id="storage-used-value" style="font-size:17px;color:#ffe066;font-weight:bold;"></span></div>
-      <div style="height:5px;background:#0a1530;border-radius:3px;overflow:hidden;"><div id="storage-used-bar" style="height:100%;background:linear-gradient(90deg,#caa020,#ffe066);border-radius:3px;transition:width 0.4s;"></div></div>
+      <div style="height:5px;background:#000000;border-radius:3px;overflow:hidden;"><div id="storage-used-bar" style="height:100%;background:linear-gradient(90deg,#1a6aff,#48f);border-radius:3px;transition:width 0.4s;"></div></div>
     </div>
     ` : ''}
-    <table style="width:100%;border-collapse:collapse;margin-bottom:12px;font-size:13px;">
-      ${renderStatRows(moduleDef.summary(module))}
-    </table>
+    ${summaryRows.length ? `<table style="width:100%;border-collapse:collapse;margin-bottom:12px;font-size:13px;">${renderStatRows(summaryRows)}</table>` : ''}
+    ${isPowerPoleModule(module) ? `
+    <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
+      <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ RELAY</div>
+      <div class="storage-power-panel">
+        <div class="storage-power-head">
+          <span class="storage-power-title">RELAY RANGE</span>
+        </div>
+        <div class="relay-range-row">
+          <span id="relay-range-value" class="relay-range-value"></span>
+          <span id="relay-range-blocks" class="relay-range-blocks"></span>
+        </div>
+      </div>
+    </div>
+    ` : ''}
     ${isStorageModule(module) ? `
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ INVENTORY</div>
     <div id="storage-inventory-list" style="background:rgba(10,20,50,0.35);border:1px solid #1a3a6e;border-radius:4px;padding:8px;max-height:180px;overflow-y:auto;"></div>
@@ -246,12 +281,30 @@ export function renderModuleModal() {
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ FUEL</div>
     <div class="power-station-panel">
       <div class="power-station-row">
-        <span class="power-station-label">Power Source</span>
+        <span class="power-station-power-label"><span class="storage-power-icon">ϟ</span><span class="storage-power-title">POWER SOURCE</span></span>
         <select id="power-station-fuel-select" class="power-station-select" onchange="setPowerStationFuel(${module.id}, this.value)"></select>
       </div>
-      <div id="power-station-fuel-rate" class="power-station-subtle"></div>
-      <div id="power-station-fuel-cost" class="power-station-cost"></div>
-      <div class="power-station-row power-station-fuel-row"><span class="power-station-value-label">STORED FUEL</span><span id="power-station-used-value" class="power-station-value"></span></div>
+      <div class="power-station-fuel-table-wrap">
+        <table class="power-station-fuel-table">
+          <thead>
+            <tr>
+              <th>Input</th>
+              <th>Output</th>
+              <th>Load</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="power-station-fuel-rate"></td>
+              <td id="power-station-fuel-output"></td>
+              <td id="power-station-fuel-cost"></td>
+              <td id="power-station-fuel-status"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="power-station-row power-station-fuel-row"><span id="power-station-used-label" class="power-station-value-label">△ FUEL</span><span id="power-station-used-value" class="power-station-value"></span></div>
       <div class="power-station-bar"><div id="power-station-used-bar" class="power-station-bar-fill"></div></div>
     </div>
     ` : ''}
@@ -360,7 +413,8 @@ export function patchModuleModal() {
     const linkedStations = networkInfo.stations;
     const noFuelIds = getNoFuelNetworkIds(state.modules);
     const noFuelWarning = document.getElementById('power-station-no-fuel-warning');
-    const fuelCost = POWER_RESOURCE_CONSUMPTION * linkedStorages.length;
+    const inputQty = getPowerResourceConsumption(module);
+    const fuelCost = inputQty * linkedStorages.length;
     const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
     if (isPowerStationModule(module)) {
       const fuelSelect = document.getElementById('power-station-fuel-select');
@@ -372,16 +426,42 @@ export function patchModuleModal() {
       const fuelName = RESOURCE_DEFS[fuelType].label;
       const powerOutput = getPowerFuelOutput(fuelType);
       const noFuel = !hasPowerStationFuel(module);
-      const perStorageText = `Per storage: ${POWER_RESOURCE_CONSUMPTION} ${fuelName} -> +${powerOutput} power/second`;
-      const networkLoadText = linkedStorages.length > 0
-        ? `Current load: ${linkedStorages.length} storages -> ${fuelCost} ${fuelName} consumed each second`
-        : 'Current load: no connected storage facilities';
-      setTextIfChanged('power-station-fuel-rate', perStorageText);
-      setTextIfChanged('power-station-fuel-cost', networkLoadText);
-      setTextIfChanged('power-station-used-value', `${fmt(getModuleInventoryTotal(module))} / ${fmt(module.resourceCapacity || 0)}`);
-      document.getElementById('power-station-used-bar').style.width = `${Math.max(0, Math.min(100, (getModuleInventoryTotal(module) / Math.max(1, module.resourceCapacity || 1)) * 100))}%`;
-      if (noFuelWarning) noFuelWarning.style.display = noFuel ? '' : 'none';
+      const offline = (module.health || 0) <= 0 || noFuel;
+      const inputText = `${fuelCost} ${fuelName}`;
+      const outputText = `${powerOutput}/s`;
+      const totalLoad = linkedStorages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0);
+      const netDelta = powerOutput - totalLoad;
+      const statusColor = netDelta > 0 ? '#6fff9a' : netDelta < 0 ? '#ff8a8a' : '#ffe066';
+      const statusLabel = netDelta > 0 ? 'Surplus' : netDelta < 0 ? 'Deficit' : 'Balanced';
+      const facilityLabel = linkedStorages.length === 1 ? 'Facility' : 'Facilities';
+      const operationalBanner = document.getElementById('module-operational-banner');
+      const deficitWarning = document.getElementById('power-station-deficit-warning');
+      setTextIfChanged('power-station-fuel-rate', inputText);
+      setTextIfChanged('power-station-fuel-output', outputText);
+      setHtmlIfChanged('power-station-fuel-cost', `${totalLoad.toFixed(1).replace(/\.0$/, '')}/s<div class="power-station-fuel-sub">(${linkedStorages.length} ${facilityLabel})</div>`);
+      setHtmlIfChanged('power-station-fuel-status', `<span style="color:${statusColor};">${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1).replace(/\.0$/, '')}/s</span><div class="power-station-fuel-sub" style="color:${statusColor};">${statusLabel}</div>`);
+      const selectedFuelStored = module.inventory?.[fuelType] || 0;
+      setTextIfChanged('power-station-used-label', `△ FUEL: ${fuelName.toUpperCase()}`);
+      setTextIfChanged('power-station-used-value', `${fmt(selectedFuelStored)} / ${fmt(module.resourceCapacity || 0)}`);
+      document.getElementById('power-station-used-bar').style.width = `${Math.max(0, Math.min(100, (selectedFuelStored / Math.max(1, module.resourceCapacity || 1)) * 100))}%`;
+      if (noFuelWarning) {
+        noFuelWarning.textContent = `WARNING: NO ${fuelName.toUpperCase()}`;
+        noFuelWarning.style.display = noFuel ? '' : 'none';
+      }
+      if (deficitWarning) deficitWarning.style.display = (!noFuel && netDelta < 0) ? '' : 'none';
+      if (operationalBanner) {
+        operationalBanner.textContent = offline ? 'OFFLINE' : 'ONLINE';
+        operationalBanner.className = `module-status-banner ${offline ? 'module-status-banner-offline' : 'module-status-banner-online'}`;
+      }
     } else if (isPowerPoleModule(module)) {
+      const operationalBanner = document.getElementById('module-operational-banner');
+      if (operationalBanner) {
+        const online = (module.health || 0) > 0;
+        operationalBanner.textContent = online ? 'ONLINE' : 'OFFLINE';
+        operationalBanner.className = `module-status-banner ${online ? 'module-status-banner-online' : 'module-status-banner-offline'}`;
+      }
+      setTextIfChanged('relay-range-value', `${module.relayRange || 0} TILES`);
+      setTextIfChanged('relay-range-blocks', Array.from({ length: Math.max(0, module.relayRange || 0) }, () => '■').join(' '));
       if (noFuelWarning) noFuelWarning.style.display = noFuelIds.has(module.id) ? '' : 'none';
     }
     const summaryEl = document.getElementById('power-station-link-summary');
@@ -403,6 +483,15 @@ export function patchModuleModal() {
       summaryEl.onmouseout = () => hideTooltip();
     }
     setHtmlIfChanged('storage-inventory-list', invRows || '<div style="font-size:12px;color:#4a6a8a;">No stored fuel yet.</div>');
+  }
+
+  if (isStorageModule(module)) {
+    const operationalBanner = document.getElementById('module-operational-banner');
+    if (operationalBanner) {
+      const online = isStorageOperational(module);
+      operationalBanner.textContent = online ? 'ONLINE' : 'OFFLINE';
+      operationalBanner.className = `module-status-banner ${online ? 'module-status-banner-online' : 'module-status-banner-offline'}`;
+    }
   }
 }
 
@@ -502,6 +591,10 @@ window.sellStorageFacility = function(moduleId, refundCoins) {
           ship.destY = base.y + TILE_H / 2 - 20;
         }
       }
+      if ((ship.pickupType === 'storage' || ship.pickupType === 'power_station') && ship.pickupId === moduleId) {
+        ship.pickupType = null;
+        ship.pickupId = null;
+      }
     }
   }
   state.modules = state.modules.filter(entry => entry.id !== moduleId);
@@ -515,7 +608,7 @@ window.setPowerStationFuel = function(moduleId, fuelResource) {
   const module = getModuleById(moduleId);
   if (!module || !isPowerStationModule(module)) return;
   module.fuelResource = fuelResource;
-  patchModuleModal();
+  renderModuleModal();
 };
 
 window.startCraftModule = function(moduleType = STORAGE_FACILITY_ID) {
@@ -535,7 +628,7 @@ window.startCraftModule = function(moduleType = STORAGE_FACILITY_ID) {
   addLog(`🛠 Crafting started: ${moduleDef.name} (${Math.ceil(durationMs / 1000)}s)`);
   scheduleModuleCraftCompletion(moduleType, now + durationMs);
   if (refresh.ui) refresh.ui();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
+  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 };
 
 window.beginPlacingStorage = function(moduleType = STORAGE_FACILITY_ID) {

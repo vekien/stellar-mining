@@ -223,12 +223,12 @@
 
 <div id="sell-overlay">
   <div id="sell-box">
-    <div class="rename-title">⊘ Sell Ship</div>
+    <div id="sell-overlay-title" class="rename-title">♻ Salvage Ship</div>
     <div id="sell-ship-name" style="font-size:15px;color:#cde;margin-bottom:8px;"></div>
     <div id="sell-ship-value" style="font-size:17px;color:#6fff9a;margin-bottom:10px;"></div>
-    <div class="rename-hint" style="margin-bottom:14px;">This cannot be undone.</div>
+    <div id="sell-overlay-hint" class="rename-hint" style="margin-bottom:14px;">This cannot be undone.</div>
     <div style="display:flex;gap:8px;">
-      <button class="btn danger" style="flex:1;" onclick="confirmSellOverlay()">CONFIRM SELL</button>
+      <button id="sell-overlay-confirm" class="btn danger" style="flex:1;" onclick="confirmSellOverlay()">CONFIRM SALVAGE</button>
       <button class="btn" style="flex:1;" onclick="closeSellOverlay()">CANCEL</button>
     </div>
   </div>

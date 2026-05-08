@@ -119,7 +119,7 @@ export function renderTurretModal() {
         <div style="font-size:14px;color:${hpColor};font-weight:bold;">${fmt(turret.health)} / ${fmt(turret.maxHealth)}</div>
       </div>
     </div>
-    <div style="background:#0a1428;border-radius:3px;height:5px;margin-bottom:10px;overflow:hidden;">
+    <div style="background:#000000;border-radius:3px;height:5px;margin-bottom:10px;overflow:hidden;">
       <div style="height:100%;width:${hpPct}%;background:${hpBarColor};transition:width 0.3s;"></div>
     </div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:12px;font-size:13px;">
@@ -247,7 +247,7 @@ window.startPlaceTurret = function() {
   scheduleTurretCraftCompletion(turretType, now + durationMs);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
+  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 };
 
 export function cancelTurretPlacement() {

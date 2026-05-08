@@ -6,7 +6,7 @@ import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFTS, CRAFT_SHIPS as CRAFT_RECIPES, getCraft } from '../data/crafts.js';
 import {
   SHIP_DEFS, SHIP_TIER_COSTS, toRoman,
-  formatFlySpeed, formatMineSpeedPercent, formatLoadSpeedPercent, formatAtkRatePercent,
+  formatFlySpeed, formatMineSpeedPercent, formatLoadSpeed, formatAtkRatePercent,
   profileMax,
   CARGO_PROFILE, FLY_SPEED_PROFILE, MINE_SPEED_PROFILE, LOAD_SPEED_PROFILE,
   HP_PROFILE, ATTACK_PROFILE, ATK_RATE_PROFILE,
@@ -16,7 +16,7 @@ import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
-import { MODULE_DEFS, getModuleDef } from '../data/modules.js';
+import { MODULE_DEFS, getModuleDef, getModuleStats, getPowerFuelOutput, POWER_DISABLED_RESOURCES, POWER_RESOURCE_CONSUMPTION, STORAGE_FACILITY_ID } from '../data/modules.js';
 import { fmt } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
@@ -60,6 +60,8 @@ setInterval(() => {
 
 let _hdrPanelOpen = null;
 let _codexTab = 'crew';
+let _craftTab = 'ships';
+let _craftShipRoleTab = 'mining';
 let _fleetCompSig = '';
 let _fleetSortKey = 'name';
 let _fleetSortDir = 1;
@@ -374,6 +376,20 @@ function switchCodexTab(tab) {
 }
 window.switchCodexTab = switchCodexTab;
 
+function switchCraftTab(tab) {
+  _craftTab = tab;
+  _hdrPanelOpen = null;
+  openHdrPanel('craft');
+}
+window.setCraftTab = switchCraftTab;
+
+function switchCraftShipRoleTab(tab) {
+  _craftShipRoleTab = tab;
+  _hdrPanelOpen = null;
+  openHdrPanel('craft');
+}
+window.setCraftShipRoleTab = switchCraftShipRoleTab;
+
 // ── Stats helpers ───────────────────────────────────────────
 function buildStatsData() {
   const maxShips = BASE_MAX_SHIPS[(state.base.level - 1)] || 20;
@@ -562,6 +578,7 @@ export function patchStatsPanel() {
 
 export function openHdrPanel(type, options = {}) {
   const overlay = document.getElementById('hdr-modal-overlay');
+  const modal = document.getElementById('hdr-modal');
   const heading = document.getElementById('hdr-modal-heading');
   const body    = document.getElementById('hdr-modal-body');
 
@@ -589,8 +606,11 @@ export function openHdrPanel(type, options = {}) {
   overlay.classList.add('open');
   const _modalBody = document.getElementById('hdr-modal-body');
   if (_modalBody && !options.preserveScroll) _modalBody.scrollTop = 0;
-  const MODAL_WIDTHS = { fleet: '1100px', codex: '1200px' };
-  document.getElementById('hdr-modal').style.width = MODAL_WIDTHS[type] || '';
+  if (modal) {
+    modal.classList.remove('hdr-modal-fleet', 'hdr-modal-codex');
+    if (type === 'fleet') modal.classList.add('hdr-modal-fleet');
+    if (type === 'codex') modal.classList.add('hdr-modal-codex');
+  }
 
   if (type === 'research' && state.seenMsgs['dax_lv3_intro'] && state.seenMsgs['kai_lv3_intro']) {
     state.seenMsgs['lv3_research_pointer_done'] = true;
@@ -682,16 +702,16 @@ export function openHdrPanel(type, options = {}) {
     const maxShips = BASE_MAX_SHIPS[bl - 1] || 5;
     const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
     const atCap = (state.ships.length + activeCraftCount) >= maxShips;
-    const activeCraftTab = body.dataset.craftTab || 'ships';
+    const activeCraftTab = _craftTab || 'ships';
 
     const craftTabDefs = [
-      { id: 'ships',   label: 'SHIPS',   icon: '▲' },
-      { id: 'defense', label: 'DEFENSE', icon: '🛡' },
-      { id: 'modules', label: 'MODULES', icon: '⬡' },
+      { id: 'ships',   label: 'SHIPS' },
+      { id: 'defense', label: 'DEFENSE' },
+      { id: 'modules', label: 'MODULES' },
     ];
-    const tabBar = craftTabDefs.map(t =>
-      `<button id="craft-tab-${t.id}" class="craft-tab${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.icon} ${t.label}</button>`
-    ).join('');
+    const navBar = `<div class="craft-nav">${craftTabDefs.map(t =>
+      `<button id="craft-tab-${t.id}" class="craft-nav-btn${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.label}</button>`
+    ).join('')}</div>`;
 
     let tabContent = '';
 
@@ -704,23 +724,27 @@ export function openHdrPanel(type, options = {}) {
       };
 
       const roleOrder = ['mining', 'transport', 'combat', 'garrison'];
+      const activeShipRoleTab = _craftShipRoleTab || 'mining';
+      const shipRoleTabs = `<div class="craft-subtabs">${roleOrder.map((role) => {
+        const meta = ROLE_META[role];
+        return `<button class="craft-subtab${activeShipRoleTab===role?' active':''}" onclick="setCraftShipRoleTab('${role}')" style="${activeShipRoleTab===role ? `border-color:${meta.color};color:${meta.color};background:${meta.color}12;` : ''}">${meta.label}</button>`;
+      }).join('')}</div>`;
       let items = atCap
         ? `<div class="craft-cap-warning">⚠ Ship capacity full (${state.ships.length + activeCraftCount}/${maxShips}).<br>Upgrade the Base or sell a ship.</div>`
         : '';
 
-      for (const role of roleOrder) {
-        const meta = ROLE_META[role];
-        const groupRecipes = CRAFT_RECIPES.filter(r => {
-          const s = SHIP_DEFS[r.id];
-          return s && (s.role || 'mining') === role && s.mineTier <= bl;
-        });
-        if (!groupRecipes.length) continue;
+      const activeRoleMeta = ROLE_META[activeShipRoleTab];
+      const groupRecipes = CRAFT_RECIPES.filter(r => {
+        const s = SHIP_DEFS[r.id];
+        return s && (s.role || 'mining') === activeShipRoleTab && s.mineTier <= bl;
+      });
 
-        items += `<div class="craft-role-header" style="color:${meta.color};border-bottom:1px solid ${meta.color}33;">${meta.label}</div>`;
+      if (groupRecipes.length) {
+        items += `<div class="craft-role-header" style="color:${activeRoleMeta.color};border-bottom:1px solid ${activeRoleMeta.color}33;">${activeRoleMeta.label}</div>`;
 
         for (const recipe of groupRecipes) {
           const stats     = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
-          const sc        = meta.color;
+          const sc        = activeRoleMeta.color;
           const tierColor = MINE_TIERS[stats.mineTier]?.color || '#fff';
           const reqsMet   = Object.entries(recipe.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
           const canCraft  = reqsMet && !atCap;
@@ -739,7 +763,8 @@ export function openHdrPanel(type, options = {}) {
           } else if (stats.role === 'transport') {
             statsHtml = `
               <span class="craft-stat">CAPACITY <span style="color:#ffe066;">${stats.capacity}u</span></span>
-              <span class="craft-stat">SPEED <span style="color:#ffe066;">${formatFlySpeed(stats.flySpeed)}</span></span>`;
+              <span class="craft-stat">SPEED <span style="color:#ffe066;">${formatFlySpeed(stats.flySpeed)}</span></span>
+              <span class="craft-stat">LOAD SPD <span style="color:#ffe066;">${formatLoadSpeed(stats.loadSpeed || 0)}</span></span>`;
           } else {
             statsHtml = `
               <span class="craft-stat">CAPACITY <span style="color:#ffe066;">${stats.capacity}u</span></span>
@@ -778,11 +803,11 @@ export function openHdrPanel(type, options = {}) {
         }
       }
 
-      if (items === '' || (atCap && items.trim().endsWith('</div>'))) {
+      if (!groupRecipes.length) {
         items += `<div class="craft-empty">No ships available at current base tier.</div>`;
       }
 
-      tabContent = `<div class="bp-craft-grid">${items}</div>`;
+      tabContent = `${shipRoleTabs}<div class="bp-craft-grid">${items}</div>`;
 
       // Tutorial scroll-to
       if (state.tutStep === 7) {
@@ -902,14 +927,8 @@ export function openHdrPanel(type, options = {}) {
       </div>`;
     }
 
-    body.innerHTML = `<div class="craft-tabs">${tabBar}</div>${tabContent}`;
-    body.dataset.craftTab = activeCraftTab;
-    window.setCraftTab = (id) => {
-      body.dataset.craftTab = id;
-      if (id === 'ships' && state.tutStep === 6) { state.tutStep = 7; }
-      _hdrPanelOpen = null;
-      openHdrPanel('craft');
-    };
+    body.innerHTML = `<div class="craft-layout">${navBar}<div class="craft-content">${tabContent}</div></div>`;
+    if (activeCraftTab === 'ships' && state.tutStep === 6) { state.tutStep = 7; }
   }
 
   // ── RESEARCH ───────────────────────────────────────────────
@@ -1169,6 +1188,10 @@ export function openHdrPanel(type, options = {}) {
         const mult = boostMap.get(key);
         const boost = Number.isFinite(mult);
         const sellDisplay = boost ? `<span style="color:#ffe066;">$${Math.round(def.sellPrice * mult)} ★ BOOSTED</span>` : `<span class="codex-resources-sell">$${def.sellPrice}</span>`;
+        const powerOutput = getPowerFuelOutput(key);
+        const powerDisplay = POWER_DISABLED_RESOURCES.has(key) || powerOutput <= 0
+          ? `<span class="codex-resources-stat-value" style="color:#4a6a8a;">Not usable</span>`
+          : `<span class="codex-resources-stat-value" style="color:#ffe066;">${POWER_RESOURCE_CONSUMPTION} ${def.label} = ${powerOutput}/s</span>`;
         return `<div class="codex-resources-card" style="border-left: 5px solid ${def.color};">
           <div class="codex-resources-header">
             <div class="codex-resources-dot" style="background:${def.color};box-shadow:0 0 8px ${def.color}88;"></div>
@@ -1182,6 +1205,8 @@ export function openHdrPanel(type, options = {}) {
             <div class="codex-resources-stat"><span class="codex-resources-stat-label">MINE TIER</span><br><span class="codex-resources-stat-value">${tierInfo.label}</span></div>
             <div class="codex-resources-divider"></div>
             <div class="codex-resources-stat"><span class="codex-resources-stat-label">FOUND IN BELT</span><br><span class="codex-resources-stat-value" style="color:${abundanceColor};">${abundanceHint}</span></div>
+            <div class="codex-resources-divider"></div>
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">POWER OUTPUT</span><br>${powerDisplay}</div>
           </div>
         </div>`;
       }).join('');
@@ -1216,7 +1241,7 @@ export function openHdrPanel(type, options = {}) {
           row: (id, s) => [
             withMax(s.capacity, profileMax(CARGO_PROFILE, id)),
             withMax(formatFlySpeed(s.flySpeed), profileMax(FLY_SPEED_PROFILE, id) !== null ? formatFlySpeed(profileMax(FLY_SPEED_PROFILE, id)) : null),
-            withMax(formatLoadSpeedPercent(s.loadSpeed || 0), profileMax(LOAD_SPEED_PROFILE, id) !== null ? `${Math.round(profileMax(LOAD_SPEED_PROFILE, id)*10)}%` : null),
+            withMax(formatLoadSpeed(s.loadSpeed || 0), profileMax(LOAD_SPEED_PROFILE, id) !== null ? formatLoadSpeed(profileMax(LOAD_SPEED_PROFILE, id)) : null),
           ],
         },
         {
@@ -1335,7 +1360,7 @@ export function openHdrPanel(type, options = {}) {
           <tbody>${turretRows}</tbody>
         </table>`;
     } else if (_codexTab === 'storage') {
-      const baseStorageStats = getStorageFacilityStats(1);
+      const baseStorageStats = getModuleStats(STORAGE_FACILITY_ID, 1);
       tabContent = `
         <div class="codex-group-label codex-section-title">◈ STORAGE FACILITIES</div>
         <div class="codex-info-card">

@@ -105,7 +105,7 @@
     top: 44px; left: 0; right: var(--sidebar-width); bottom: 0;
     background: rgba(0,0,0,0.55); z-index: 420;
     align-items: flex-start; justify-content: center;
-    padding-top: 24px;
+    padding-top: 100px;
     pointer-events: none;
   }
   #hdr-modal-overlay.open { display: flex; pointer-events: all; }
@@ -118,6 +118,12 @@
     box-shadow: 0 8px 40px rgba(0,0,0,0.8);
     pointer-events: all;
     z-index: 421;
+  }
+  #hdr-modal.hdr-modal-fleet {
+    width: 90%;
+  }
+  #hdr-modal.hdr-modal-codex {
+    width: 1200px;
   }
   #hdr-modal-title {
     font-family: 'Orbitron', sans-serif;
@@ -161,7 +167,7 @@
     padding: 0;
     border: none;
   }
-  .ships-comp-table { width: 100%; border-collapse: collapse; background: rgba(10,20,50,0.4); border: 1px solid #3a6aa8; border-radius: 4px; overflow: hidden; margin-bottom: 12px; box-shadow: 0 0 0 1px rgba(110,170,255,0.18) inset; }
+  .ships-comp-table { width: 100%; border-collapse: collapse; background: rgba(10,20,50,0.4); border: 1px solid #3a6aa8; border-radius: 4px; margin-bottom: 12px; box-shadow: 0 0 0 1px rgba(110,170,255,0.18) inset; }
   .ships-comp-head { padding: 8px 10px; color: #8ab; font-size: 13px; border-bottom: 1px solid #2a4f80; }
   .ships-comp-val { padding: 8px 10px; color: #cde; font-size: 18px; font-weight: bold; }
   .ships-table-fixed { table-layout: fixed; width: 100%; }
@@ -199,9 +205,14 @@
     font-size: 14px;
     color: #cde;
   }
+  .power-station-power-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .power-station-value-label {
     font-size: 16px;
-    color: #cde;
+    color: #d9c3ff;
   }
   .power-station-select {
     min-width: 190px;
@@ -230,7 +241,7 @@
   }
   .power-station-bar {
     height: 5px;
-    background: #140f22;
+    background: #000000;
     border-radius: 3px;
     overflow: hidden;
   }
@@ -245,6 +256,154 @@
     color: #d9c3ff;
     cursor: help;
   }
+  .storage-power-panel {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid #2a4a7a;
+    border-radius: 6px;
+    background: rgba(10,20,50,0.28);
+  }
+  .storage-power-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .storage-power-icon {
+    color: #ffe066;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 16px;
+    line-height: 1;
+    text-shadow: 0 0 10px rgba(255,224,102,0.35);
+  }
+  .storage-power-title {
+    color: #cde;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  .storage-power-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: rgba(0,0,0,0.16);
+    border: 1px solid rgba(42,74,122,0.65);
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .storage-power-table th,
+  .storage-power-table td {
+    padding: 6px 8px;
+    border-right: 1px solid rgba(42,74,122,0.35);
+  }
+  .storage-power-table th:last-child,
+  .storage-power-table td:last-child {
+    border-right: none;
+  }
+  .storage-power-table thead th {
+    color: #8ab;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: rgba(12,24,54,0.45);
+    text-align: center;
+  }
+  .storage-power-table tbody td {
+    color: #ffe066;
+    font-weight: bold;
+    text-align: center;
+    font-size: 18px;
+  }
+  .relay-range-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    color: #cde;
+    font-size: 14px;
+  }
+  .relay-range-value {
+    color: #cde;
+    font-size: 15px;
+    letter-spacing: 1px;
+  }
+  .relay-range-blocks {
+    color: #ffe066;
+    font-size: 30px;
+    letter-spacing: 0px;
+    text-align: right;
+    flex: 1;
+    line-height: 0.1;
+  }
+  .module-status-banner {
+    width: 100%;
+    text-align: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    letter-spacing: 2px;
+    font-weight: 900;
+  }
+  .module-status-banner-online {
+    color: #06210e;
+    border: 1px solid rgba(120,255,170,0.7);
+    background: linear-gradient(180deg, rgba(120,255,170,0.95), rgba(90,235,150,0.95));
+  }
+  .module-status-banner-offline {
+    color: #fff0f0;
+    border: 1px solid rgba(255,120,120,0.7);
+    background: linear-gradient(180deg, rgba(180,40,40,0.95), rgba(120,20,20,0.95));
+  }
+  .module-status-banner-warning {
+    color: #2a1500;
+    border: 1px solid rgba(255,210,90,0.7);
+    background: linear-gradient(180deg, rgba(255,220,120,0.95), rgba(255,194,70,0.95));
+  }
+  .power-station-fuel-table-wrap {
+    margin-bottom: 8px;
+  }
+  .power-station-fuel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(90,58,122,0.65);
+    border-radius: 4px;
+  }
+  .power-station-fuel-table th,
+  .power-station-fuel-table td {
+    padding: 6px 8px;
+    border-right: 1px solid rgba(90,58,122,0.35);
+  }
+  .power-station-fuel-table th:last-child,
+  .power-station-fuel-table td:last-child {
+    border-right: none;
+  }
+  .power-station-fuel-table thead th {
+    color: #d9c3ff;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: rgba(22,12,36,0.4);
+    text-align: center;
+  }
+  .power-station-fuel-table tbody td {
+    color: #ffe066;
+    font-weight: bold;
+    text-align: center;
+    vertical-align: top;
+    font-size: 15px;
+  }
+  .power-station-fuel-sub {
+    margin-top: 2px;
+    color: #4a8ab0;
+    font-size: 11px;
+    font-weight: normal;
+  }
+  #power-station-fuel-cost { font-weight: normal; }
 
   /* resources panel */
   .resources-stats-row { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -353,7 +512,7 @@
 
   /* codex > ships */
   .codex-ships-group-header { font-family: 'Orbitron',sans-serif; font-size: 10px; letter-spacing: 2px; margin: 14px 0 7px; padding-bottom: 5px; }
-  .codex-ships-table { width: 100%; border-collapse: collapse; background: rgba(10,20,50,0.4); border: 1px solid #1a3a6e; border-radius: 4px; overflow: hidden; margin-bottom: 4px; table-layout: fixed; }
+  .codex-ships-table { width: 100%; border-collapse: collapse; background: rgba(10,20,50,0.4); border: 1px solid #1a3a6e; border-radius: 4px; margin-bottom: 4px; table-layout: fixed; }
   .codex-ships-table colgroup .col-ship  { width: 34%; }
   .codex-ships-table colgroup .col-tier  { width: 10%; }
   .codex-ships-th { text-align: left; padding: 6px 8px; font-size: 11px; letter-spacing: 1.5px; border-bottom: 1px solid #1a3a6e; }
@@ -460,9 +619,36 @@
   .trade-section-title { margin-bottom: 8px; }
 
   /* craft */
-  .craft-tabs { display: flex; border-bottom: 1px solid #1a3a6e; margin-bottom: 14px; }
-  .craft-tab { flex: 1; padding: 8px 4px; border: none; border-bottom: 2px solid transparent; font-family: 'Orbitron',sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 1px; cursor: pointer; background: transparent; color: #4a6a8a; }
-  .craft-tab.active { background: rgba(30,60,120,0.7); border-bottom-color: #4af; color: #4af; }
+  .craft-layout { display: flex; gap: 14px; align-items: flex-start; }
+  .craft-content { flex: 1; min-width: 0; }
+  .craft-nav { width: 190px; flex-shrink: 0; border-right: 1px solid #1a3a6e; padding-right: 10px; }
+  .craft-nav-btn {
+    width: 100%; text-align: left; padding: 9px 10px; margin-bottom: 6px;
+    font-family: 'Orbitron',monospace; font-size: 13px; font-weight: 600; letter-spacing: 1.3px;
+    border: 1px solid #1a3458; border-left: 3px solid #24466f; border-radius: 4px;
+    background: rgba(8,18,40,0.4); color: #5f7fa0; cursor: pointer;
+    transition: all 0.15s; text-transform: uppercase;
+  }
+  .craft-nav-btn.active {
+    border-color: #2f6fb8; border-left-color: #4af;
+    background: rgba(16,48,90,0.45); color: #8fd0ff;
+  }
+  .craft-subtabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+  .craft-subtab {
+    padding: 7px 10px;
+    border: 1px solid #1a3a6e;
+    border-radius: 4px;
+    background: rgba(10,20,50,0.35);
+    color: #6a8aaa;
+    font-family: 'Orbitron',sans-serif;
+    font-size: 11px;
+    letter-spacing: 1px;
+    cursor: pointer;
+  }
+  .craft-subtab.active {
+    color: #cde;
+    background: rgba(30,60,120,0.25);
+  }
   .craft-cap-warning { font-size: 16px; color: #f88; background: rgba(60,10,10,0.4); border: 1px solid #803020; border-radius: 3px; padding: 6px 8px; margin-bottom: 8px; text-align: center; }
   .craft-role-header { font-family: 'Orbitron',sans-serif; font-size: 10px; letter-spacing: 2px; margin: 12px 0 8px; padding-bottom: 5px; }
   .craft-stats-row { display: flex; gap: 10px; font-size: 14px; flex-wrap: wrap; }
@@ -481,7 +667,7 @@
   .craft-item-desc { font-size: 13px; color: #5a7a9a; font-style: italic; }
   .craft-item-tier-pill { font-size: 13px; padding: 2px 8px; border-radius: 3px; font-family: 'Cinzel',serif; font-weight: 600; flex-shrink: 0; }
   .craft-item-role-pill { font-size: 13px; padding: 2px 8px; border-radius: 3px; font-family: 'Orbitron',sans-serif; letter-spacing: 1px; flex-shrink: 0; text-transform: uppercase; }
-  .craft-item-table { width: 100%; border-collapse: collapse; border: 1px solid #1a3a6e; border-radius: 4px; overflow: hidden; }
+  .craft-item-table { width: 100%; border-collapse: collapse; border: 1px solid #1a3a6e; border-radius: 4px; }
   .craft-item-th { padding: 6px 10px; color: #3a6a9a; font-size: 11px; letter-spacing: 1px; text-align: left; border-bottom: 1px solid #1a3a6e; font-family: 'Orbitron',sans-serif; font-weight: 600; background: rgba(6,14,38,0.6); }
   .craft-item-th-left { border-right: 1px solid #1a3a6e; }
   .craft-item-td-left { padding: 8px 0; vertical-align: top; border-right: 1px solid #1a3a6e; width: 50%; }
@@ -1602,7 +1788,7 @@
     font-family: 'Orbitron', monospace; margin: 8px 0 4px;
   }
   #base-panel .bp-health-bar {
-    height: 5px; background: #0a1530; border-radius: 3px; overflow: hidden; margin-bottom: 6px;
+    height: 5px; background: #000000; border-radius: 3px; overflow: hidden; margin-bottom: 6px;
   }
   #base-panel .bp-health-fill {
     height: 100%; background: linear-gradient(90deg, #2a8040, #4d8);
@@ -1746,7 +1932,7 @@
   .event-warning-progress-wrap {
     width: 100%; height: 5px;
     border-radius: 4px; overflow: hidden;
-    background: rgba(255,220,180,0.2);
+    background: #000000;
     border: 1px solid rgba(255,180,120,0.35);
   }
   .event-warning-progress {
@@ -1946,7 +2132,7 @@
   }
   #admiral-panel .adm-body strong { color: #ffe066; }
   #admiral-panel .adm-progress-bar {
-    height: 3px; background: rgba(255,220,50,0.15);
+    height: 3px; background: #000000;
     margin: 0 14px 10px;
     border-radius: 2px; overflow: hidden;
   }

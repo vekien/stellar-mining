@@ -24,7 +24,7 @@ import { getMaxShield } from './systems/research.js';
 import { SHIELD_REGEN_INTERVAL_S, SHIELD_REGEN_PER_PURCHASE_PER_TICK, AUTO_REGEN_HP_PER_PURCHASE } from './data/research.js';
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
-import { renderActionPanel, getShipHoldingReason, getShipRouteError, getShipStatusMeta, getShipTransportSummary } from './ui/fleet.js';
+import { renderActionPanel, getShipHoldingReason, getShipRouteError, getShipStatusMeta, getShipTransportSummary, getShipTransportStatusHtml } from './ui/fleet.js';
 import { renderBasePanel } from './ui/basePanel.js';
 import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen, patchStatsPanel } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
@@ -375,6 +375,7 @@ function getSelectedActionSig(ship) {
     name: ship.name,
     type: ship.type,
     status: ship.status,
+    unloadingDepot: !!ship.unloadingDepot,
     capacity: ship.capacity,
     mineTier: ship.mineTier,
     targetNode: ship.targetNode,
@@ -400,7 +401,7 @@ function patchShipActionPanel(ship) {
 
   const transportSummary = getShipTransportSummary(ship);
   const transportingEl = document.getElementById('action-panel-transporting');
-  setTextIfChanged(transportingEl, transportSummary.value);
+  setHtmlIfChanged(transportingEl, getShipTransportStatusHtml(ship));
   const transportingLabelEl = document.getElementById('action-panel-transporting-label');
   setTextIfChanged(transportingLabelEl, transportSummary.label);
 
@@ -447,7 +448,7 @@ function patchShipCards() {
   const selectedShipForSig = state.selectedShip !== null
     ? state.ships.find(s => s.id === state.selectedShip)
     : null;
-  const sig = state.ships.map(s => `${s.id}:${s.status}:${s.cargo}/${s.capacity}`).join('|')
+  const sig = state.ships.map(s => `${s.id}:${s.status}:${!!s.unloadingDepot}:${s.cargo}/${s.capacity}`).join('|')
     + `|sel:${state.selectedShip ?? '-'}|selDist:${selectedShipForSig ? getDistanceToBaseTiles(selectedShipForSig) : '-'}|selDest:${selectedShipForSig ? selectedShipForSig.destX : '-'}:${selectedShipForSig ? selectedShipForSig.destY : '-'}|sol:${state.sol}|coins:${state.coins}`;
   if (sig === _lastPatchSig) {
     requestAnimationFrame(patchShipCards);

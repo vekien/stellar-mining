@@ -25,9 +25,9 @@ import {
   getPowerModuleNetworkInfo,
   getPowerFuelOutput,
   getModuleInventoryTotal,
+  getPowerResourceConsumption,
   isPowerStationModule,
   isPowerPoleModule,
-  POWER_RESOURCE_CONSUMPTION,
   STORAGE_FACILITY_ID,
 } from './data/modules.js';
 import { getCraft } from './data/crafts.js';
@@ -185,12 +185,12 @@ export function initInput(canvas) {
         const fuelType = hoveredStorage.fuelResource || 'iron';
         const fuelOutput = getPowerFuelOutput(fuelType);
         const fuelName = RESOURCE_DEFS[fuelType]?.label || 'Fuel';
-        const loadCost = POWER_RESOURCE_CONSUMPTION * linkedStorages;
+        const loadCost = getPowerResourceConsumption(hoveredStorage) * linkedStorages;
         tt.innerHTML = `
           <div class="tt-name">${hoveredStorage.name}</div>
           <div>Power Source: <span style="color:#d9c3ff">${fuelName}</span></div>
           <div>Current Load: <span style="color:#ffe066">${linkedStorages} storages · ${loadCost} ${fuelName}/s</span></div>
-          <div>Stored Fuel: <span style="color:#cde">${fmt(getModuleInventoryTotal(hoveredStorage))} / ${fmt(hoveredStorage.resourceCapacity || 0)}</span></div>
+          <div>Selected Fuel: <span style="color:#cde">${fmt(hoveredStorage.inventory?.[fuelType] || 0)} / ${fmt(hoveredStorage.resourceCapacity || 0)}</span></div>
           <div>Output: <span style="color:#cde">+${fuelOutput} power/second per storage</span></div>
           <div style="margin-top:4px;color:#d9c3ff;">${summaryParts}</div>
         `;

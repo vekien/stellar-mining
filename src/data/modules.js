@@ -30,26 +30,27 @@ function makeEmptyInventory() {
 }
 
 export const POWER_RESOURCE_CONSUMPTION = 10;
+export const POWER_RESOURCE_CONSUMPTION_MIN = 1;
 export const POWER_DISABLED_RESOURCES = new Set(['oxygen', 'neon', 'xenon']);
 
 const POWER_RESOURCE_OUTPUT = {
-  iron: 3,
-  copper: 3,
-  nickel: 4,
-  silicon: 5,
-  cobalt: 5,
-  titanium: 6,
-  aluminum: 6,
-  gold: 7,
-  chromium: 7,
-  silver: 8,
-  platinum: 10,
-  iridium: 11,
-  palladium: 11,
-  uranium: 12,
-  osmium: 12,
-  rhodium: 13,
-  hafnium: 13,
+  iron: 9,
+  copper: 9,
+  nickel: 12,
+  silicon: 15,
+  cobalt: 15,
+  titanium: 18,
+  aluminum: 18,
+  gold: 21,
+  chromium: 21,
+  silver: 24,
+  platinum: 30,
+  iridium: 33,
+  palladium: 33,
+  uranium: 36,
+  osmium: 36,
+  rhodium: 39,
+  hafnium: 39,
 };
 
 export const MODULE_DEFS = {
@@ -62,10 +63,7 @@ export const MODULE_DEFS = {
     craftTimeMs: 15000,
     defaultName: (index) => `Storage Facility #${index}`,
     summary(module) {
-      return [
-        ['Storage Capacity', module.storageCapacity],
-        ['Operational', ((module.health || 0) > 0 && (module.power || 0) > 0) ? 'ONLINE' : 'OFFLINE'],
-      ];
+      return [];
     },
     cardStats(level = 1) {
       const stats = getModuleStats(STORAGE_FACILITY_ID, level);
@@ -82,7 +80,7 @@ export const MODULE_DEFS = {
         maxHealth: STORAGE_FACILITY_BASE_STATS.maxHealth + ((lvl - 1) * 2500),
         storageCapacity: STORAGE_FACILITY_BASE_STATS.storageCapacity + ((lvl - 1) * 25000),
         powerUsage: STORAGE_FACILITY_BASE_STATS.powerUsage,
-        powerCapacity: STORAGE_FACILITY_BASE_STATS.powerCapacity + ((lvl - 1) * 50),
+        powerCapacity: STORAGE_FACILITY_BASE_STATS.powerCapacity + ((lvl - 1) * 250),
       };
     },
     applyDefaults(module, index = 1) {
@@ -107,11 +105,7 @@ export const MODULE_DEFS = {
     craftTimeMs: 18000,
     defaultName: (index) => `Power Station #${index}`,
     summary(module) {
-      return [
-        ['Fuel Capacity', fmtStat(module.resourceCapacity || 0)],
-        ['Power Output', formatPowerFuelRate(module.fuelResource)],
-        ['Operational', (module.health || 0) > 0 ? 'ONLINE' : 'OFFLINE'],
-      ];
+      return [];
     },
     cardStats(level = 1) {
       const stats = getModuleStats(POWER_STATION_ID, level);
@@ -150,10 +144,7 @@ export const MODULE_DEFS = {
     craftTimeMs: 6000,
     defaultName: (index) => `Power Pole #${index}`,
     summary(module) {
-      return [
-        ['Relay Range', `${module.relayRange || 0} tiles`],
-        ['Operational', (module.health || 0) > 0 ? 'ONLINE' : 'OFFLINE'],
-      ];
+      return [];
     },
     cardStats(level = 1) {
       const stats = getModuleStats(POWER_POLE_ID, level);
@@ -215,6 +206,11 @@ export function getModuleFreeCapacity(module) {
   return 0;
 }
 
+export function getPowerStationResourceFreeCapacity(module, resourceType) {
+  if (!isPowerStationModule(module) || !resourceType) return 0;
+  return Math.max(0, (module?.resourceCapacity || 0) - (module?.inventory?.[resourceType] || 0));
+}
+
 export function getPowerFuelOutput(resourceType) {
   return POWER_RESOURCE_OUTPUT[resourceType] || 0;
 }
@@ -223,6 +219,16 @@ export function hasPowerStationFuel(module) {
   if (!isPowerStationModule(module)) return false;
   const fuelType = module.fuelResource || 'iron';
   return (module.inventory?.[fuelType] || 0) > 0;
+}
+
+export function getPowerResourceConsumption(moduleOrLevel = 1) {
+  const level = typeof moduleOrLevel === 'number'
+    ? moduleOrLevel
+    : Math.max(1, Math.floor(moduleOrLevel?.level || 1));
+  return Math.max(
+    POWER_RESOURCE_CONSUMPTION_MIN,
+    Math.round(POWER_RESOURCE_CONSUMPTION - (((level - 1) * (POWER_RESOURCE_CONSUMPTION - POWER_RESOURCE_CONSUMPTION_MIN)) / 9)),
+  );
 }
 
 export function getPowerFuelOptions() {
@@ -236,10 +242,10 @@ export function getPowerFuelOptions() {
     }));
 }
 
-export function formatPowerFuelRate(resourceType) {
+export function formatPowerFuelRate(resourceType, moduleOrLevel = 1) {
   const label = RESOURCE_DEFS[resourceType]?.label || 'Fuel';
   const output = getPowerFuelOutput(resourceType);
-  return `${POWER_RESOURCE_CONSUMPTION} ${label} = ${output}/s`;
+  return `${getPowerResourceConsumption(moduleOrLevel)} ${label} = ${output}/s`;
 }
 
 function getPowerNodeRange(module) {
