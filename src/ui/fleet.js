@@ -10,9 +10,9 @@ import {
   UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST,
   UPGRADE_LOAD_COST, UPGRADE_HP_COST, UPGRADE_ATTACK_COST, UPGRADE_ATK_RATE_COST,
   upgradeTotalCost, toRoman,
-  formatFlySpeed, formatMineSpeedPercent, formatLoadSpeedPercent, formatAtkRatePercent,
+  formatFlySpeed, formatMineSpeedPercent, formatLoadSpeed, formatAtkRatePercent,
   capacityFromTierAndLevel, flySpeedFromLevel, mineSpeedFromLevel,
-  loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel,
+  loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel, getShipSalvageRewards,
 } from '../data/ships.js';
 import { SHIP_TIER_REQS } from '../data/base.js';
 import { BASE_POS, cam, ZOOM_MAX_V, focusOn, gridToWorld } from '../render/camera.js';
@@ -35,9 +35,83 @@ window.toggleFleetFilters = function() {
 };
 
 let _sellOverlayShipId = null;
+let _sellOverlayMode = 'sell';
 let _sellOverlayValue = 0;
 
 const ROLE_LABELS = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', unique: 'Unique' };
+
+export function getShipCargoSummary(ship) {
+  const cargoEntries = Object.entries(ship.cargoManifest || {}).filter(([, amount]) => amount > 0);
+  return cargoEntries.length
+    ? cargoEntries.map(([resourceType, amount]) => `${RESOURCE_DEFS[resourceType]?.label || resourceType} ${fmt(amount)}`).join(' + ')
+    : ship.cargo > 0 && ship.cargoResource
+      ? `${RESOURCE_DEFS[ship.cargoResource]?.label || ship.cargoResource} ${fmt(ship.cargo)}`
+      : 'None';
+}
+
+function getShipPickupLabel(ship) {
+  if (ship.pickupType === 'storage' && ship.pickupId !== null) {
+    return state.modules.find(module => module.id === ship.pickupId && isStorageModule(module))?.name || 'Storage';
+  }
+  if (ship.pickupType === 'power_station' && ship.pickupId !== null) {
+    return state.modules.find(module => module.id === ship.pickupId && isPowerStationModule(module))?.name || 'Power Station';
+  }
+  return state.base.name || 'Base Station';
+}
+
+export function getShipTransportSummary(ship) {
+  if (ship.loadingPickup) {
+    return { label: 'Loading', value: getShipCargoSummary(ship) };
+  }
+  const cargoSummary = getShipCargoSummary(ship);
+  if (cargoSummary === 'None') {
+    return { label: 'Returning', value: getShipPickupLabel(ship) };
+  }
+  return { label: 'Transporting', value: cargoSummary };
+}
+
+export function getShipTransportSummaryLabel(ship) {
+  return getShipTransportSummary(ship).label;
+}
+
+export function getShipStatusMeta(ship) {
+  if (ship.loadingPickup) return { badge: 'LOADING', message: '⇣ Loading', color: '#ffd966' };
+  if (ship.status === 'flying') return { badge: 'EN ROUTE', message: '▶ En Route', color: '#48f' };
+  if (ship.status === 'mining') return { badge: 'MINING', message: '⛏ Mining', color: '#c6f' };
+  if (ship.status === 'returning' || ship.status === 'pausing') return { badge: 'RETURNING', message: '↩ Returning', color: '#fa6' };
+  if (ship.status === 'holding') return { badge: 'HOLDING', message: '◌ Holding Pattern', color: '#f88' };
+  return { badge: 'IDLE', message: '● Idle', color: '#4d8' };
+}
+
+export function getShipRouteError(ship) {
+  const role = SHIP_DEFS[ship.type]?.role || 'mining';
+  const pickupKey = (ship.pickupType === null || ship.pickupType === undefined || ship.pickupType === '') ? '' : `${ship.pickupType}:${ship.pickupId ?? ''}`;
+  const depotKey = `${ship.depotType || 'base'}:${ship.depotId ?? ''}`;
+  return role === 'transport' && pickupKey && pickupKey === depotKey
+    ? 'Invalid route: Pick Up and Dropoff cannot be the same location.'
+    : '';
+}
+
+export function getShipHoldingReason(ship) {
+  const storageModules = state.modules.filter(isStorageModule);
+  const powerStations = state.modules.filter(isPowerStationModule);
+  const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'power_station')
+    ? [...storageModules, ...powerStations].find(s => s.id === ship.depotId) || null
+    : null;
+  return ship.status === 'holding'
+    ? assignedDepot
+      ? ship.depotType === 'storage' && (assignedDepot.power || 0) <= 0
+        ? `Blocked: ${assignedDepot.name} has no power`
+        : getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
+          ? `Blocked: ${assignedDepot.name} is full`
+          : (assignedDepot.health || 0) <= 0
+            ? `Blocked: ${assignedDepot.name} is fully damaged`
+            : 'Blocked: assigned depot unavailable'
+      : (state.base.health || 0) <= 0
+        ? `Blocked: ${state.base.name || 'Base Station'} is fully damaged`
+        : 'Blocked: assigned depot unavailable'
+    : '';
+}
 
 export function renderFleetFilters() {
   const container = document.getElementById('fleet-filters');
@@ -224,7 +298,7 @@ export function renderShipsList() {
     const role    = SHIP_DEFS[ship.type]?.role || 'mining';
     const hasCargo = role === 'mining' || role === 'transport' || role === 'unique';
     const pct = hasCargo ? ship.cargo / Math.max(1, ship.capacity) * 100 : 0;
-    const statusLabels = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING', holding:'HOLDING' };
+    const statusMeta = getShipStatusMeta(ship);
 
     const safeTierNum = Math.min(10, Math.max(1, ship.mineTier || 1));
     const tierRarityColor = TIER_COLORS[safeTierNum] || '#e8eaf0';
@@ -261,7 +335,7 @@ export function renderShipsList() {
     const statusBadge = document.createElement('span');
     statusBadge.id = `ship-status-${ship.id}`;
     statusBadge.className = `ship-status ${ship.status}`;
-    statusBadge.textContent = statusLabels[ship.status];
+    statusBadge.textContent = statusMeta.badge;
     row2.appendChild(statusBadge);
 
     if (resDef) {
@@ -390,17 +464,9 @@ export function renderActionPanel() {
   const tierColor   = TIER_COLORS[safeTier] || '#e8eaf0';
   const node        = ship.targetNode !== null ? state.nodes.find(n => n.id === ship.targetNode) : null;
   const nodeLabel   = node ? `${RESOURCE_DEFS[node.type].label} Node` : '—';
-  const statusMsg   = ship.status === 'flying'    ? '▶ En Route'
-                    : ship.status === 'mining'    ? '⛏ Mining'
-                    : ship.status === 'returning' ? '↩ Returning'
-                    : ship.status === 'pausing'   ? '↩ Returning'
-                    : ship.status === 'holding'   ? '◌ Holding Pattern'
-                    : '● Idle';
-  const statusColor = ship.status === 'mining'    ? '#c6f'
-                    : ship.status === 'flying'    ? '#48f'
-                    : ship.status === 'returning' || ship.status === 'pausing' ? '#fa6'
-                    : ship.status === 'holding'   ? '#f88'
-                    : '#4d8';
+  const statusMeta = getShipStatusMeta(ship);
+  const statusMsg = statusMeta.message;
+  const statusColor = statusMeta.color;
 
   const stats    = SHIP_DEFS[ship.type] || SHIP_DEFS.scout;
   const isIdle   = ship.status === 'idle';
@@ -430,22 +496,9 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const isUnique = SHIP_DEFS[ship.type]?.unique === true;
   const storageModules = state.modules.filter(isStorageModule);
   const powerStations = state.modules.filter(isPowerStationModule);
-  const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'power_station')
-    ? [...storageModules, ...powerStations].find(s => s.id === ship.depotId) || null
-    : null;
-  const holdingReason = ship.status === 'holding'
-    ? assignedDepot
-      ? ship.depotType === 'storage' && (assignedDepot.power || 0) <= 0
-        ? `Blocked: ${assignedDepot.name} has no power`
-        : getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
-          ? `Blocked: ${assignedDepot.name} is full`
-        : (assignedDepot.health || 0) <= 0
-          ? `Blocked: ${assignedDepot.name} is fully damaged`
-          : 'Blocked: assigned depot unavailable'
-      : (state.base.health || 0) <= 0
-        ? `Blocked: ${state.base.name || 'Base Station'} is fully damaged`
-        : 'Blocked: assigned depot unavailable'
-    : '';
+  const holdingReason = getShipHoldingReason(ship);
+  const routeError = getShipRouteError(ship);
+  const transportSummary = getShipTransportSummary(ship);
 
   // ── Info section ───────────────────────────────────────────────
   let infoRows = `
@@ -469,11 +522,14 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
     </div>`;
   }
 
+  if (role !== 'transport') {
+    infoRows += `<div class="ship-data-row">
+      <span class="ship-data-label">Mining Tier</span>
+      <span class="ship-data-value" style="color:${tierColor}">${tierDef.label}</span>
+    </div>`;
+  }
+
   infoRows += `<div class="ship-data-row">
-    <span class="ship-data-label">Mining Tier</span>
-    <span class="ship-data-value" style="color:${tierColor}">${tierDef.label}</span>
-  </div>
-  <div class="ship-data-row">
     <span class="ship-data-label">Range from Base</span>
     <span class="ship-data-value" id="action-panel-dist" style="color:#8ab;">${(function(){ const bp=BASE_POS(); const d=Math.round(Math.hypot(ship.x-bp.x,ship.y-bp.y)/36); return d===0?'<span style="color:#6fff9a">At Base</span>':`${d} tiles`; })()}</span>
   </div>`;
@@ -506,7 +562,7 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
       </div>
       <div class="ship-data-row">
         <span class="ship-data-label">LOAD SPD</span>
-        <span class="ship-data-value">${formatLoadSpeedPercent(ship.loadSpeed || 0)}</span>
+        <span class="ship-data-value">${formatLoadSpeed(ship.loadSpeed || 0)}</span>
       </div>`;
   } else if (role === 'combat' || role === 'garrison') {
     statsRows = `
@@ -541,17 +597,32 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const depotOptions = `<option value="base" ${ship.depotType === 'base' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
     + storageModules.map(storage => `<option value="storage:${storage.id}" ${ship.depotType === 'storage' && ship.depotId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('')
     + powerStations.map(station => `<option value="power_station:${station.id}" ${ship.depotType === 'power_station' && ship.depotId === station.id ? 'selected' : ''}>${station.name}</option>`).join('');
+  const pickupOptions = `<option value="" ${(ship.pickupType === null || ship.pickupType === undefined || ship.pickupType === '') ? 'selected' : ''}></option>`
+    + `<option value="base" ${ship.pickupType === 'base' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
+    + storageModules.map(storage => `<option value="storage:${storage.id}" ${ship.pickupType === 'storage' && ship.pickupId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('')
+    + powerStations.map(station => `<option value="power_station:${station.id}" ${ship.pickupType === 'power_station' && ship.pickupId === station.id ? 'selected' : ''}>${station.name}</option>`).join('');
   const depotHtml = (ship.capacity || 0) > 0
     ? `<div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
         <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ DEPOT</div>
         <div class="ship-data-section">
+          ${role === 'transport' ? `<div class="ship-data-row" style="align-items:flex-start;">
+            <span class="ship-data-label">Pick Up</span>
+            <select id="action-panel-pickup-select" onchange="setShipPickup(${ship.id}, this.value)" style="min-width:190px;background:rgba(10,20,50,0.75);border:1px solid #2a4a7a;border-radius:4px;color:#cde;padding:5px 8px;font-family:'Share Tech Mono',monospace;font-size:12px;">
+              ${pickupOptions}
+            </select>
+          </div>` : ''}
           <div class="ship-data-row" style="align-items:flex-start;">
             <span class="ship-data-label">Dropoff</span>
-            <select onchange="setShipDepot(${ship.id}, this.value)" style="min-width:190px;background:rgba(10,20,50,0.75);border:1px solid #2a4a7a;border-radius:4px;color:#cde;padding:5px 8px;font-family:'Share Tech Mono',monospace;font-size:12px;">
+            <select id="action-panel-depot-select" onchange="setShipDepot(${ship.id}, this.value)" style="min-width:190px;background:rgba(10,20,50,0.75);border:1px solid #2a4a7a;border-radius:4px;color:#cde;padding:5px 8px;font-family:'Share Tech Mono',monospace;font-size:12px;">
               ${depotOptions}
             </select>
           </div>
-          ${holdingReason ? `<div style="margin-top:8px;padding:8px 10px;border:1px solid rgba(255,214,102,0.65);border-radius:6px;background:rgba(70,55,8,0.18);color:#ffd966;font-size:12px;line-height:1.4;">${holdingReason}</div>` : ''}
+          ${role === 'transport' ? `<div class="ship-data-row" style="align-items:flex-start;">
+            <span class="ship-data-label" id="action-panel-transporting-label">${transportSummary.label}</span>
+            <span class="ship-data-value" id="action-panel-transporting" style="max-width:190px;text-align:right;line-height:1.4;">${transportSummary.value}</span>
+          </div>` : ''}
+          <div id="action-panel-route-error" style="margin-top:8px;padding:8px 10px;border:1px solid rgba(255,120,120,0.65);border-radius:6px;background:rgba(70,15,15,0.22);color:#ff9a9a;font-size:12px;line-height:1.4;display:${routeError ? 'block' : 'none'};">${routeError || ''}</div>
+          <div id="action-panel-holding-reason" style="margin-top:8px;padding:8px 10px;border:1px solid rgba(255,214,102,0.65);border-radius:6px;background:rgba(70,55,8,0.18);color:#ffd966;font-size:12px;line-height:1.4;display:${holdingReason ? 'block' : 'none'};">${holdingReason || ''}</div>
         </div>
       </div>`
     : '';
@@ -569,13 +640,12 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const actionsHtml = (role === 'combat' || role === 'garrison')
     ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⚔ Combat vessel — cannot be assigned to nodes.</div>
        <div class="ship-action-row" style="margin-top:8px;">
-         <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
-       </div>`
+          <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
+        </div>`
     : role === 'transport'
-    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">▲ Transport vessel — ferries cargo between operations.</div>
-       <div class="ship-action-row" style="margin-top:8px;">
-         <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
-       </div>`
+    ? `<div class="ship-action-row" style="margin-top:8px;">
+          <button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>
+        </div>`
     : !canMine
     ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⊘ No mining equipment — cannot be assigned to a node.</div>`
     : isIdle
@@ -588,7 +658,9 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
 
   const bottomActions = `<div class="ship-action-row">
     <button class="btn" style="flex:1;font-size:12px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab" onclick="openRenameOverlay(${ship.id})">✎ RENAME</button>
-    <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id},${sellVal})">⊘ SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id}, ${sellVal})">⊘ SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
+  </div><div class="ship-action-row" style="margin-top:8px;">
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(30,45,20,0.6);border-color:#4f6a32;color:#9fd28c" ${state.ships.length <= 1 ? 'disabled title="Cannot salvage your last ship"' : ''} onclick="openSalvageOverlay(${ship.id})">♻ SALVAGE</button>
   </div>`;
 
   return statsHtml
@@ -616,28 +688,61 @@ window.goHome = function() {
   if (refresh.ui) refresh.ui();
 };
 
-window.openSellOverlay = function(shipId, sellVal) {
+window.openSellOverlay = function(shipId) {
   if (state.ships.length <= 1) return;
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
+  const sellVal = arguments[1] ?? 0;
   _sellOverlayShipId = shipId;
+  _sellOverlayMode = 'sell';
   _sellOverlayValue = sellVal;
+  const titleEl = document.getElementById('sell-overlay-title');
+  const hintEl = document.getElementById('sell-overlay-hint');
+  const confirmEl = document.getElementById('sell-overlay-confirm');
   const nameEl  = document.getElementById('sell-ship-name');
   const valueEl = document.getElementById('sell-ship-value');
+  if (titleEl) titleEl.textContent = '⊘ Sell Ship';
   if (nameEl)  nameEl.textContent  = ship.name;
   if (valueEl) valueEl.textContent = `$${fmt(sellVal)}`;
+  if (hintEl) hintEl.textContent = 'This cannot be undone.';
+  if (confirmEl) confirmEl.textContent = 'CONFIRM SELL';
+  const overlay = document.getElementById('sell-overlay');
+  if (overlay) overlay.classList.add('show');
+};
+
+window.openSalvageOverlay = function(shipId) {
+  if (state.ships.length <= 1) return;
+  const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
+  const salvage = getShipSalvageRewards(ship);
+  _sellOverlayShipId = shipId;
+  _sellOverlayMode = 'salvage';
+  _sellOverlayValue = 0;
+  const titleEl = document.getElementById('sell-overlay-title');
+  const hintEl = document.getElementById('sell-overlay-hint');
+  const confirmEl = document.getElementById('sell-overlay-confirm');
+  const nameEl  = document.getElementById('sell-ship-name');
+  const valueEl = document.getElementById('sell-ship-value');
+  if (titleEl) titleEl.textContent = '♻ Salvage Ship';
+  if (nameEl)  nameEl.textContent  = ship.name;
+  if (valueEl) valueEl.innerHTML = salvage.map(({ type, amount }) => `<span style="color:${RESOURCE_DEFS[type]?.color || '#6fff9a'};">${fmt(amount)} ${RESOURCE_DEFS[type]?.label || type}</span>`).join(' + ');
+  if (hintEl) hintEl.textContent = 'This cannot be undone.';
+  if (confirmEl) confirmEl.textContent = 'CONFIRM SALVAGE';
   const overlay = document.getElementById('sell-overlay');
   if (overlay) overlay.classList.add('show');
 };
 
 window.closeSellOverlay = function() {
   _sellOverlayShipId = null;
+  _sellOverlayMode = 'sell';
   _sellOverlayValue = 0;
   const overlay = document.getElementById('sell-overlay');
   if (overlay) overlay.classList.remove('show');
 };
 
 window.confirmSellOverlay = function() {
-  if (_sellOverlayShipId !== null) window.sellShip(_sellOverlayShipId, _sellOverlayValue);
+  if (_sellOverlayShipId !== null) {
+    if (_sellOverlayMode === 'salvage') window.salvageShip(_sellOverlayShipId);
+    else window.sellShip(_sellOverlayShipId, _sellOverlayValue);
+  }
   window.closeSellOverlay();
 };
 
@@ -727,10 +832,10 @@ function buildUpgradesSection(shipId) {
     const loadCost = loadChk > 0 ? upgradeTotalCost(UPGRADE_LOAD_COST, s2, 'loadSpeed', loadChk) : 0;
     const nextCap  = capChk  > 0 ? capacityFromTierAndLevel(s2.type, s2.mineTier, s2.capacityLevel  + 1, s2.capacity) : 'MAX';
     const nextFly  = flyChk  > 0 ? formatFlySpeed(flySpeedFromLevel(s2.type, s2.flySpeedLevel + 1))                   : 'MAX';
-    const nextLoad = loadChk > 0 ? formatLoadSpeedPercent(loadSpeedFromLevel(s2.type, loadLv + 1))                    : 'MAX';
+    const nextLoad = loadChk > 0 ? formatLoadSpeed(loadSpeedFromLevel(s2.type, loadLv + 1))                    : 'MAX';
     rows  = row('CARGO',    s2.capacityLevel, s2.capacity,                          nextCap,  capCost,  capChk,  'capacity')
           + row('FLY SPD',  s2.flySpeedLevel, formatFlySpeed(s2.flySpeed),           nextFly,  flyCost,  flyChk,  'flySpeed')
-          + row('LOAD SPD', loadLv,           formatLoadSpeedPercent(s2.loadSpeed||0), nextLoad, loadCost, loadChk, 'loadSpeed');
+          + row('LOAD SPD', loadLv,           formatLoadSpeed(s2.loadSpeed||0), nextLoad, loadCost, loadChk, 'loadSpeed');
 
   } else if (role === 'combat') {
     const hpLv     = s2.hpLevel      || 0;

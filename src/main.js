@@ -7,7 +7,7 @@ import { MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
 import { SOL_DURATION } from './data/sol.js';
-import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI } from './helpers.js';
+import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI, fmt } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
 import { initRenderer, resizeRenderer, render, setOnCameraMove, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
@@ -24,6 +24,7 @@ import { getMaxShield } from './systems/research.js';
 import { SHIELD_REGEN_INTERVAL_S, SHIELD_REGEN_PER_PURCHASE_PER_TICK, AUTO_REGEN_HP_PER_PURCHASE } from './data/research.js';
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
+import { renderActionPanel, getShipHoldingReason, getShipRouteError, getShipStatusMeta, getShipTransportSummary } from './ui/fleet.js';
 import { renderBasePanel } from './ui/basePanel.js';
 import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen, patchStatsPanel } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
@@ -37,7 +38,7 @@ import {
   isPowerStationModule,
   getPowerNetworkState,
   getPowerFuelOutput,
-  POWER_RESOURCE_CONSUMPTION,
+  getPowerResourceConsumption,
 } from './data/modules.js';
 
 let _baseDestroyedNoticeShown = false;
@@ -303,12 +304,7 @@ function gameLoop() {
   if (_storagePowerTimer >= 1) {
     _storagePowerTimer -= 1;
     if (_storageOfflineNoticeSol !== null && _storageOfflineNoticeSol !== state.sol) _storageOfflineNoticeSol = null;
-    let storageWentOffline = false;
-    for (const storage of state.modules.filter(isStorageModule)) {
-      const prevPower = storage.power || 0;
-      storage.power = Math.max(0, prevPower - getStoragePowerUsage(storage));
-      if (prevPower > 0 && storage.power <= 0) storageWentOffline = true;
-    }
+    const storageChargeById = new Map();
     const networkState = getPowerNetworkState(state.modules);
     for (const station of state.modules.filter(isPowerStationModule)) {
       if ((station.health || 0) <= 0) continue;
@@ -316,16 +312,22 @@ function gameLoop() {
       if (!linkedStorageIds.length) continue;
       const fuelType = station.fuelResource || 'iron';
       const availableFuel = station.inventory?.[fuelType] || 0;
-      const fuelCost = POWER_RESOURCE_CONSUMPTION * linkedStorageIds.length;
+      const fuelCost = getPowerResourceConsumption(station) * linkedStorageIds.length;
       if (availableFuel < fuelCost) continue;
       const output = getPowerFuelOutput(fuelType);
       if (output <= 0) continue;
       station.inventory[fuelType] = Math.max(0, availableFuel - fuelCost);
       for (const storageId of linkedStorageIds) {
-        const storage = state.modules.find(module => module.id === storageId);
-        if (!storage || !isStorageModule(storage)) continue;
-        storage.power = Math.min(storage.powerCapacity || 0, (storage.power || 0) + output);
+        storageChargeById.set(storageId, (storageChargeById.get(storageId) || 0) + output);
       }
+    }
+
+    let storageWentOffline = false;
+    for (const storage of state.modules.filter(isStorageModule)) {
+      const prevPower = storage.power || 0;
+      const incomingPower = storageChargeById.get(storage.id) || 0;
+      storage.power = Math.max(0, Math.min(storage.powerCapacity || 0, prevPower + incomingPower - getStoragePowerUsage(storage)));
+      if (prevPower > 0 && storage.power <= 0) storageWentOffline = true;
     }
     if (storageWentOffline && _storageOfflineNoticeSol !== state.sol) {
       _storageOfflineNoticeSol = state.sol;
@@ -351,12 +353,88 @@ function gameLoop() {
 }
 
 // ── Fast rAF patch loop — cargo bars + status badges ──────────
-const _STATUS_LABELS = { idle:'IDLE', flying:'EN ROUTE', mining:'MINING', returning:'RETURNING', pausing:'RETURNING', holding:'HOLDING' };
-const _STATUS_MSGS   = { flying:'▶ En Route', mining:'⛏ Mining', returning:'↩ Returning', pausing:'↩ Returning', holding:'◌ Holding Pattern', idle:'● Idle' };
-const _STATUS_COLORS = { flying:'#48f', mining:'#c6f', returning:'#fa6', pausing:'#fa6', holding:'#f88', idle:'#4d8' };
 let _lastPatchTs = 0;
 let _lastPatchSig = '';
+let _lastSelectedActionSig = '';
 const PATCH_FRAME_MS = 1000 / 20;
+
+function getDistanceToBaseTiles(ship) {
+  if (!ship) return 0;
+  const bp = BASE_POS();
+  return Math.max(0, Math.round(Math.hypot(ship.x - bp.x, ship.y - bp.y) / 36));
+}
+
+function getSelectedActionSig(ship) {
+  if (!ship) return '';
+  const depotOptionsSig = `${state.base.name || 'Base Station'}|${state.modules
+    .filter(module => isStorageModule(module) || isPowerStationModule(module))
+    .map(module => `${module.type}:${module.id}:${module.name}`)
+    .join('|')}`;
+  return JSON.stringify({
+    id: ship.id,
+    name: ship.name,
+    type: ship.type,
+    status: ship.status,
+    capacity: ship.capacity,
+    mineTier: ship.mineTier,
+    targetNode: ship.targetNode,
+    pickupType: ship.pickupType ?? null,
+    pickupId: ship.pickupId ?? null,
+    depotType: ship.depotType ?? null,
+    depotId: ship.depotId ?? null,
+    depotOptionsSig,
+  });
+}
+
+function setTextIfChanged(el, text) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+function setHtmlIfChanged(el, html) {
+  if (el && el.innerHTML !== html) el.innerHTML = html;
+}
+
+function patchShipActionPanel(ship) {
+  const cargoEl = document.getElementById('action-panel-cargo');
+  setTextIfChanged(cargoEl, `${ship.cargo} / ${ship.capacity}`);
+
+  const transportSummary = getShipTransportSummary(ship);
+  const transportingEl = document.getElementById('action-panel-transporting');
+  setTextIfChanged(transportingEl, transportSummary.value);
+  const transportingLabelEl = document.getElementById('action-panel-transporting-label');
+  setTextIfChanged(transportingLabelEl, transportSummary.label);
+
+  const statusEl = document.getElementById('action-panel-status');
+  if (statusEl) {
+    const statusMeta = getShipStatusMeta(ship);
+    const msg = statusMeta.message;
+    if (statusEl.textContent !== msg) {
+      statusEl.textContent = msg;
+      statusEl.style.color = statusMeta.color;
+    }
+  }
+
+  const distEl = document.getElementById('action-panel-dist');
+  if (distEl) {
+    const d = getDistanceToBaseTiles(ship);
+    const distHtml = d === 0 ? '<span style="color:#6fff9a">At Base</span>' : `${d} tiles`;
+    setHtmlIfChanged(distEl, distHtml);
+  }
+
+  const routeErrorEl = document.getElementById('action-panel-route-error');
+  if (routeErrorEl) {
+    const routeError = getShipRouteError(ship);
+    routeErrorEl.style.display = routeError ? 'block' : 'none';
+    setTextIfChanged(routeErrorEl, routeError);
+  }
+
+  const holdingReasonEl = document.getElementById('action-panel-holding-reason');
+  if (holdingReasonEl) {
+    const holdingReason = getShipHoldingReason(ship);
+    holdingReasonEl.style.display = holdingReason ? 'block' : 'none';
+    setTextIfChanged(holdingReasonEl, holdingReason);
+  }
+}
 
 function patchShipCards() {
   const now = performance.now();
@@ -366,8 +444,11 @@ function patchShipCards() {
   }
   _lastPatchTs = now;
 
+  const selectedShipForSig = state.selectedShip !== null
+    ? state.ships.find(s => s.id === state.selectedShip)
+    : null;
   const sig = state.ships.map(s => `${s.id}:${s.status}:${s.cargo}/${s.capacity}`).join('|')
-    + `|sel:${state.selectedShip ?? '-'}|sol:${state.sol}|coins:${state.coins}`;
+    + `|sel:${state.selectedShip ?? '-'}|selDist:${selectedShipForSig ? getDistanceToBaseTiles(selectedShipForSig) : '-'}|selDest:${selectedShipForSig ? selectedShipForSig.destX : '-'}:${selectedShipForSig ? selectedShipForSig.destY : '-'}|sol:${state.sol}|coins:${state.coins}`;
   if (sig === _lastPatchSig) {
     requestAnimationFrame(patchShipCards);
     return;
@@ -383,7 +464,7 @@ function patchShipCards() {
     // Status badge (no-op if text unchanged — avoids flicker)
     const badge = document.getElementById(`ship-status-${ship.id}`);
     if (badge) {
-      const label = _STATUS_LABELS[ship.status] || ship.status;
+      const label = getShipStatusMeta(ship).badge;
       if (badge.textContent !== label) {
         badge.textContent = label;
         badge.className = `ship-status ${ship.status}`;
@@ -392,25 +473,19 @@ function patchShipCards() {
   }
   // Action panel live updates for selected ship
   if (state.selectedShip !== null) {
-    const ship = state.ships.find(s => s.id === state.selectedShip);
+    const ship = selectedShipForSig || state.ships.find(s => s.id === state.selectedShip);
     if (ship) {
-      const cargoEl = document.getElementById('action-panel-cargo');
-      if (cargoEl) cargoEl.textContent = `${ship.cargo} / ${ship.capacity}`;
-      const statusEl = document.getElementById('action-panel-status');
-      if (statusEl) {
-        const msg = _STATUS_MSGS[ship.status] || '● Idle';
-        if (statusEl.textContent !== msg) {
-          statusEl.textContent = msg;
-          statusEl.style.color = _STATUS_COLORS[ship.status] || '#4d8';
-        }
+      const actionSig = getSelectedActionSig(ship);
+      if (actionSig !== _lastSelectedActionSig) {
+        _lastSelectedActionSig = actionSig;
+        renderActionPanel();
       }
-      const distEl = document.getElementById('action-panel-dist');
-      if (distEl) {
-        const bp = BASE_POS();
-        const d = Math.round(Math.hypot(ship.x - bp.x, ship.y - bp.y) / 36);
-        distEl.innerHTML = d === 0 ? '<span style="color:#6fff9a">At Base</span>' : `${d} tiles`;
-      }
+      patchShipActionPanel(ship);
+    } else {
+      _lastSelectedActionSig = '';
     }
+  } else {
+    _lastSelectedActionSig = '';
   }
   requestAnimationFrame(patchShipCards);
 }

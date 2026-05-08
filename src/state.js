@@ -5,7 +5,7 @@ import { SAVE_KEY } from './constants.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
 import { gridToWorld } from './render/camera.js';
 import { RESOURCE_DEFS } from './data/resources.js';
-import { normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel } from './data/ships.js';
+import { SHIP_DEFS, normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel, loadSpeedFromLevel } from './data/ships.js';
 import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
 import { getTurretTypeDef, getTurretStats } from './data/turrets.js';
 import { normalizeModule, STORAGE_FACILITY_ID } from './data/modules.js';
@@ -121,6 +121,24 @@ export let shipIdCounter = 1;
 export function setShipIdCounter(v) { shipIdCounter = v; }
 export function bumpShipIdCounter() { return shipIdCounter++; }
 
+function serializeModule(module) {
+  return {
+    ...module,
+    inventory: module?.inventory && typeof module.inventory === 'object'
+      ? { ...module.inventory }
+      : {},
+  };
+}
+
+function deserializeModule(module) {
+  return {
+    ...module,
+    inventory: module?.inventory && typeof module.inventory === 'object'
+      ? { ...module.inventory }
+      : {},
+  };
+}
+
 export function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
@@ -140,7 +158,7 @@ export function saveGame() {
       antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
       autoRegenCount: state.autoRegenCount,
       researchUnlocksList: state.researchUnlocksList,
-      turrets: state.turrets, modules: state.modules,
+      turrets: state.turrets, modules: state.modules.map(serializeModule),
       unplacedTurrets: state.unplacedTurrets, unplacedTurretQueue: state.unplacedTurretQueue,
       unplacedModules: state.unplacedModules, unplacedModuleQueue: state.unplacedModuleQueue,
       logHistory: state.logHistory,
@@ -149,15 +167,20 @@ export function saveGame() {
       turretCraftTimers: state.turretCraftTimers,
       moduleCraftTimers: state.moduleCraftTimers,
       saveVersion: SAVE_VERSION,
-      ships: state.ships.map(s => ({
-        id:s.id, name:s.name, type:s.type,
-        capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
-        capacityLevel:s.capacityLevel, flySpeedLevel:s.flySpeedLevel, mineSpeedLevel:s.mineSpeedLevel,
-        targetNode: s.targetNode,
-        depotType: s.depotType,
-        depotId: s.depotId,
-      })),
-    }));
+        ships: state.ships.map(s => ({
+          id:s.id, name:s.name, type:s.type,
+          capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
+          loadSpeed: s.loadSpeed ?? 0,
+          capacityLevel:s.capacityLevel, flySpeedLevel:s.flySpeedLevel, mineSpeedLevel:s.mineSpeedLevel,
+          loadSpeedLevel: s.loadSpeedLevel ?? 0,
+          targetNode: s.targetNode,
+          depotType: s.depotType,
+          depotId: s.depotId,
+          pickupType: s.pickupType ?? null,
+          pickupId: s.pickupId ?? null,
+          loadBuffer: s.loadBuffer ?? 0,
+        })),
+      }));
   } catch(e) {}
 }
 
@@ -209,7 +232,7 @@ export function loadGame() {
       : Array.isArray(d.storageFacilities)
         ? d.storageFacilities.map(storage => ({ ...storage, type: storage.type || STORAGE_FACILITY_ID }))
         : [];
-    state.modules = savedModules.map((module, index) => normalizeModule(module, index + 1));
+    state.modules = savedModules.map((module, index) => normalizeModule(deserializeModule(module), index + 1));
     // Migrate old turrets
     state.turrets.forEach(t => {
       if (!t.type) t.type = 'turret';
@@ -262,25 +285,33 @@ export function loadGame() {
       const base = gridToWorld(BASE_COL, BASE_ROW);
       const rawFlySpeed = sd.flySpeed ?? (saveVersion < 2 ? 1.0 : 100);
       const rawMineSpeed = sd.mineSpeed ?? (saveVersion < 3 ? 1.0 : 2.0);
-      return {
-        id:sd.id, name:sd.name, type:sd.type,
-        capacity: capacityFromTierAndLevel(sd.type, sd.mineTier ?? 1, sd.capacityLevel ?? 0, sd.capacity ?? 10),
-        flySpeed: normalizeFlySpeed(rawFlySpeed, saveVersion),
-        mineSpeed: normalizeMineSpeed(rawMineSpeed, saveVersion),
-        loadSpeed:   sd.loadSpeed   ?? 0,
-        hp:          sd.hp          ?? 0,
-        attack:      sd.attack      ?? 0,
-        attackSpeed: sd.attackSpeed ?? 0,
-        mineTier:sd.mineTier ?? 1,
-        capacityLevel:  sd.capacityLevel  ?? 0,
-        flySpeedLevel:  sd.flySpeedLevel  ?? 0,
-        mineSpeedLevel: sd.mineSpeedLevel ?? 0,
-        loadSpeedLevel: sd.loadSpeedLevel ?? 0,
-        hpLevel:        sd.hpLevel        ?? 0,
-        attackLevel:    sd.attackLevel    ?? 0,
-        atkRateLevel:   sd.atkRateLevel   ?? 0,
-        cargo:0, cargoResource:null,
-        status:'idle', targetNode: sd.targetNode ?? null,
+      const loadSpeedLevel = sd.loadSpeedLevel ?? 0;
+      const isTransport = SHIP_DEFS[sd.type]?.role === 'transport';
+      const defaultLoadSpeed = isTransport ? loadSpeedFromLevel(sd.type, loadSpeedLevel) : 0;
+        return {
+          id:sd.id, name:sd.name, type:sd.type,
+          capacity: capacityFromTierAndLevel(sd.type, sd.mineTier ?? 1, sd.capacityLevel ?? 0, sd.capacity ?? 10),
+          flySpeed: normalizeFlySpeed(rawFlySpeed, saveVersion),
+          mineSpeed: normalizeMineSpeed(rawMineSpeed, saveVersion),
+          loadSpeed:   sd.loadSpeed   ?? defaultLoadSpeed,
+          hp:          sd.hp          ?? 0,
+          attack:      sd.attack      ?? 0,
+          attackSpeed: sd.attackSpeed ?? 0,
+          mineTier:sd.mineTier ?? 1,
+          capacityLevel:  sd.capacityLevel  ?? 0,
+          flySpeedLevel:  sd.flySpeedLevel  ?? 0,
+          mineSpeedLevel: sd.mineSpeedLevel ?? 0,
+          loadSpeedLevel: loadSpeedLevel,
+          hpLevel:        sd.hpLevel        ?? 0,
+          attackLevel:    sd.attackLevel    ?? 0,
+          atkRateLevel:   sd.atkRateLevel   ?? 0,
+           cargo:0, cargoResource:null,
+           cargoManifest: null,
+           pickupType: sd.pickupType ?? null,
+           pickupId: sd.pickupId ?? null,
+           loadBuffer: sd.loadBuffer ?? 0,
+           loadingPickup: false,
+           status:'idle', targetNode: sd.targetNode ?? null,
         depotType: sd.depotType || 'base', depotId: sd.depotId ?? null,
         heading: Math.random() * Math.PI * 2,
         turnRadiusRandomness: Number.isFinite(sd.turnRadiusRandomness)
