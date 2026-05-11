@@ -129,6 +129,10 @@ export const RESEARCH_TREE = [
         id: 'laser_turrets', name: 'Laser Turrets', cost: 10, icon: '◈',
         desc: 'Unlocks construction of high-energy laser turret emplacements with superior range and damage output. Future expansion.',
       },
+      {
+        id: 'research_lab', name: 'Research Lab', cost: 8, icon: '✦',
+        desc: 'Unlocks construction of research lab buildings that can receive and consume delivered materials for future research systems.',
+      },
     ],
   },
   {

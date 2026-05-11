@@ -13,6 +13,8 @@ import {
   moduleContainsCell,
   normalizeModule,
   isStorageModule,
+  isResearchLabModule,
+  isPoweredBuildingModule,
   isPowerStationModule,
   isPowerPoleModule,
   getModuleInventoryTotal,
@@ -29,7 +31,7 @@ import { getStoragePowerUsage, isStorageOperational } from '../data/storage.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
 import { gridToWorld } from '../render/camera.js';
-import { BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS, TILE_W, TILE_H } from '../constants.js';
+import { BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS, TILE_W, TILE_H, isBaseFootprintCell } from '../constants.js';
 
 function getModuleCraftTimeMs(moduleType = STORAGE_FACILITY_ID) {
   return getModuleDef(moduleType).craftTimeMs || 15000;
@@ -49,7 +51,7 @@ function getModuleFootprintLabel(moduleOrType) {
 }
 
 function getModuleUpgradeCost(module) {
-  const moduleDef = getCraft('modules', module.type || STORAGE_FACILITY_ID);
+  const moduleDef = getCraft('buildings', module.type || STORAGE_FACILITY_ID);
   const tier = Math.max(1, module.level || 1);
   return {
     coins: (moduleDef?.cost || 0) * tier,
@@ -58,7 +60,7 @@ function getModuleUpgradeCost(module) {
 }
 
 function getModuleInvestedCoins(module) {
-  const moduleDef = getCraft('modules', module.type || STORAGE_FACILITY_ID);
+  const moduleDef = getCraft('buildings', module.type || STORAGE_FACILITY_ID);
   let total = moduleDef?.cost || 0;
   for (let lvl = 1; lvl < (module.level || 1); lvl++) total += (moduleDef?.cost || 0) * lvl;
   return total;
@@ -101,7 +103,7 @@ export function canPlaceModuleAt(moduleType, col, row, ignoreId = null) {
     if (cell.col < 0 || cell.col >= GRID_COLS || cell.row < 0 || cell.row >= GRID_ROWS) {
       return { ok: false, reason: `⚠ ${getModuleLabel(moduleType)} footprint must fit fully inside the map.` };
     }
-    if (cell.col === BASE_COL && cell.row === BASE_ROW) {
+    if (isBaseFootprintCell(cell.col, cell.row)) {
       return { ok: false, reason: `⚠ Cannot place ${moduleName} on the base.` };
     }
     const onNode = state.nodes.some(n => n.gr[0] === cell.col && n.gr[1] === cell.row && n.minLevel <= state.base.level);
@@ -118,27 +120,27 @@ export function canPlaceStorageAt(col, row, ignoreId = null) {
   return canPlaceModuleAt(STORAGE_FACILITY_ID, col, row, ignoreId);
 }
 
-function completeCraftModule(moduleType) {
-  const timer = state.moduleCraftTimers?.[moduleType];
+function completeCraftBuilding(moduleType) {
+  const timer = state.buildingCraftTimers?.[moduleType];
   if (!timer) return;
-  delete state.moduleCraftTimers[moduleType];
+  delete state.buildingCraftTimers[moduleType];
   if (!Array.isArray(state.unplacedModuleQueue)) state.unplacedModuleQueue = [];
   state.unplacedModuleQueue.push(moduleType);
   state.unplacedModules = state.unplacedModuleQueue.length;
-  const moduleDef = getCraft('modules', moduleType);
-  addLog(`✅ ${moduleDef?.name || 'Module'} ready to place.`);
+  const moduleDef = getCraft('buildings', moduleType);
+  addLog(`✅ ${moduleDef?.name || 'Building'} ready to place.`);
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
 }
 
-function scheduleModuleCraftCompletion(moduleType, endsAt) {
+function scheduleBuildingCraftCompletion(moduleType, endsAt) {
   const wait = Math.max(0, endsAt - Date.now());
   setTimeout(() => {
-    const timer = state.moduleCraftTimers?.[moduleType];
+    const timer = state.buildingCraftTimers?.[moduleType];
     if (!timer) return;
-    if (Date.now() >= timer.endsAt) completeCraftModule(moduleType);
-    else scheduleModuleCraftCompletion(moduleType, timer.endsAt);
+    if (Date.now() >= timer.endsAt) completeCraftBuilding(moduleType);
+    else scheduleBuildingCraftCompletion(moduleType, timer.endsAt);
   }, wait + 5);
 }
 
@@ -192,7 +194,7 @@ export function renderModuleModal() {
   if (!module || !body) return;
   const moduleDef = getModuleDef(module.type);
   const summaryRows = moduleDef.summary(module);
-  const buyPowerCost = isStorageModule(module) ? getModuleUpgradeCost(module).coins * 5 : 0;
+  const buyPowerCost = isPoweredBuildingModule(module) ? getModuleUpgradeCost(module).coins * 5 : 0;
   const moduleTier = Math.max(1, Math.min(10, module.level || 1));
   const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
   if (title) title.textContent = moduleDef.panelTitle;
@@ -214,8 +216,8 @@ export function renderModuleModal() {
         <div id="storage-health-bar" style="height:100%;border-radius:3px;transition:width 0.4s;"></div>
       </div>
     </div>
-    ${(isPowerStationModule(module) || isStorageModule(module) || isPowerPoleModule(module)) ? `<div id="module-operational-banner" class="module-status-banner module-status-banner-online">ONLINE</div>` : ''}
-    ${isStorageModule(module) ? `
+    ${(isPowerStationModule(module) || isPoweredBuildingModule(module) || isPowerPoleModule(module)) ? `<div id="module-operational-banner" class="module-status-banner module-status-banner-online">ONLINE</div>` : ''}
+    ${isPoweredBuildingModule(module) ? `
     <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ POWER</div>
       <div class="storage-power-panel">
@@ -245,9 +247,9 @@ export function renderModuleModal() {
       <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO POWER</div>
       <button id="storage-buy-power-btn" class="btn primary" style="width:100%;font-size:12px;margin-top:8px;display:none;" onclick="buyStoragePower(${module.id})">BUY POWER <span style="color:#ffe066;">- $${fmt(buyPowerCost)}</span></button>
     </div>
-    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ STORAGE</div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ ${isResearchLabModule(module) ? 'RESEARCH INTAKE' : 'STORAGE'}</div>
     <div style="padding:8px 10px;border:1px solid #2a4a7a;border-radius:6px;background:rgba(10,20,50,0.28);margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:16px;color:#cde;">STORAGE USED</span><span id="storage-used-value" style="font-size:17px;color:#ffe066;font-weight:bold;"></span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:16px;color:#cde;">${isResearchLabModule(module) ? 'THROUGHPUT' : 'STORAGE USED'}</span><span id="storage-used-value" style="font-size:17px;color:#ffe066;font-weight:bold;"></span></div>
       <div style="height:5px;background:#000000;border-radius:3px;overflow:hidden;"><div id="storage-used-bar" style="height:100%;background:linear-gradient(90deg,#1a6aff,#48f);border-radius:3px;transition:width 0.4s;"></div></div>
     </div>
     ` : ''}
@@ -269,6 +271,11 @@ export function renderModuleModal() {
     ${isStorageModule(module) ? `
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ INVENTORY</div>
     <div id="storage-inventory-list" style="background:rgba(10,20,50,0.35);border:1px solid #1a3a6e;border-radius:4px;padding:8px;max-height:180px;overflow-y:auto;"></div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ LINKED NETWORK</div>
+    <div class="power-station-network-panel">
+      <div id="power-station-link-summary" class="power-station-link-summary"></div>
+    </div>
+    ` : isResearchLabModule(module) ? `
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ LINKED NETWORK</div>
     <div class="power-station-network-panel">
       <div id="power-station-link-summary" class="power-station-link-summary"></div>
@@ -316,7 +323,7 @@ export function renderModuleModal() {
     ` : ''}
     <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin:10px 0 6px;">◈ UPGRADE</div>
     <div id="storage-upgrade-reqs" class="bp-craft-reqs" style="margin-bottom:8px;"></div>
-    ${(isPowerPoleModule(module) || isPowerStationModule(module) || isStorageModule(module))
+    ${(isPowerPoleModule(module) || isPowerStationModule(module) || isPoweredBuildingModule(module))
       ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
           <button id="storage-upgrade-btn" class="btn primary" style="width:100%;font-size:11px;" onclick="upgradeStorageFacility(${module.id})">UPGRADE</button>
           <button class="btn" style="width:100%;font-size:11px;background:rgba(20,50,80,0.6);border-color:#2a6a8a;color:#8ab;" onclick="startMoveStorage(${module.id})">MOVE</button>
@@ -359,8 +366,8 @@ export function patchModuleModal() {
   const canUpgrade = !atMaxTier && state.coins >= upgradeCost.coins && Object.entries(upgradeCost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
   setHtmlIfChanged('storage-upgrade-reqs', `<span class="bp-craft-req ${state.coins >= upgradeCost.coins ? 'met' : 'unmet'}">$${fmt(upgradeCost.coins)}</span>${Object.entries(upgradeCost.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')}`);
   const upBtn = document.getElementById('storage-upgrade-btn');
-  upBtn.textContent = atMaxTier ? '★ MAX TIER' : (isPowerPoleModule(module) || isPowerStationModule(module) || isStorageModule(module)) ? 'UPGRADE' : `⬆ UPGRADE ${moduleDef.name.toUpperCase()}`;
-  upBtn.disabled = !canUpgrade || (isStorageModule(module) && (module.power || 0) <= 0);
+  upBtn.textContent = atMaxTier ? '★ MAX TIER' : (isPowerPoleModule(module) || isPowerStationModule(module) || isPoweredBuildingModule(module)) ? 'UPGRADE' : `⬆ UPGRADE ${moduleDef.name.toUpperCase()}`;
+  upBtn.disabled = !canUpgrade || (isPoweredBuildingModule(module) && (module.power || 0) <= 0);
 
   const invRows = Object.entries(module.inventory || {})
     .filter(([, amt]) => amt > 0)
@@ -368,7 +375,7 @@ export function patchModuleModal() {
     .map(([type, amt]) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(26,58,110,0.35);"><span style="color:${RESOURCE_DEFS[type].color}">${RESOURCE_DEFS[type].label}</span><span style="color:#ffe066">${fmt(amt)}</span></div>`)
     .join('');
 
-  if (isStorageModule(module)) {
+  if (isPoweredBuildingModule(module)) {
     const buyPowerCost = upgradeCost.coins * 5;
     const powerPct = Math.round(((module.power || 0) / Math.max(1, module.powerCapacity || 1)) * 100);
     const currentPowerUsage = getStoragePowerUsage(module);
@@ -377,8 +384,8 @@ export function patchModuleModal() {
     const linkedStorages = networkInfo.storages;
     const linkedStations = networkInfo.stations;
     const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
-    setTextIfChanged('storage-used-value', `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
-    document.getElementById('storage-used-bar').style.width = `${Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
+    setTextIfChanged('storage-used-value', isResearchLabModule(module) ? 'ACTIVE' : `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
+    document.getElementById('storage-used-bar').style.width = `${isResearchLabModule(module) ? 100 : Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
     setTextIfChanged('storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
     setTextIfChanged('storage-power-value', `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`);
     document.getElementById('storage-power-bar').style.width = `${powerPct}%`;
@@ -387,18 +394,18 @@ export function patchModuleModal() {
     const buyPowerBtn = document.getElementById('storage-buy-power-btn');
     buyPowerBtn.style.display = noPower ? '' : 'none';
     buyPowerBtn.disabled = state.coins < buyPowerCost;
-    document.getElementById('storage-inventory-list').innerHTML = invRows || '<div style="font-size:12px;color:#4a6a8a;">No stored resources yet.</div>';
+    if (isStorageModule(module)) document.getElementById('storage-inventory-list').innerHTML = invRows || '<div style="font-size:12px;color:#4a6a8a;">No stored resources yet.</div>';
     const summaryEl = document.getElementById('power-station-link-summary');
     if (summaryEl && summaryEl.dataset.networkSig !== networkSig) {
       const tooltipLines = [
         ...linkedStations.map((station) => `POWER STATION: ${escapeHtml(station.name)}`),
         ...linkedPoles.map((pole) => `POLE: ${escapeHtml(pole.name)}`),
-        ...linkedStorages.map((storage) => `STORAGE: ${escapeHtml(storage.name)}`),
+        ...linkedStorages.map((storage) => `${escapeHtml(getModuleLabel(storage).toUpperCase())}: ${escapeHtml(storage.name)}`),
       ];
       const summaryParts = [
         linkedStations.length > 0 ? `${linkedStations.length}x Power Stations` : '',
         linkedPoles.length > 0 ? `${linkedPoles.length}x Poles` : '',
-        linkedStorages.length > 0 ? `${linkedStorages.length}x Storage Facilities` : '',
+        linkedStorages.length > 0 ? `${linkedStorages.length}x Powered Buildings` : '',
       ].filter(Boolean);
       const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
       summaryEl.dataset.networkSig = networkSig;
@@ -433,7 +440,7 @@ export function patchModuleModal() {
       const netDelta = powerOutput - totalLoad;
       const statusColor = netDelta > 0 ? '#6fff9a' : netDelta < 0 ? '#ff8a8a' : '#ffe066';
       const statusLabel = netDelta > 0 ? 'Surplus' : netDelta < 0 ? 'Deficit' : 'Balanced';
-      const facilityLabel = linkedStorages.length === 1 ? 'Facility' : 'Facilities';
+      const facilityLabel = linkedStorages.length === 1 ? 'Building' : 'Buildings';
       const operationalBanner = document.getElementById('module-operational-banner');
       const deficitWarning = document.getElementById('power-station-deficit-warning');
       setTextIfChanged('power-station-fuel-rate', inputText);
@@ -469,12 +476,12 @@ export function patchModuleModal() {
       const tooltipLines = [
         ...linkedStations.map((station) => `POWER STATION: ${escapeHtml(station.name)}`),
         ...linkedPoles.map((pole) => `POLE: ${escapeHtml(pole.name)}`),
-        ...linkedStorages.map((storage) => `STORAGE: ${escapeHtml(storage.name)}`),
+        ...linkedStorages.map((storage) => `${escapeHtml(getModuleLabel(storage).toUpperCase())}: ${escapeHtml(storage.name)}`),
       ];
       const summaryParts = [
         linkedStations.length > 0 ? `${linkedStations.length}x Power Stations` : '',
         linkedPoles.length > 0 ? `${linkedPoles.length}x Poles` : '',
-        linkedStorages.length > 0 ? `${linkedStorages.length}x Storage Facilities` : '',
+        linkedStorages.length > 0 ? `${linkedStorages.length}x Powered Buildings` : '',
       ].filter(Boolean);
       const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
       summaryEl.dataset.networkSig = networkSig;
@@ -485,7 +492,7 @@ export function patchModuleModal() {
     setHtmlIfChanged('storage-inventory-list', invRows || '<div style="font-size:12px;color:#4a6a8a;">No stored fuel yet.</div>');
   }
 
-  if (isStorageModule(module)) {
+  if (isPoweredBuildingModule(module)) {
     const operationalBanner = document.getElementById('module-operational-banner');
     if (operationalBanner) {
       const online = isStorageOperational(module);
@@ -519,7 +526,7 @@ window.upgradeStorageFacility = function(moduleId) {
   const cost = getModuleUpgradeCost(module);
   if (state.coins < cost.coins) return;
   for (const [r, n] of Object.entries(cost.reqs)) if ((state.resources[r] || 0) < n) return;
-  if (isStorageModule(module) && (module.power || 0) <= 0) return;
+  if (isPoweredBuildingModule(module) && (module.power || 0) <= 0) return;
   spendCoins(cost.coins);
   for (const [r, n] of Object.entries(cost.reqs)) state.resources[r] -= n;
   module.level++;
@@ -528,7 +535,7 @@ window.upgradeStorageFacility = function(moduleId) {
   module.maxHealth = nextStats.maxHealth;
   module.health = Math.min(module.health + (module.maxHealth - prevMaxHealth), module.maxHealth);
   Object.assign(module, nextStats);
-  if (isStorageModule(module)) module.power = Math.min(module.power, module.powerCapacity);
+  if (isPoweredBuildingModule(module)) module.power = Math.min(module.power, module.powerCapacity);
   addLog(`${module.name} upgraded to Tier ${module.level}.`);
   if (refresh.ui) refresh.ui();
   patchModuleModal();
@@ -536,7 +543,7 @@ window.upgradeStorageFacility = function(moduleId) {
 
 window.buyStoragePower = function(moduleId) {
   const module = getModuleById(moduleId);
-  if (!module || !isStorageModule(module)) return;
+  if (!module || !isPoweredBuildingModule(module)) return;
   const cost = getModuleUpgradeCost(module).coins * 5;
   if (state.coins < cost) return;
   spendCoins(cost);
@@ -580,9 +587,9 @@ window.sellStorageFacility = function(moduleId, refundCoins) {
   const module = getModuleById(moduleId);
   if (!module) return;
   if (!addCoins(refundCoins)) return;
-  if (isStorageModule(module) || isPowerStationModule(module)) {
+  if (isPoweredBuildingModule(module) || isPowerStationModule(module)) {
     for (const ship of state.ships) {
-      if ((ship.depotType === 'storage' || ship.depotType === 'power_station') && ship.depotId === moduleId) {
+      if ((ship.depotType === 'storage' || ship.depotType === 'power_station' || ship.depotType === 'research_lab') && ship.depotId === moduleId) {
         ship.depotType = 'base';
         ship.depotId = null;
         if (ship.status === 'returning' && ship.cargo > 0) {
@@ -611,27 +618,27 @@ window.setPowerStationFuel = function(moduleId, fuelResource) {
   renderModuleModal();
 };
 
-window.startCraftModule = function(moduleType = STORAGE_FACILITY_ID) {
-  const moduleDef = getCraft('modules', moduleType);
+window.startCraftBuilding = function(moduleType = STORAGE_FACILITY_ID) {
+  const moduleDef = getCraft('buildings', moduleType);
   const moduleConfig = getModuleDef(moduleType);
   if (!moduleDef) return;
   if (!state.researchUnlocks[moduleConfig.unlockId]) return;
-  if (state.moduleCraftTimers?.[moduleType] && Date.now() < state.moduleCraftTimers[moduleType].endsAt) return;
+  if (state.buildingCraftTimers?.[moduleType] && Date.now() < state.buildingCraftTimers[moduleType].endsAt) return;
   if (state.coins < moduleDef.cost) return;
   for (const [r, n] of Object.entries(moduleDef.reqs)) if ((state.resources[r] || 0) < n) return;
   spendCoins(moduleDef.cost);
   for (const [r, n] of Object.entries(moduleDef.reqs)) state.resources[r] -= n;
   const durationMs = getModuleCraftTimeMs(moduleType);
   const now = Date.now();
-  if (!state.moduleCraftTimers) state.moduleCraftTimers = {};
-  state.moduleCraftTimers[moduleType] = { startedAt: now, endsAt: now + durationMs, durationMs };
+  if (!state.buildingCraftTimers) state.buildingCraftTimers = {};
+  state.buildingCraftTimers[moduleType] = { startedAt: now, endsAt: now + durationMs, durationMs };
   addLog(`🛠 Crafting started: ${moduleDef.name} (${Math.ceil(durationMs / 1000)}s)`);
-  scheduleModuleCraftCompletion(moduleType, now + durationMs);
+  scheduleBuildingCraftCompletion(moduleType, now + durationMs);
   if (refresh.ui) refresh.ui();
   if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 };
 
-window.beginPlacingStorage = function(moduleType = STORAGE_FACILITY_ID) {
+window.beginPlacingBuilding = function(moduleType = STORAGE_FACILITY_ID) {
   const queue = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue : [];
   if (!queue.includes(moduleType) && !state.movingModule) return;
   state.placingModule = true;
@@ -642,17 +649,17 @@ window.beginPlacingStorage = function(moduleType = STORAGE_FACILITY_ID) {
   if (canvas) canvas.style.cursor = 'crosshair';
 };
 
-window.syncStorageCraftTimers = function() {
-  if (!state.moduleCraftTimers) return;
-  for (const [moduleType, timer] of Object.entries(state.moduleCraftTimers)) {
+window.syncBuildingCraftTimers = function() {
+  if (!state.buildingCraftTimers) return;
+  for (const [moduleType, timer] of Object.entries(state.buildingCraftTimers)) {
     if (!timer?.endsAt) continue;
-    if (Date.now() >= timer.endsAt) completeCraftModule(moduleType);
-    else scheduleModuleCraftCompletion(moduleType, timer.endsAt);
+    if (Date.now() >= timer.endsAt) completeCraftBuilding(moduleType);
+    else scheduleBuildingCraftCompletion(moduleType, timer.endsAt);
   }
 };
 
 state.modules = (state.modules || []).map((module, index) => normalizeModule(module, index + 1));
-window.syncStorageCraftTimers();
+window.syncBuildingCraftTimers();
 window.openStorageModal = openStorageModal;
 window.openModuleModal = openModuleModal;
 window.closeStorageModal = closeStorageModal;

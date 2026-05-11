@@ -35,6 +35,8 @@ import { NPCS } from './data/npcs.js';
 import { getStoragePowerUsage } from './data/storage.js';
 import {
   isStorageModule,
+  isResearchLabModule,
+  isPoweredBuildingModule,
   isPowerStationModule,
   getPowerNetworkState,
   getPowerFuelOutput,
@@ -45,7 +47,7 @@ let _baseDestroyedNoticeShown = false;
 let _storageOfflineNoticeSol = null;
 
 function hasOfflineStorage() {
-  return state.modules.some(storage => isStorageModule(storage) && ((storage.power || 0) <= 0 || (storage.health || 0) <= 0));
+  return state.modules.some(storage => isPoweredBuildingModule(storage) && ((storage.power || 0) <= 0 || (storage.health || 0) <= 0));
 }
 
 function showStartupInfrastructureWarnings() {
@@ -323,7 +325,7 @@ function gameLoop() {
     }
 
     let storageWentOffline = false;
-    for (const storage of state.modules.filter(isStorageModule)) {
+    for (const storage of state.modules.filter(isPoweredBuildingModule)) {
       const prevPower = storage.power || 0;
       const incomingPower = storageChargeById.get(storage.id) || 0;
       storage.power = Math.max(0, Math.min(storage.powerCapacity || 0, prevPower + incomingPower - getStoragePowerUsage(storage)));
@@ -367,7 +369,7 @@ function getDistanceToBaseTiles(ship) {
 function getSelectedActionSig(ship) {
   if (!ship) return '';
   const depotOptionsSig = `${state.base.name || 'Base Station'}|${state.modules
-    .filter(module => isStorageModule(module) || isPowerStationModule(module))
+    .filter(module => isStorageModule(module) || isResearchLabModule(module) || isPowerStationModule(module))
     .map(module => `${module.type}:${module.id}:${module.name}`)
     .join('|')}`;
   return JSON.stringify({

@@ -40,7 +40,7 @@ export let state = {
   pendingAssign: null,
   basePanelOpen: false,
   bpTab: 'overview',
-  fleetFilter: { type: null, role: null, node: null, idleOnly: false, holdingOnly: false, sort: null, sortDir: 1 },
+  fleetFilter: { search: '', type: null, role: null, node: null, depot: null, idleOnly: false, holdingOnly: false, sort: null, sortDir: 1 },
   shipCraftTimers: {},
   shipCraftNotices: {},
   turretCraftTimers: {},
@@ -87,7 +87,7 @@ export let state = {
   unplacedModuleQueue: [],
   placingTurretType: null,
   placingModuleType: null,
-  moduleCraftTimers: {},
+  buildingCraftTimers: {},
   hpBoostCount: 0,
   shieldBoostCount: 0,
   antiCometCount: 0,
@@ -165,7 +165,7 @@ export function saveGame() {
       transmissionHistory: state.transmissionHistory,
       shipCraftTimers: state.shipCraftTimers,
       turretCraftTimers: state.turretCraftTimers,
-      moduleCraftTimers: state.moduleCraftTimers,
+      buildingCraftTimers: state.buildingCraftTimers,
       saveVersion: SAVE_VERSION,
         ships: state.ships.map(s => ({
           id:s.id, name:s.name, type:s.type,
@@ -261,8 +261,10 @@ export function loadGame() {
     state.log = state.logHistory.slice(0, 3).map(entry => entry.msg);
     state.shipCraftTimers = d.shipCraftTimers && typeof d.shipCraftTimers === 'object' ? d.shipCraftTimers : {};
     state.turretCraftTimers = d.turretCraftTimers && typeof d.turretCraftTimers === 'object' ? d.turretCraftTimers : {};
-    state.moduleCraftTimers = d.moduleCraftTimers && typeof d.moduleCraftTimers === 'object'
-      ? d.moduleCraftTimers
+    state.buildingCraftTimers = d.buildingCraftTimers && typeof d.buildingCraftTimers === 'object'
+      ? d.buildingCraftTimers
+      : d.moduleCraftTimers && typeof d.moduleCraftTimers === 'object'
+        ? d.moduleCraftTimers
       : (d.storageCraftTimers && typeof d.storageCraftTimers === 'object' ? d.storageCraftTimers : {});
     state.hpBoostCount     = d.hpBoostCount     ?? 0;
     state.shieldBoostCount = d.shieldBoostCount ?? 0;

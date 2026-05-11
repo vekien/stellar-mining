@@ -7,6 +7,12 @@ export const GRID_COLS = 100;
 export const GRID_ROWS = 100;
 export const BASE_COL = 50;
 export const BASE_ROW = 50;
+export const BASE_FOOTPRINT_RADIUS = 1;
+
+export function isBaseFootprintCell(col, row) {
+  return Math.abs(col - BASE_COL) <= BASE_FOOTPRINT_RADIUS
+    && Math.abs(row - BASE_ROW) <= BASE_FOOTPRINT_RADIUS;
+}
 export const SAVE_KEY = 'stellarMiningCo_v1';
 export const PLAYER_TITLE = 'Commander';
 // SOL_DURATION is defined in data/sol.js — re-exported here for backward compatibility

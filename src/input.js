@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from './state.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from './data/resources.js';
-import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, BASE_COL, BASE_ROW, ZOOM_MIN, ZOOM_MAX } from './constants.js';
+import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, ZOOM_MIN, ZOOM_MAX, isBaseFootprintCell } from './constants.js';
 import { cam, gridToWorld, screenToWorld, focusOnBase, adjustZoom } from './render/camera.js';
 import { W, H } from './render/renderer.js';
 import { canvasState } from './render/canvasState.js';
@@ -26,6 +26,7 @@ import {
   getPowerFuelOutput,
   getModuleInventoryTotal,
   getPowerResourceConsumption,
+  isResearchLabModule,
   isPowerStationModule,
   isPowerPoleModule,
   STORAGE_FACILITY_ID,
@@ -122,12 +123,6 @@ export function initInput(canvas) {
       if (dx*dx + dy*dy < 28*28) { hit = node; break; }
     }
 
-    // Base hover
-    const bw = gridToWorld(BASE_COL, BASE_ROW);
-    const bdx = wx - bw.x, bdy = wy - (bw.y + TILE_H/2);
-    const onBase = bdx*bdx + bdy*bdy < 38*38;
-    if (onBase !== canvasState.baseHovered) canvasState.baseHovered = onBase;
-
     // Placement hover
     if (state.placingTurret || state.placingModule) {
       canvasState.turretHoverCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
@@ -140,6 +135,9 @@ export function initInput(canvas) {
     const hoverRow = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
     const hoveredStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(hoverCol, hoverRow);
     canvasState.storageHoverId = hoveredStorage?.id ?? null;
+
+    const onBase = isBaseFootprintCell(hoverCol, hoverRow);
+    if (onBase !== canvasState.baseHovered) canvasState.baseHovered = onBase;
 
     // Turret hover detection
     let hoveredTurret = null;
@@ -179,7 +177,7 @@ export function initInput(canvas) {
       const summaryParts = [
         linkedStations > 0 ? `${linkedStations}x Power Stations` : '',
         linkedPoles > 0 ? `${linkedPoles}x Poles` : '',
-        linkedStorages > 0 ? `${linkedStorages}x Storage Facilities` : '',
+        linkedStorages > 0 ? `${linkedStorages}x Powered Buildings` : '',
       ].filter(Boolean).join(' • ') || 'No linked modules';
       if (isPowerStationModule(hoveredStorage)) {
         const fuelType = hoveredStorage.fuelResource || 'iron';
@@ -189,7 +187,7 @@ export function initInput(canvas) {
         tt.innerHTML = `
           <div class="tt-name">${hoveredStorage.name}</div>
           <div>Power Source: <span style="color:#d9c3ff">${fuelName}</span></div>
-          <div>Current Load: <span style="color:#ffe066">${linkedStorages} storages · ${loadCost} ${fuelName}/s</span></div>
+          <div>Current Load: <span style="color:#ffe066">${linkedStorages} buildings · ${loadCost} ${fuelName}/s</span></div>
           <div>Selected Fuel: <span style="color:#cde">${fmt(hoveredStorage.inventory?.[fuelType] || 0)} / ${fmt(hoveredStorage.resourceCapacity || 0)}</span></div>
           <div>Output: <span style="color:#cde">+${fuelOutput} power/second per storage</span></div>
           <div style="margin-top:4px;color:#d9c3ff;">${summaryParts}</div>
@@ -217,7 +215,7 @@ export function initInput(canvas) {
       tt.innerHTML = `
         <div class="tt-name">${hoveredStorage.name}</div>
         <div>Health: <span style="color:${hpColor}">${fmt(hoveredStorage.health)} / ${fmt(hoveredStorage.maxHealth)}</span></div>
-        <div>Storage: <span style="color:#cde">${fmt(getStorageTotalInventory(hoveredStorage))} / ${fmt(hoveredStorage.storageCapacity)}</span></div>
+        <div>${isResearchLabModule(hoveredStorage) ? 'Intake' : 'Storage'}: <span style="color:#cde">${isResearchLabModule(hoveredStorage) ? 'Consumes delivered materials' : `${fmt(getStorageTotalInventory(hoveredStorage))} / ${fmt(hoveredStorage.storageCapacity)}`}</span></div>
         <div>Power Usage: <span style="color:#cde">${getStoragePowerUsage(hoveredStorage).toFixed(1).replace(/\.0$/, '')}/s</span></div>
         <div style="margin-top:4px;color:#d9c3ff;">Inventory</div>
         <div style="color:#cde;line-height:1.4;">${inventoryRows || 'Empty'}</div>
@@ -281,9 +279,9 @@ function handleCanvasClick(canvas, clientX, clientY) {
   const wy = (sy - H/2) / cam.zoom + cam.y;
 
   // Check base click
-  const bw  = gridToWorld(BASE_COL, BASE_ROW);
-  const bdx = wx - bw.x, bdy = wy - (bw.y + TILE_H/2);
-  if (bdx*bdx + bdy*bdy < 32*32) {
+  const baseCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
+  const baseRow = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
+  if (isBaseFootprintCell(baseCol, baseRow)) {
     state.basePanelOpen = !state.basePanelOpen;
     if (state.basePanelOpen) {
       focusOnBase(cam.zoom);
@@ -338,7 +336,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
     const col = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
     const row = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
     if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) return;
-    if (col === BASE_COL && row === BASE_ROW) { addLog('⚠ Cannot place turret on the base.'); return; }
+    if (isBaseFootprintCell(col, row)) { addLog('⚠ Cannot place turret on the base.'); return; }
     const onNode   = state.nodes.some(n => n.gr[0] === col && n.gr[1] === row && n.minLevel <= state.base.level);
     if (onNode)    { addLog('⚠ Cannot place turret on a resource node.'); return; }
     const onTurret = state.turrets.some(t => t.col === col && t.row === row && t.id !== state.movingTurret);

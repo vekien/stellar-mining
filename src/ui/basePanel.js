@@ -99,6 +99,8 @@ export function renderBasePanel() {
       unlockedPerks.push({ icon: '▷', name: 'Galaxy Probes', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['storage_facilities'])
       unlockedPerks.push({ icon: '▤', name: 'Storage Facilities', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['research_lab'])
+      unlockedPerks.push({ icon: '✦', name: 'Research Lab', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['market_influence'])
       unlockedPerks.push({ icon: '▲', name: 'Market Influence', detail: '+10% all sell prices', qty: null });
     if (state.researchUnlocks['laser_turrets'])

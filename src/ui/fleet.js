@@ -2,7 +2,7 @@
 // FLEET UI — ship list, filters, action panel, trade tab
 // ============================================================
 import { state } from '../state.js';
-import { isStorageModule, isPowerStationModule, getModuleFreeCapacity } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity } from '../data/modules.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
@@ -25,6 +25,7 @@ import { cancelTurretPlacement } from './turretUI.js';
 import { cancelStoragePlacement } from './storageUI.js';
 
 let _fleetFiltersVisible = false;
+let _renderedActionShipId = null;
 
 window.toggleFleetFilters = function() {
   _fleetFiltersVisible = !_fleetFiltersVisible;
@@ -55,6 +56,23 @@ function getShipPickupLabel(ship) {
   }
   if (ship.pickupType === 'power_station' && ship.pickupId !== null) {
     return state.modules.find(module => module.id === ship.pickupId && isPowerStationModule(module))?.name || 'Power Station';
+  }
+  return state.base.name || 'Base Station';
+}
+
+function getShipDepotFilterKey(ship) {
+  return ship.depotType === 'base' ? 'base' : `${ship.depotType}:${ship.depotId}`;
+}
+
+function getShipDepotFilterLabel(ship) {
+  if (ship.depotType === 'storage' && ship.depotId !== null) {
+    return state.modules.find(module => module.id === ship.depotId && isStorageModule(module))?.name || 'Storage';
+  }
+  if (ship.depotType === 'research_lab' && ship.depotId !== null) {
+    return state.modules.find(module => module.id === ship.depotId && isResearchLabModule(module))?.name || 'Research Lab';
+  }
+  if (ship.depotType === 'power_station' && ship.depotId !== null) {
+    return state.modules.find(module => module.id === ship.depotId && isPowerStationModule(module))?.name || 'Power Station';
   }
   return state.base.name || 'Base Station';
 }
@@ -91,7 +109,7 @@ export function getShipTransportStatusHtml(ship) {
         <span style="color:#ffe066;flex:0 0 auto;">${fmt(amount)}</span>
       </div>`;
     }).join('');
-  return `<div style="background:rgba(10,20,50,0.35);border:1px solid #1a3a6e;border-radius:4px;padding:8px;max-height:132px;overflow-y:auto;">${rows}</div>`;
+  return `<div data-transport-scroll="1" style="background:rgba(10,20,50,0.35);border:1px solid #1a3a6e;border-radius:4px;padding:8px;max-height:132px;overflow-y:auto;">${rows}</div>`;
 }
 
 export function getShipTransportSummaryLabel(ship) {
@@ -119,15 +137,16 @@ export function getShipRouteError(ship) {
 
 export function getShipHoldingReason(ship) {
   const storageModules = state.modules.filter(isStorageModule);
+  const researchLabs = state.modules.filter(isResearchLabModule);
   const powerStations = state.modules.filter(isPowerStationModule);
-  const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'power_station')
-    ? [...storageModules, ...powerStations].find(s => s.id === ship.depotId) || null
+  const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'research_lab' || ship.depotType === 'power_station')
+    ? [...storageModules, ...researchLabs, ...powerStations].find(s => s.id === ship.depotId) || null
     : null;
   return ship.status === 'holding'
     ? assignedDepot
-      ? ship.depotType === 'storage' && (assignedDepot.power || 0) <= 0
+      ? (ship.depotType === 'storage' || ship.depotType === 'research_lab') && (assignedDepot.power || 0) <= 0
         ? `Blocked: ${assignedDepot.name} has no power`
-        : getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
+        : ship.depotType !== 'research_lab' && getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
           ? `Blocked: ${assignedDepot.name} is full`
           : (assignedDepot.health || 0) <= 0
             ? `Blocked: ${assignedDepot.name} is fully damaged`
@@ -142,6 +161,10 @@ export function renderFleetFilters() {
   const container = document.getElementById('fleet-filters');
   if (!container) return;
   const ff = state.fleetFilter;
+  const activeEl = document.activeElement;
+  const restoreSearchFocus = activeEl?.id === 'fleet-search-input';
+  const searchSelectionStart = restoreSearchFocus ? activeEl.selectionStart : null;
+  const searchSelectionEnd = restoreSearchFocus ? activeEl.selectionEnd : null;
 
   const types = [...new Set(state.ships.map(s =>
     CRAFT_RECIPES.find(r => r.id === s.type)?.name || 'Starter'
@@ -152,6 +175,11 @@ export function renderFleetFilters() {
     const n = state.nodes.find(n => n.id === s.targetNode);
     return n ? RESOURCE_DEFS[n.type].label : null;
   }).filter(Boolean))];
+
+  const depotOptions = [...new Map(state.ships.map((ship) => [
+    getShipDepotFilterKey(ship),
+    { value: getShipDepotFilterKey(ship), label: getShipDepotFilterLabel(ship) },
+  ])).values()];
 
   function makeRow(labelText, control) {
     const row = document.createElement('div');
@@ -181,7 +209,25 @@ export function renderFleetFilters() {
     return sel;
   }
 
+  function makeInput(value, placeholder, onInput) {
+    const input = document.createElement('input');
+    input.id = 'fleet-search-input';
+    input.className = 'fleet-select';
+    input.type = 'text';
+    input.placeholder = placeholder;
+    input.value = value || '';
+    input.addEventListener('input', () => onInput(input.value));
+    return input;
+  }
+
   container.innerHTML = '';
+
+  const searchInput = makeInput(
+    ff.search,
+    'Search',
+    (v) => { ff.search = v; renderShipsList(); }
+  );
+  container.appendChild(makeRow('Search', searchInput));
 
   const typeSelect = makeSelect(
     [{ value: '', label: 'All Types' }, ...types.map(t => ({ value: t, label: t.replace(' Ship', '').replace(' Runner', '') }))],
@@ -204,6 +250,13 @@ export function renderFleetFilters() {
     (v) => { ff.node = v || null; renderShipsList(); }
   );
   container.appendChild(makeRow('Node', nodeSelect));
+
+  const depotSelect = makeSelect(
+    [{ value: '', label: 'All Depots' }, ...depotOptions],
+    ff.depot,
+    (v) => { ff.depot = v || null; renderShipsList(); }
+  );
+  container.appendChild(makeRow('Depot', depotSelect));
 
   const sortSelect = makeSelect(
     [
@@ -257,13 +310,23 @@ export function renderFleetFilters() {
   clr.className = 'fleet-filter fleet-filter-clear';
   clr.textContent = 'Clear';
   clr.onclick = () => {
-    Object.assign(state.fleetFilter, { type:null, role:null, node:null, idleOnly:false, holdingOnly:false, sort:null, sortDir:1 });
+    Object.assign(state.fleetFilter, { search:'', type:null, role:null, node:null, depot:null, idleOnly:false, holdingOnly:false, sort:null, sortDir:1 });
     renderShipsList();
   };
   clearRow.appendChild(idleToggle);
   clearRow.appendChild(holdingToggle);
   clearRow.appendChild(clr);
   container.appendChild(clearRow);
+
+  if (restoreSearchFocus) {
+    const searchInputEl = document.getElementById('fleet-search-input');
+    if (searchInputEl) {
+      searchInputEl.focus();
+      if (searchSelectionStart !== null && searchSelectionEnd !== null) {
+        searchInputEl.setSelectionRange(searchSelectionStart, searchSelectionEnd);
+      }
+    }
+  }
 }
 
 export function renderShipsList() {
@@ -273,6 +336,7 @@ export function renderShipsList() {
   list.innerHTML = '';
 
   let ships = state.ships.filter(ship => {
+    if (ff.search && !ship.name.toLowerCase().includes(ff.search.trim().toLowerCase())) return false;
     if (ff.idleOnly && ship.status !== 'idle') return false;
     if (ff.holdingOnly && ship.status !== 'holding') return false;
     if (ff.type) {
@@ -287,6 +351,7 @@ export function renderShipsList() {
       const nodeLabel = node ? RESOURCE_DEFS[node.type].label : null;
       if (nodeLabel !== ff.node) return false;
     }
+    if (ff.depot && getShipDepotFilterKey(ship) !== ff.depot) return false;
     return true;
   });
 
@@ -468,6 +533,7 @@ export function renderActionPanel() {
     if (actionPanel) actionPanel.style.display = 'none';
     if (upgradeDrawer) upgradeDrawer.classList.remove('open');
     if (upgradeContent) upgradeContent.innerHTML = '';
+    _renderedActionShipId = null;
     titleEl.textContent = '◉ COMMAND';
     panel.innerHTML = '<div style="color:#456;font-size:13px;">Select a ship to view its data.</div>';
     return;
@@ -479,6 +545,7 @@ export function renderActionPanel() {
     panel.innerHTML = '';
     if (upgradeDrawer) upgradeDrawer.classList.remove('open');
     if (upgradeContent) upgradeContent.innerHTML = '';
+    _renderedActionShipId = null;
     return;
   }
 
@@ -508,11 +575,131 @@ export function renderActionPanel() {
 
   if (upgradeDrawer && upgradeTitle && upgradeContent) {
     upgradeTitle.textContent = `◈ ${ship.name} UPGRADES`;
-    upgradeContent.innerHTML = buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal });
+    if (_renderedActionShipId !== ship.id || !upgradeContent.querySelector('[data-ship-drawer-root]')) {
+      upgradeContent.innerHTML = buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal });
+      _renderedActionShipId = ship.id;
+    } else {
+      patchShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal });
+    }
     upgradeDrawer.classList.add('open');
     requestAnimationFrame(() => renderTutPointers());
     setTimeout(() => renderTutPointers(), 240);
   }
+}
+
+function setHtmlIfChanged(el, html) {
+  if (el && el.innerHTML !== html) el.innerHTML = html;
+}
+
+function setTextIfChanged(el, text) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+function updateShipTransporting(el, ship) {
+  if (!el) return;
+  const scroller = el.querySelector('[data-transport-scroll]');
+  const scrollTop = scroller ? scroller.scrollTop : 0;
+  const html = getShipTransportStatusHtml(ship);
+  if (el.innerHTML !== html) {
+    el.innerHTML = html;
+    const nextScroller = el.querySelector('[data-transport-scroll]');
+    if (nextScroller) nextScroller.scrollTop = scrollTop;
+  }
+}
+
+function patchShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal }) {
+  const role = SHIP_DEFS[ship.type]?.role || 'mining';
+  const transportSummary = getShipTransportSummary(ship);
+  const routeError = getShipRouteError(ship);
+  const holdingReason = getShipHoldingReason(ship);
+  const cargoText = `${ship.cargo} / ${ship.capacity}`;
+  const distText = (function() {
+    const bp = BASE_POS();
+    const d = Math.round(Math.hypot(ship.x - bp.x, ship.y - bp.y) / 36);
+    return d === 0 ? 'At Base' : `${d} tiles`;
+  })();
+
+  const statusEl = document.getElementById('action-panel-status');
+  if (statusEl) {
+    setTextIfChanged(statusEl, statusMsg);
+    if (statusEl.style.color !== statusColor) statusEl.style.color = statusColor;
+  }
+
+  const nodeEl = document.getElementById('action-panel-node');
+  if (nodeEl) {
+    setTextIfChanged(nodeEl, nodeLabel !== '—' ? nodeLabel : 'UNASSIGNED');
+    nodeEl.style.color = nodeLabel !== '—' ? '' : '#f55';
+  }
+
+  const tierEl = document.getElementById('action-panel-tier');
+  if (tierEl) {
+    setTextIfChanged(tierEl, tierDef.label);
+    if (tierEl.style.color !== tierColor) tierEl.style.color = tierColor;
+  }
+
+  const cargoEl = document.getElementById('action-panel-cargo');
+  setTextIfChanged(cargoEl, cargoText);
+
+  const distEl = document.getElementById('action-panel-dist');
+  if (distEl) {
+    setTextIfChanged(distEl, distText);
+    distEl.style.color = distText === 'At Base' ? '#6fff9a' : '#8ab';
+  }
+
+  const depotSelect = document.getElementById('action-panel-depot-select');
+  if (depotSelect) depotSelect.value = ship.depotType === 'base' ? 'base' : `${ship.depotType}:${ship.depotId}`;
+
+  const pickupSelect = document.getElementById('action-panel-pickup-select');
+  if (pickupSelect) pickupSelect.value = (ship.pickupType === null || ship.pickupType === undefined || ship.pickupType === '') ? '' : (ship.pickupType === 'base' ? 'base' : `${ship.pickupType}:${ship.pickupId}`);
+
+  const transportLabelEl = document.getElementById('action-panel-transporting-label');
+  setTextIfChanged(transportLabelEl, transportSummary.label);
+  updateShipTransporting(document.getElementById('action-panel-transporting'), ship);
+
+  const routeErrorEl = document.getElementById('action-panel-route-error');
+  if (routeErrorEl) {
+    setHtmlIfChanged(routeErrorEl, routeError || '');
+    routeErrorEl.style.display = routeError ? 'block' : 'none';
+  }
+
+  const holdingReasonEl = document.getElementById('action-panel-holding-reason');
+  if (holdingReasonEl) {
+    setHtmlIfChanged(holdingReasonEl, holdingReason || '');
+    holdingReasonEl.style.display = holdingReason ? 'block' : 'none';
+  }
+
+  setHtmlIfChanged(document.getElementById('ship-upgrades-body'), buildUpgradesSection(ship.id));
+  setHtmlIfChanged(document.getElementById('ship-actions-body'), buildShipActionsHtml(ship, role, isIdle));
+  setHtmlIfChanged(document.getElementById('ship-bottom-actions'), buildShipBottomActionsHtml(ship, sellVal));
+}
+
+function buildShipActionsHtml(ship, role, isIdle) {
+  const canMine = (ship.mineSpeed || 0) > 0;
+  if (role === 'combat' || role === 'garrison') {
+    return '<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⚔ Combat vessel — cannot be assigned to nodes.</div>';
+  }
+  if (role === 'transport') return '';
+  if (!canMine) {
+    return '<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⊘ No mining equipment — cannot be assigned to a node.</div>';
+  }
+  if (isIdle) {
+    return '<div class="cmd-status-text" style="color:#ffe066;font-size:12px;margin:8px 0 6px;">⬡ Click a node on the map to assign.</div>'
+      + '<div style="font-size:11px;color:#456;margin-bottom:8px;">Dimmed nodes need a higher tier.<br>Press <span style="color:#8ab">Esc</span> to deselect.</div>';
+  }
+  return `<div class="ship-action-row" style="margin-top:8px;">
+         <button class="btn danger" style="flex:1;font-size:12px" onclick="recallShip(${ship.id})">⟵ RECALL</button>
+       </div>`;
+}
+
+function buildShipBottomActionsHtml(ship, sellVal) {
+  const followBtn = `<button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>`;
+  return `<div class="ship-action-row">
+    ${followBtn}
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab" onclick="openRenameOverlay(${ship.id})">✎ RENAME</button>
+  </div><div class="ship-action-row" style="margin-top:8px;">
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id}, ${sellVal})">SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
+    <button class="btn" style="flex:1;font-size:12px;background:rgba(30,45,20,0.6);border-color:#4f6a32;color:#9fd28c" ${state.ships.length <= 1 ? 'disabled title="Cannot salvage your last ship"' : ''} onclick="openSalvageOverlay(${ship.id})">♻ SALVAGE</button>
+  </div>`;
 }
 
 function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeLabel, tierColor, tierDef, isIdle, sellVal }) {
@@ -520,6 +707,7 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const roleLabel = ROLE_LABELS[role] || role;
   const isUnique = SHIP_DEFS[ship.type]?.unique === true;
   const storageModules = state.modules.filter(isStorageModule);
+  const researchLabs = state.modules.filter(isResearchLabModule);
   const powerStations = state.modules.filter(isPowerStationModule);
   const holdingReason = getShipHoldingReason(ship);
   const routeError = getShipRouteError(ship);
@@ -543,20 +731,20 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   if (role === 'mining') {
     infoRows += `<div class="ship-data-row">
       <span class="ship-data-label">Assigned Node</span>
-      <span class="ship-data-value" style="${nodeLabel !== '—' ? '' : 'color:#f55;'}">${nodeLabel !== '—' ? nodeLabel : 'UNASSIGNED'}</span>
+      <span class="ship-data-value" id="action-panel-node" style="${nodeLabel !== '—' ? '' : 'color:#f55;'}">${nodeLabel !== '—' ? nodeLabel : 'UNASSIGNED'}</span>
     </div>`;
   }
 
   if (role !== 'transport') {
     infoRows += `<div class="ship-data-row">
       <span class="ship-data-label">Mining Tier</span>
-      <span class="ship-data-value" style="color:${tierColor}">${tierDef.label}</span>
+      <span class="ship-data-value" id="action-panel-tier" style="color:${tierColor}">${tierDef.label}</span>
     </div>`;
   }
 
   infoRows += `<div class="ship-data-row">
     <span class="ship-data-label">Range from Base</span>
-    <span class="ship-data-value" id="action-panel-dist" style="color:#8ab;">${(function(){ const bp=BASE_POS(); const d=Math.round(Math.hypot(ship.x-bp.x,ship.y-bp.y)/36); return d===0?'<span style="color:#6fff9a">At Base</span>':`${d} tiles`; })()}</span>
+    <span class="ship-data-value" id="action-panel-dist" style="color:${(function(){ const bp=BASE_POS(); const d=Math.round(Math.hypot(ship.x-bp.x,ship.y-bp.y)/36); return d===0 ? '#6fff9a' : '#8ab'; })()}">${(function(){ const bp=BASE_POS(); const d=Math.round(Math.hypot(ship.x-bp.x,ship.y-bp.y)/36); return d===0 ? 'At Base' : `${d} tiles`; })()}</span>
   </div>`;
 
   // ── Stats section (role-appropriate) ───────────────────────────
@@ -621,6 +809,7 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
 
   const depotOptions = `<option value="base" ${ship.depotType === 'base' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
     + storageModules.map(storage => `<option value="storage:${storage.id}" ${ship.depotType === 'storage' && ship.depotId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('')
+    + researchLabs.map(lab => `<option value="research_lab:${lab.id}" ${ship.depotType === 'research_lab' && ship.depotId === lab.id ? 'selected' : ''}>${lab.name}</option>`).join('')
     + powerStations.map(station => `<option value="power_station:${station.id}" ${ship.depotType === 'power_station' && ship.depotId === station.id ? 'selected' : ''}>${station.name}</option>`).join('');
   const pickupOptions = `<option value="" ${(ship.pickupType === null || ship.pickupType === undefined || ship.pickupType === '') ? 'selected' : ''}></option>`
     + `<option value="base" ${ship.pickupType === 'base' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
@@ -653,6 +842,7 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
     : '';
 
   const statsHtml = `
+    <div data-ship-drawer-root="1">
     <div class="ship-data-section">${infoRows}</div>
     ${depotHtml}
     <div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;">
@@ -660,36 +850,13 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
       <div class="ship-data-section">${statsRows}</div>
     </div>`;
 
-  // ── Actions ────────────────────────────────────────────────────
-  const canMine = (ship.mineSpeed || 0) > 0;
-  const actionsHtml = (role === 'combat' || role === 'garrison')
-    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⚔ Combat vessel — cannot be assigned to nodes.</div>`
-    : role === 'transport'
-    ? ``
-    : !canMine
-    ? `<div style="font-size:12px;color:#4a6a8a;margin:8px 0;padding:8px;background:rgba(10,20,50,0.4);border:1px solid #1a3a6e;border-radius:4px;">⊘ No mining equipment — cannot be assigned to a node.</div>`
-    : isIdle
-    ? `<div class="cmd-status-text" style="color:#ffe066;font-size:12px;margin:8px 0 6px;">⬡ Click a node on the map to assign.</div>
-       <div style="font-size:11px;color:#456;margin-bottom:8px;">Dimmed nodes need a higher tier.<br>Press <span style="color:#8ab">Esc</span> to deselect.</div>`
-    : `<div class="ship-action-row" style="margin-top:8px;">
-         <button class="btn danger" style="flex:1;font-size:12px" onclick="recallShip(${ship.id})">⟵ RECALL</button>
-       </div>`;
-
-  const followBtn = `<button class="btn" style="flex:1;font-size:12px;${state.followShip === ship.id ? 'background:rgba(0,180,255,0.18);border-color:#00b4ff;color:#00e5ff;' : 'background:rgba(10,30,70,0.5);border-color:#2a4a7a;color:#6af;'}" onclick="toggleFollowShip(${ship.id})">${state.followShip === ship.id ? '◉ UNFOLLOW' : '◎ FOLLOW'}</button>`;
-  const bottomActions = `<div class="ship-action-row">
-    ${followBtn}
-    <button class="btn" style="flex:1;font-size:12px;background:rgba(20,30,60,0.6);border-color:#2a4a7a;color:#8ab" onclick="openRenameOverlay(${ship.id})">✎ RENAME</button>
-  </div><div class="ship-action-row" style="margin-top:8px;">
-    <button class="btn" style="flex:1;font-size:12px;background:rgba(40,20,10,0.6);border-color:#604020;color:#c87" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id}, ${sellVal})">SELL <span style="color:#6fff9a;">$${fmt(sellVal)}</span></button>
-    <button class="btn" style="flex:1;font-size:12px;background:rgba(30,45,20,0.6);border-color:#4f6a32;color:#9fd28c" ${state.ships.length <= 1 ? 'disabled title="Cannot salvage your last ship"' : ''} onclick="openSalvageOverlay(${ship.id})">♻ SALVAGE</button>
-  </div>`;
-
   return statsHtml
     + '<div style="border-top:1px solid #1a3a6e;margin:8px 0;padding-top:8px;"><div id="upgrades-section-header" style="font-family:\'Orbitron\',sans-serif;font-size:9px;letter-spacing:2px;color:#4af;margin-bottom:6px;">◈ UPGRADES</div>'
-    + buildUpgradesSection(ship.id)
+    + `<div id="ship-upgrades-body">${buildUpgradesSection(ship.id)}</div>`
     + '</div>'
-    + actionsHtml
-    + bottomActions;
+    + `<div id="ship-actions-body">${buildShipActionsHtml(ship, role, isIdle)}</div>`
+    + `<div id="ship-bottom-actions">${buildShipBottomActionsHtml(ship, sellVal)}</div>`
+    + '</div>';
 }
 
 window.toggleFollowShip = function(shipId) {

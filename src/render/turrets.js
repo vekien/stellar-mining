@@ -1,7 +1,7 @@
 // ============================================================
 // TURRET RENDERING
 // ============================================================
-import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, BASE_COL, BASE_ROW } from '../constants.js';
+import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, isBaseFootprintCell } from '../constants.js';
 import { gridToIso } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
@@ -175,7 +175,7 @@ export function drawTurretPlacementHover() {
   const onNode   = state.nodes.some(n => n.gr[0]===col && n.gr[1]===row && n.minLevel<=state.base.level);
   const onTurret = state.turrets.some(t => t.col===col && t.row===row && t.id!==state.movingTurret);
   const onStorage = state.modules.some(s => moduleContainsCell(s, col, row));
-  const onBase   = col === BASE_COL && row === BASE_ROW;
+  const onBase   = isBaseFootprintCell(col, row);
   const valid = !onNode && !onTurret && !onStorage && !onBase;
   const {x, y} = gridToIso(col, row);
   const cx = x, cy = y+TILE_H/2;

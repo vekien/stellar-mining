@@ -843,7 +843,7 @@
   .ff-row { display: flex; align-items: center; gap: 6px; min-height: 24px; }
   .ff-label {
     font-family: 'Orbitron', monospace; font-size: 14px; letter-spacing: 1px;
-    color: #4a7aaa; text-transform: uppercase; width: 48px; flex-shrink: 0; padding-right: 6px;
+    color: #4a7aaa; text-transform: uppercase; width: 90px; flex-shrink: 0; padding-right: 6px;
   }
   .ff-control { flex: 1; }
   .ff-sort-wrap { display: flex; align-items: center; gap: 4px; }

@@ -6,9 +6,17 @@ import { RESOURCE_DEFS, getResourceTier } from './resources.js';
 export const STORAGE_FACILITY_ID = 'storage_facility';
 export const POWER_STATION_ID = 'power_station';
 export const POWER_POLE_ID = 'power_pole';
+export const RESEARCH_LAB_ID = 'research_lab';
 
 const STORAGE_FACILITY_BASE_STATS = {
   maxHealth: 10000,
+  storageCapacity: 50000,
+  powerUsage: 1,
+  powerCapacity: 1000,
+};
+
+const RESEARCH_LAB_BASE_STATS = {
+  maxHealth: 12000,
   storageCapacity: 50000,
   powerUsage: 1,
   powerCapacity: 1000,
@@ -96,12 +104,54 @@ export const MODULE_DEFS = {
       module.inventory = { ...makeEmptyInventory(), ...(module.inventory || {}) };
     },
   },
+  [RESEARCH_LAB_ID]: {
+    id: RESEARCH_LAB_ID,
+    name: 'Research Lab',
+    panelTitle: 'RESEARCH LAB',
+    unlockId: 'research_lab',
+    footprintSize: 3,
+    craftTimeMs: 20000,
+    defaultName: (index) => `Research Lab #${index}`,
+    summary(module) {
+      return [];
+    },
+    cardStats(level = 1) {
+      const stats = getModuleStats(RESEARCH_LAB_ID, level);
+      return [
+        ['HEALTH', fmtStat(stats.maxHealth)],
+        ['THROUGHPUT', 'Unlimited'],
+        ['POWER USE', `${stats.powerUsage}/s`],
+        ['POWER CAP', fmtStat(stats.powerCapacity)],
+      ];
+    },
+    getStats(level = 1) {
+      const lvl = Math.max(1, Math.floor(level || 1));
+      return {
+        maxHealth: RESEARCH_LAB_BASE_STATS.maxHealth + ((lvl - 1) * 2500),
+        storageCapacity: RESEARCH_LAB_BASE_STATS.storageCapacity + ((lvl - 1) * 25000),
+        powerUsage: RESEARCH_LAB_BASE_STATS.powerUsage,
+        powerCapacity: RESEARCH_LAB_BASE_STATS.powerCapacity + ((lvl - 1) * 250),
+      };
+    },
+    applyDefaults(module, index = 1) {
+      const stats = getModuleStats(RESEARCH_LAB_ID, module.level || 1);
+      module.name = module.name || `Research Lab #${index}`;
+      module.level = Math.max(1, module.level || 1);
+      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
+      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
+      module.storageCapacity = Math.max(module.storageCapacity || 0, stats.storageCapacity);
+      module.powerUsage = Number.isFinite(module.powerUsage) ? module.powerUsage : stats.powerUsage;
+      module.powerCapacity = Math.max(module.powerCapacity || 0, stats.powerCapacity);
+      module.power = Math.max(0, Math.min(Number.isFinite(module.power) ? module.power : module.powerCapacity, module.powerCapacity));
+      module.inventory = { ...makeEmptyInventory(), ...(module.inventory || {}) };
+    },
+  },
   [POWER_STATION_ID]: {
     id: POWER_STATION_ID,
     name: 'Power Station',
     panelTitle: 'POWER STATION',
     unlockId: 'power_station',
-    footprintSize: 1,
+    footprintSize: 3,
     craftTimeMs: 18000,
     defaultName: (index) => `Power Station #${index}`,
     summary(module) {
@@ -188,6 +238,14 @@ export function isStorageModule(moduleOrType) {
   return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === STORAGE_FACILITY_ID;
 }
 
+export function isResearchLabModule(moduleOrType) {
+  return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === RESEARCH_LAB_ID;
+}
+
+export function isPoweredBuildingModule(moduleOrType) {
+  return isStorageModule(moduleOrType) || isResearchLabModule(moduleOrType);
+}
+
 export function isPowerStationModule(moduleOrType) {
   return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === POWER_STATION_ID;
 }
@@ -202,6 +260,7 @@ export function getModuleInventoryTotal(module) {
 
 export function getModuleFreeCapacity(module) {
   if (isStorageModule(module)) return Math.max(0, (module?.storageCapacity || 0) - getModuleInventoryTotal(module));
+  if (isResearchLabModule(module)) return Number.MAX_SAFE_INTEGER;
   if (isPowerStationModule(module)) return Math.max(0, (module?.resourceCapacity || 0) - getModuleInventoryTotal(module));
   return 0;
 }
@@ -255,7 +314,7 @@ function getPowerNodeRange(module) {
 }
 
 function getModuleLinkRadius(module) {
-  if (isStorageModule(module)) return getModuleFootprintHalf(module.type || STORAGE_FACILITY_ID);
+  if (isPoweredBuildingModule(module) || isPowerStationModule(module)) return getModuleFootprintHalf(module.type || STORAGE_FACILITY_ID);
   if (isPowerPoleModule(module)) return getPowerNodeRange(module);
   return 0;
 }
@@ -267,11 +326,11 @@ function getChebyshevDistance(a, b) {
 function modulesOverlapByRange(a, b) {
   const distance = getChebyshevDistance(a, b);
   if (isPowerPoleModule(a) && isPowerPoleModule(b)) return distance <= (getModuleLinkRadius(a) + getModuleLinkRadius(b));
-  if (isPowerPoleModule(a) && isStorageModule(b)) {
+  if (isPowerPoleModule(a) && (isPoweredBuildingModule(b) || isPowerStationModule(b))) {
     return getModuleFootprintCells(b.type || STORAGE_FACILITY_ID, b.col || 0, b.row || 0)
       .some((cell) => Math.max(Math.abs((a.col || 0) - cell.col), Math.abs((a.row || 0) - cell.row)) <= getModuleLinkRadius(a));
   }
-  if (isPowerPoleModule(b) && isStorageModule(a)) {
+  if (isPowerPoleModule(b) && (isPoweredBuildingModule(a) || isPowerStationModule(a))) {
     return getModuleFootprintCells(a.type || STORAGE_FACILITY_ID, a.col || 0, a.row || 0)
       .some((cell) => Math.max(Math.abs((b.col || 0) - cell.col), Math.abs((b.row || 0) - cell.row)) <= getModuleLinkRadius(b));
   }
@@ -298,7 +357,7 @@ function buildPowerAdjacency(modules) {
 export function getPowerNetworkState(modules) {
   const stations = modules.filter(isPowerStationModule).filter(module => (module.health || 0) > 0);
   const poles = modules.filter(isPowerPoleModule).filter(module => (module.health || 0) > 0);
-  const storages = modules.filter(isStorageModule).filter(module => (module.health || 0) > 0);
+  const storages = modules.filter(isPoweredBuildingModule).filter(module => (module.health || 0) > 0);
   const powerNodes = [...stations, ...poles];
   const adjacency = buildPowerAdjacency(powerNodes);
   const byId = new Map(powerNodes.map((module) => [module.id, module]));
@@ -386,7 +445,7 @@ export function getPowerModuleNetworkInfo(moduleId, modules) {
     const module = byId.get(currentId);
     if (!module) continue;
     if (isPowerPoleModule(module) && currentId !== moduleId) poles.push(module);
-    else if (isStorageModule(module)) storages.push(module);
+    else if (isPoweredBuildingModule(module)) storages.push(module);
     else if (isPowerStationModule(module) && currentId !== moduleId) stations.push(module);
     for (const nextId of adjacency.get(currentId) || []) {
       if (visited.has(nextId)) continue;

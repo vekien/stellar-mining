@@ -47,12 +47,12 @@ setInterval(() => {
     if (fillEl)  fillEl.style.width = `${pct}%`;
     if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
   }
-  for (const [moduleType, timer] of Object.entries(state.moduleCraftTimers || {})) {
+  for (const [moduleType, timer] of Object.entries(state.buildingCraftTimers || {})) {
     if (!timer || Date.now() >= timer.endsAt) continue;
     const remainMs = Math.max(0, timer.endsAt - Date.now());
     const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
-    const fillEl  = document.getElementById(`craft-module-fill-${moduleType}`);
-    const labelEl = document.getElementById(`craft-module-label-${moduleType}`);
+    const fillEl  = document.getElementById(`craft-building-fill-${moduleType}`);
+    const labelEl = document.getElementById(`craft-building-label-${moduleType}`);
     if (fillEl) fillEl.style.width = `${pct}%`;
     if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
   }
@@ -219,6 +219,10 @@ function getShipDepotLabel(ship) {
     const storage = state.modules.find(module => module.id === ship.depotId);
     return storage?.name || '—';
   }
+  if (ship.depotType === 'research_lab' && ship.depotId !== null) {
+    const lab = state.modules.find(module => module.id === ship.depotId);
+    return lab?.name || '—';
+  }
   if (ship.depotType === 'power_station' && ship.depotId !== null) {
     const station = state.modules.find(module => module.id === ship.depotId);
     return station?.name || '—';
@@ -376,8 +380,12 @@ function switchCodexTab(tab) {
 }
 window.switchCodexTab = switchCodexTab;
 
+function normalizeCraftTab(tab) {
+  return tab === 'modules' ? 'buildings' : tab;
+}
+
 function switchCraftTab(tab) {
-  _craftTab = tab;
+  _craftTab = normalizeCraftTab(tab);
   _hdrPanelOpen = null;
   openHdrPanel('craft');
 }
@@ -459,6 +467,7 @@ function buildStatsHtml() {
   const mineableSet = new Set(Object.entries(nodesByType).filter(([,d]) => d.mineable).map(([k]) => k));
   _stockpileMineableKeys = mineableSet;
   const stockpileSections = Object.entries(MINE_TIERS).map(([tier, tierInfo]) => {
+    const isCurrentTier = Number(tier) === state.base.level;
     const cards = tierInfo.resources.map(k => {
       const def = RESOURCE_DEFS[k];
       if (!def) return '';
@@ -480,7 +489,7 @@ function buildStatsHtml() {
     }).filter(Boolean).join('');
     if (!cards) return '';
     return `<div class="resources-tier-wrap">
-      <div class="resources-tier-title" style="color:${tierInfo.color};border-bottom:1px solid ${tierInfo.color}55;">${tierInfo.label}</div>
+      <div class="resources-tier-title" style="color:${tierInfo.color};border-bottom:1px solid ${tierInfo.color}55;">${tierInfo.label}${isCurrentTier ? ' <span style="color:#ffe066;text-shadow:0 0 8px rgba(255,224,102,0.45);">★</span>' : ''}</div>
       <div class="resources-grid">${cards}</div>
     </div>`;
   }).join('');
@@ -702,12 +711,12 @@ export function openHdrPanel(type, options = {}) {
     const maxShips = BASE_MAX_SHIPS[bl - 1] || 5;
     const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
     const atCap = (state.ships.length + activeCraftCount) >= maxShips;
-    const activeCraftTab = _craftTab || 'ships';
+    const activeCraftTab = normalizeCraftTab(_craftTab || 'ships');
 
     const craftTabDefs = [
       { id: 'ships',   label: 'SHIPS' },
       { id: 'defense', label: 'DEFENSE' },
-      { id: 'modules', label: 'MODULES' },
+      { id: 'buildings', label: 'BUILDINGS' },
     ];
     const navBar = `<div class="craft-nav">${craftTabDefs.map(t =>
       `<button id="craft-tab-${t.id}" class="craft-nav-btn${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.label}</button>`
@@ -877,20 +886,20 @@ export function openHdrPanel(type, options = {}) {
 
       tabContent = defHtml;
 
-    } else if (activeCraftTab === 'modules') {
+    } else if (activeCraftTab === 'buildings') {
       const queue = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue : Array.from({ length: state.unplacedModules || 0 }, () => 'storage_facility');
-      const unlockedModules = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId]);
-      if (!unlockedModules.length) {
+      const unlockedBuildings = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId]);
+      if (!unlockedBuildings.length) {
         tabContent = `<div class="craft-defense-empty">
-            🔒 Modules are still locked.<br><br>
-            <span style="font-size:13px;">Unlock placeable <strong style="color:#8ab">Modules</strong> in the Research panel first.</span>
+            🔒 Buildings are still locked.<br><br>
+            <span style="font-size:13px;">Unlock placeable <strong style="color:#8ab">Buildings</strong> in the Research panel first.</span>
           </div>`;
       } else {
-        tabContent = unlockedModules.map((moduleConfig) => {
-          const moduleDef = getCraft('modules', moduleConfig.id);
+        tabContent = unlockedBuildings.map((moduleConfig) => {
+          const moduleDef = getCraft('buildings', moduleConfig.id);
           const queued = queue.filter(t => t === moduleConfig.id).length;
           const builtCount = (state.modules || []).filter(module => module.type === moduleConfig.id).length;
-          const timer = state.moduleCraftTimers?.[moduleConfig.id];
+          const timer = state.buildingCraftTimers?.[moduleConfig.id];
           const timerActive = !!(timer && Date.now() < timer.endsAt);
           const remainMs = timerActive ? Math.max(0, timer.endsAt - Date.now()) : 0;
           const remainSec = Math.ceil(remainMs / 1000);
@@ -912,10 +921,10 @@ export function openHdrPanel(type, options = {}) {
               <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">${statsHtml}</div>
               <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${canCoins ? 'met' : 'unmet'}">$${fmt(moduleDef?.cost || 0)}</span>${reqPills}</div>
               ${queued > 0
-                ? `<button class="btn place craft-defense-btn" onclick="beginPlacingStorage('${moduleConfig.id}')">${placeLabel} (${queued})</button>`
+                ? `<button class="btn place craft-defense-btn" onclick="beginPlacingBuilding('${moduleConfig.id}')">${placeLabel} (${queued})</button>`
                 : timerActive
-                ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-module-fill-${moduleConfig.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-module-label-${moduleConfig.id}">CRAFTING ${remainSec}s</span></button>`
-                : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startCraftModule('${moduleConfig.id}')">${buildLabel}</button>`}
+                ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-building-fill-${moduleConfig.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-building-label-${moduleConfig.id}">CRAFTING ${remainSec}s</span></button>`
+                : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startCraftBuilding('${moduleConfig.id}')">${buildLabel}</button>`}
             </div>`;
         }).join('');
       }

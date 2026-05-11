@@ -1,7 +1,7 @@
 // ============================================================
 // MAIN RENDERER — canvas drawing
 // ============================================================
-import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW } from '../constants.js';
+import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW, BASE_FOOTPRINT_RADIUS } from '../constants.js';
 import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS, tickCamera } from './camera.js';
 import { BASE_RANGE } from '../data/base.js';
 import { toRoman, SHIP_DEFS } from '../data/ships.js';
@@ -27,6 +27,10 @@ let fpsAvg = 60;
 let lastFpsSampleTs = 0;
 let _lastCamMoveSig = '';
 const RENDER_FRAME_MS = 1000 / 60;
+const baseImage = new Image();
+baseImage.src = 'assets/images/buildings/base.png';
+const baseHoverImage = new Image();
+baseHoverImage.src = 'assets/images/buildings/base_hover.png';
 
 export function initRenderer(mainCtx, w, h) {
   ctx = mainCtx;
@@ -278,10 +282,10 @@ export function drawBase(col, row) {
   const beaconColor = baseDown ? '#ff5555' : '#8ff';
   const textColor = baseDown ? '#ff7a7a' : '#4af';
 
-  if (baseHovered) {
+  if (baseHovered && !baseHoverImage.complete) {
     const t = performance.now() / 600;
     const pulse = 0.3+0.15*Math.sin(t);
-    const glowR = ctx.createRadialGradient(cx,cy,0,cx,cy,72);
+    const glowR = ctx.createRadialGradient(cx,cy,0,cx,cy,112);
     if (baseDown) {
       glowR.addColorStop(0, `rgba(255,70,70,${0.22 + flashPulse * 0.2})`);
       glowR.addColorStop(1, 'rgba(255,70,70,0)');
@@ -292,10 +296,49 @@ export function drawBase(col, row) {
     ctx.fillStyle = glowR; ctx.beginPath(); ctx.arc(cx,cy,72,0,Math.PI*2); ctx.fill();
   }
 
-  ctx.beginPath(); ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy); ctx.closePath();
-  ctx.fillStyle = coreFill; ctx.fill();
+  const tl = gridToIso(col - BASE_FOOTPRINT_RADIUS, row - BASE_FOOTPRINT_RADIUS);
+  const tr = gridToIso(col + BASE_FOOTPRINT_RADIUS, row - BASE_FOOTPRINT_RADIUS);
+  const br = gridToIso(col + BASE_FOOTPRINT_RADIUS, row + BASE_FOOTPRINT_RADIUS);
+  const bl = gridToIso(col - BASE_FOOTPRINT_RADIUS, row + BASE_FOOTPRINT_RADIUS);
+  const top = { x: tl.x, y: tl.y };
+  const right = { x: tr.x + TILE_W / 2, y: tr.y + TILE_H / 2 };
+  const bottom = { x: br.x, y: br.y + TILE_H };
+  const left = { x: bl.x - TILE_W / 2, y: bl.y + TILE_H / 2 };
+
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(right.x, right.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.lineTo(left.x, left.y);
+  ctx.closePath();
+  ctx.fillStyle = coreFill;
+  ctx.fill();
   ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = baseHovered ? 2 : 1; ctx.stroke();
+  ctx.lineWidth = baseHovered ? 2 : 1.25;
+  ctx.stroke();
+
+  const displayImage = baseHovered && baseHoverImage.complete && baseHoverImage.naturalWidth > 0
+    ? baseHoverImage
+    : baseImage;
+
+  if (displayImage.complete && displayImage.naturalWidth > 0) {
+    const imageW = 156;
+    const imageH = 156;
+    const imageX = cx - imageW / 2;
+    const imageY = cy - imageH + 34;
+
+    ctx.save();
+    ctx.shadowColor = baseDown ? 'rgba(255,70,70,0.35)' : 'rgba(80,200,255,0.16)';
+    ctx.shadowBlur = baseHovered ? 10 : 8;
+    ctx.drawImage(displayImage, imageX, imageY, imageW, imageH);
+    ctx.restore();
+
+    if (baseDown) {
+      ctx.fillStyle = `rgba(80,0,0,${0.2 + flashPulse * 0.15})`;
+      ctx.fillRect(imageX, imageY, imageW, imageH);
+    }
+    return;
+  }
 
   const tw=18, th=36;
   ctx.fillStyle = towerFill; ctx.fillRect(cx-tw/2,cy-th,tw,th);
@@ -319,10 +362,9 @@ function drawBaseHoverLabel(col, row) {
   const { x, y } = gridToIso(col, row);
   const cx = x;
   const cy = y + TILE_H / 2;
-  const th = 36;
   const baseName = state.base.name || 'Base Station';
   const label = `${baseName} — TIER ${toRoman(state.base.level)}`;
-  const labelY = cy - th - 36;
+  const labelY = cy - 78;
   ctx.font = 'bold 11px Orbitron,monospace';
   const tw2 = ctx.measureText(label).width;
   const pad = 7;

@@ -1,5 +1,5 @@
 // ============================================================
-// CRAFT RECIPES — ships, turrets, base upgrades
+// CRAFT RECIPES — ships, turrets, buildings, base upgrades
 // ============================================================
 
 export const CRAFTS = {
@@ -91,7 +91,7 @@ export const CRAFTS = {
     },
   ],
 
-  modules: [
+  buildings: [
     {
       id: 'storage_facility',
       name: 'Storage Facility',
@@ -102,7 +102,7 @@ export const CRAFTS = {
     {
       id: 'power_station',
       name: 'Power Station',
-      desc: '1x1 grid module for future power generation infrastructure',
+      desc: '3x3 grid building for future power generation infrastructure',
       cost: 18000,
       reqs: { iron: 1600, copper: 1200, oxygen: 700, nickel: 450, silicon: 650, cobalt: 300 },
     },
@@ -112,6 +112,13 @@ export const CRAFTS = {
       desc: '1x1 relay node for future power distribution layouts',
       cost: 1200,
       reqs: { iron: 120, copper: 90, silicon: 35 },
+    },
+    {
+      id: 'research_lab',
+      name: 'Research Lab',
+      desc: '3x3 powered research complex that consumes delivered materials for future experiments',
+      cost: 25000,
+      reqs: { iron: 1800, copper: 1400, oxygen: 900, nickel: 650, silicon: 900, cobalt: 500, titanium: 350, aluminum: 250, gold: 180 },
     },
   ],
 
