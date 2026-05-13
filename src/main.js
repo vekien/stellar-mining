@@ -17,7 +17,7 @@ import {
 } from './render/animations.js';
 import { scheduleNextEvent, tickSOL, rollMarketDemands } from './systems/sol.js';
 import { fireRandomEvent } from './systems/events.js';
-import { tickAdmiral, showTransmissionMessage } from './ui/transmissions.js';
+import { tickAdmiral, showTransmissionMessage, showOnce } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
 import './systems/research.js';
 import { getMaxShield } from './systems/research.js';
@@ -38,6 +38,7 @@ import {
   isResearchLabModule,
   isPoweredBuildingModule,
   isPowerStationModule,
+  getLabNetworkState,
   getPowerNetworkState,
   getPowerFuelOutput,
   getPowerResourceConsumption,
@@ -334,6 +335,12 @@ function gameLoop() {
     if (storageWentOffline && _storageOfflineNoticeSol !== state.sol) {
       _storageOfflineNoticeSol = state.sol;
       showTransmissionMessage(NPCS.doran.transmissionLines.storage_no_power, 18, 'doran');
+    }
+    if (!state.seenMsgs['vane_lab_network_online']) {
+      const labNetworkState = getLabNetworkState(state.modules, state.nodes, state.base.level);
+      if ((labNetworkState.nodeEdges || []).length > 0) {
+        showOnce('vane_lab_network_online', NPCS.vane.transmissionLines.vane_lab_network_online, 18, 'vane');
+      }
     }
     if (state.selectedModule && window.patchStorageModal) {
       const overlay = document.getElementById('storage-modal-overlay');

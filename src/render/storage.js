@@ -5,7 +5,7 @@ import { TILE_W, TILE_H } from '../constants.js';
 import { gridToIso } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
-import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, getModuleDef, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, getNoFuelNetworkIds, getPowerNetworkState, hasPowerStationFuel } from '../data/modules.js';
+import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, getModuleDef, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, hasPowerStationFuel } from '../data/modules.js';
 import { canPlaceModuleAt } from '../ui/storageUI.js';
 
 let ctx = null;
@@ -16,6 +16,10 @@ const storageHoverImage = new Image();
 storageHoverImage.src = 'assets/images/buildings/storage_hover.png';
 const labImage = new Image();
 labImage.src = 'assets/images/buildings/lab.png';
+const labPoleImage = new Image();
+labPoleImage.src = 'assets/images/buildings/lab_pole.png';
+const labPoleHoverImage = new Image();
+labPoleHoverImage.src = 'assets/images/buildings/lab_pol_hover.png';
 const powerImage = new Image();
 powerImage.src = 'assets/images/buildings/power.png';
 const powerHoverImage = new Image();
@@ -56,7 +60,15 @@ function getModuleSprite(module, hovered) {
     [POWER_POLE_ID]: {
       normal: powerPoleImage,
       hover: powerPoleHoverImage,
-      width: 70,
+      width: 92,
+      height: 92,
+      offsetY: 24,
+      shadow: hovered ? 8 : 5,
+    },
+    [LAB_TOWER_ID]: {
+      normal: labPoleImage,
+      hover: labPoleHoverImage,
+      width: 92,
       height: 92,
       offsetY: 24,
       shadow: hovered ? 8 : 5,
@@ -152,14 +164,15 @@ function traceDiamondForRange(col, row, r) {
 }
 
 function drawModuleRange(module) {
-  if (module.type !== POWER_POLE_ID) return;
+  if (module.type !== POWER_POLE_ID && module.type !== LAB_TOWER_ID) return;
   const range = module.relayRange || 0;
   if (range <= 0) return;
+  const isLabTower = module.type === LAB_TOWER_ID;
   ctx.save();
   traceDiamondForRange(module.col, module.row, range);
-  ctx.fillStyle = 'rgba(255,220,90,0.1)';
+  ctx.fillStyle = isLabTower ? 'rgba(90,255,170,0.1)' : 'rgba(255,220,90,0.1)';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,226,120,0.28)';
+  ctx.strokeStyle = isLabTower ? 'rgba(110,255,190,0.3)' : 'rgba(255,226,120,0.28)';
   ctx.lineWidth = 0.9;
   ctx.stroke();
   ctx.restore();
@@ -194,6 +207,62 @@ export function drawPowerLinks() {
     ctx.lineTo(toX, toY);
     ctx.strokeStyle = alert ? `rgba(255,210,210,${0.18 + (pulse * 0.5)})` : 'rgba(255,245,180,0.38)';
     ctx.lineWidth = 0.9;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+export function drawLabLinks() {
+  const { activeEdges, nodeEdges } = getLabNetworkState(state.modules, state.nodes, state.base.level);
+  if (!activeEdges.length && !nodeEdges.length) return;
+  const byId = new Map(state.modules.map((module) => [module.id, module]));
+  const pulse = 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 240)));
+  ctx.save();
+  for (const edge of activeEdges) {
+    const from = byId.get(edge.fromId);
+    const to = byId.get(edge.toId);
+    if (!from || !to) continue;
+    const fromIso = gridToIso(from.col, from.row);
+    const toIso = gridToIso(to.col, to.row);
+    const fromX = fromIso.x;
+    const fromY = fromIso.y + TILE_H / 2;
+    const toX = toIso.x;
+    const toY = toIso.y + TILE_H / 2;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.strokeStyle = `rgba(88,201,143,${0.78 + (pulse * 0.12)})`;
+    ctx.lineWidth = 2.1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.strokeStyle = `rgba(180,255,220,${0.18 + (pulse * 0.18)})`;
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+  }
+  ctx.setLineDash([7, 5]);
+  ctx.lineDashOffset = -performance.now() / 80;
+  for (const edge of nodeEdges) {
+    const tower = byId.get(edge.towerId);
+    if (!tower) continue;
+    const fromIso = gridToIso(tower.col, tower.row);
+    const toIso = gridToIso(edge.nodeCol, edge.nodeRow);
+    const fromX = fromIso.x;
+    const fromY = fromIso.y + TILE_H / 2;
+    const toX = toIso.x;
+    const toY = toIso.y + TILE_H / 2;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.strokeStyle = 'rgba(110,255,190,0.9)';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.strokeStyle = 'rgba(210,255,236,0.35)';
+    ctx.lineWidth = 0.8;
     ctx.stroke();
   }
   ctx.restore();
@@ -393,17 +462,18 @@ function drawPowerStationModule(module, hovered) {
 
 function drawSingleTileModule(module, hovered) {
   const isPole = module.type === 'power_pole';
+  const isLabTower = module.type === LAB_TOWER_ID;
   const noFuelIds = getNoFuelNetworkIds(state.modules);
   const alert = (isPole && noFuelIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module));
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
   const fill = alert
     ? (hovered ? `rgba(220,90,110,${0.82 + (pulse * 0.12)})` : `rgba(178,52,78,${0.78 + (pulse * 0.1)})`)
-    : hovered ? 'rgba(255,224,110,0.94)' : 'rgba(242,196,54,0.92)';
+    : isLabTower ? (hovered ? 'rgba(110,238,170,0.96)' : 'rgba(76,201,143,0.92)') : hovered ? 'rgba(255,224,110,0.94)' : 'rgba(242,196,54,0.92)';
   const glow = alert
     ? (hovered ? `rgba(255,156,156,${0.2 + (pulse * 0.18)})` : `rgba(255,110,110,${0.12 + (pulse * 0.14)})`)
-    : hovered ? 'rgba(255,236,160,0.4)' : 'rgba(255,214,90,0.26)';
-  const stroke = alert ? (hovered ? '#ffe2e2' : '#ffb0b0') : hovered ? '#fff1b8' : '#ffd85a';
-  const accent = alert ? (hovered ? '#fff4f4' : '#ffdede') : hovered ? '#fff8da' : '#fff0a8';
+    : isLabTower ? (hovered ? 'rgba(160,255,214,0.38)' : 'rgba(88,201,143,0.24)') : hovered ? 'rgba(255,236,160,0.4)' : 'rgba(255,214,90,0.26)';
+  const stroke = alert ? (hovered ? '#ffe2e2' : '#ffb0b0') : isLabTower ? (hovered ? '#d8fff0' : '#8ff0c4') : hovered ? '#fff1b8' : '#ffd85a';
+  const accent = alert ? (hovered ? '#fff4f4' : '#ffdede') : isLabTower ? (hovered ? '#effff8' : '#c7ffe7') : hovered ? '#fff8da' : '#fff0a8';
   const { cx, cy } = drawDiamond(module.col, module.row, glow, stroke, 1.4);
 
   if (drawModuleSprite(module, hovered, {
@@ -425,7 +495,7 @@ function drawSingleTileModule(module, hovered) {
   ctx.lineWidth = 1.3;
   ctx.stroke();
 
-  if (isPole) {
+  if (isPole || isLabTower) {
     ctx.beginPath();
     ctx.moveTo(cx, cy - 22);
     ctx.lineTo(cx, cy + 8);
@@ -455,7 +525,7 @@ function drawSingleTileModule(module, hovered) {
   ctx.textAlign = 'center';
   ctx.shadowColor = 'rgba(0,0,0,0.95)';
   ctx.shadowBlur = 3;
-  ctx.fillText(isPole ? 'POLE' : 'POWER', cx, cy - 24);
+    ctx.fillText(isLabTower ? 'LAB' : isPole ? 'POLE' : 'POWER', cx, cy - 24);
   ctx.restore();
 }
 
@@ -463,7 +533,7 @@ export function drawStorageFacilities() {
   if (!ctx) return;
   for (const module of state.modules) {
     const hovered = canvasState.storageHoverId === module.id;
-    const showRange = !state.placingModule && module.type === POWER_POLE_ID && (hovered || state.selectedModule === module.id);
+    const showRange = !state.placingModule && (module.type === POWER_POLE_ID || module.type === LAB_TOWER_ID) && (hovered || state.selectedModule === module.id);
     if (showRange) drawModuleRange(module);
     if (isStorageModule(module) || isResearchLabModule(module)) drawStorageModule(module, hovered);
     else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) drawPowerStationModule(module, hovered);

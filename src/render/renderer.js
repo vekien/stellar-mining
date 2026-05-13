@@ -15,7 +15,7 @@ import {
 } from './animations.js';
 import { drawStars } from './stars.js';
 import { drawTurrets, drawTurretPlacementHover, setTurretCtx } from './turrets.js';
-import { drawPowerLinks, drawStorageFacilities, drawStoragePlacementHover, setStorageCtx } from './storage.js';
+import { drawPowerLinks, drawLabLinks, drawStorageFacilities, drawStoragePlacementHover, setStorageCtx } from './storage.js';
 
 let ctx = null;
 export let W = 0, H = 0;
@@ -676,6 +676,7 @@ export function render(ts) {
   if (showGrid) drawRangeBorder();
   drawRangePulses();
   drawPowerLinks();
+  drawLabLinks();
   const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
   for (const n of sn) drawNode(n);
   drawStorageFacilities();

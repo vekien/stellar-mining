@@ -21,6 +21,81 @@ import { getMaxShield } from '../systems/research.js';
 
 
 let _bpWasOpen = false;
+let _basePanelDragInit = false;
+let _basePanelPos = null;
+let _basePanelBodySig = '';
+
+function clampBasePanelPosition(left, top) {
+  const overlay = document.getElementById('base-panel-overlay');
+  const panel = document.getElementById('base-panel');
+  if (!overlay || !panel) return { left, top };
+  const overlayRect = overlay.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const maxLeft = Math.max(0, overlayRect.width - panelRect.width);
+  const maxTop = Math.max(0, overlayRect.height - panelRect.height);
+  return {
+    left: Math.max(0, Math.min(maxLeft, left)),
+    top: Math.max(0, Math.min(maxTop, top)),
+  };
+}
+
+function applyBasePanelPosition() {
+  const overlay = document.getElementById('base-panel-overlay');
+  const panel = document.getElementById('base-panel');
+  if (!overlay || !panel) return;
+  if (!_basePanelPos) {
+    const overlayRect = overlay.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    _basePanelPos = {
+      left: Math.round((overlayRect.width - panelRect.width) / 2),
+      top: 56,
+    };
+  }
+  _basePanelPos = clampBasePanelPosition(_basePanelPos.left, _basePanelPos.top);
+  panel.style.left = `${_basePanelPos.left}px`;
+  panel.style.top = `${_basePanelPos.top}px`;
+}
+
+function initBasePanelDrag() {
+  if (_basePanelDragInit) return;
+  _basePanelDragInit = true;
+  const overlay = document.getElementById('base-panel-overlay');
+  const panel = document.getElementById('base-panel');
+  const handle = document.getElementById('bp-header-bar');
+  if (!overlay || !panel || !handle) return;
+
+  let dragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  handle.addEventListener('mousedown', (event) => {
+    if (event.button !== 0) return;
+    if (event.target.closest('.panel-shell-close')) return;
+    const panelRect = panel.getBoundingClientRect();
+    dragging = true;
+    offsetX = event.clientX - panelRect.left;
+    offsetY = event.clientY - panelRect.top;
+    document.body.style.userSelect = 'none';
+    event.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (event) => {
+    if (!dragging) return;
+    const overlayRect = overlay.getBoundingClientRect();
+    _basePanelPos = clampBasePanelPosition(event.clientX - overlayRect.left - offsetX, event.clientY - overlayRect.top - offsetY);
+    applyBasePanelPosition();
+    event.preventDefault();
+  });
+
+  window.addEventListener('mouseup', () => {
+    dragging = false;
+    document.body.style.userSelect = '';
+  });
+
+  window.addEventListener('resize', () => {
+    if (overlay.classList.contains('open')) applyBasePanelPosition();
+  });
+}
 
 export function renderBasePanel() {
   const panel   = document.getElementById('base-panel');
@@ -45,6 +120,11 @@ export function renderBasePanel() {
   const hpPct    = (state.base.health / state.base.maxHealth * 100).toFixed(0);
   const maxShield  = getMaxShield();
   const shield     = Math.min(state.base.shield || 0, maxShield);
+  const hpBoostCount     = state.hpBoostCount     || 0;
+  const shieldBoostCount = state.shieldBoostCount || 0;
+  const antiCometCount   = state.antiCometCount   || 0;
+  const solarShieldCount = state.solarShieldCount || 0;
+  const autoRegenCount   = state.autoRegenCount   || 0;
 
   // Build header bar once — reuse DOM if already present
   if (!document.getElementById('bp-header-bar')) {
@@ -57,7 +137,9 @@ export function renderBasePanel() {
     const bodyEl = document.createElement('div');
     bodyEl.id = 'bp-body';
     panel.appendChild(bodyEl);
+    initBasePanelDrag();
   }
+  applyBasePanelPosition();
 
   let body = '';
   const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
@@ -67,80 +149,77 @@ export function renderBasePanel() {
     const combatUpgrades = [];
     const unlockedPerks = [];
     const formatUpgradeDetail = (detail) => String(detail).replace(/(\+?\d[\d,]*(?:\.\d+)?(?:%|\/s)?)/g, '<span style="color:#ffe066;">$1</span>');
-    const hpBoostCount     = state.hpBoostCount     || 0;
-    const shieldBoostCount = state.shieldBoostCount || 0;
     const shieldPerTick = shieldBoostCount * SHIELD_REGEN_PER_PURCHASE_PER_TICK;
     const shieldPerSec = shieldBoostCount > 0 ? (shieldPerTick / SHIELD_REGEN_INTERVAL_S) : 0;
-    const antiCometCount   = state.antiCometCount   || 0;
-    const solarShieldCount = state.solarShieldCount || 0;
-    const autoRegenCount   = state.autoRegenCount   || 0;
 
     if (hpBoostCount > 0)
-      installedUpgrades.push({ icon: '▲', name: 'Health Increase', detail: `+${fmt(hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE)} max HP total`, qty: hpBoostCount });
+      installedUpgrades.push({ name: 'Health Increase', detail: `+${fmt(hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE)} max HP total`, qty: hpBoostCount });
     if (shieldBoostCount > 0)
-      installedUpgrades.push({ icon: '◈', name: 'Shield Increase', detail: `${fmt(maxShield)} max shield · +${fmt(Math.round(shieldPerSec))}/s`, qty: shieldBoostCount });
+      installedUpgrades.push({ name: 'Shield Increase', detail: `${fmt(maxShield)} max shield · +${fmt(Math.round(shieldPerSec))}/s`, qty: shieldBoostCount });
     if (antiCometCount > 0)
-      installedUpgrades.push({ icon: '◇', name: 'Anti-Comet Defenses', detail: `${antiCometCount * 5}% intercept chance`, qty: antiCometCount });
+      installedUpgrades.push({ name: 'Anti-Comet Defenses', detail: `${antiCometCount * 5}% intercept chance`, qty: antiCometCount });
     if (solarShieldCount > 0)
-      installedUpgrades.push({ icon: '□', name: 'Solar Radiation Shielding', detail: `${solarShieldCount * 8}% flare reduction`, qty: solarShieldCount });
+      installedUpgrades.push({ name: 'Solar Radiation Shielding', detail: `${solarShieldCount * 8}% flare reduction`, qty: solarShieldCount });
     if (autoRegenCount > 0)
-      installedUpgrades.push({ icon: '○', name: 'Auto Regeneration', detail: `${autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE} HP/s`, qty: autoRegenCount });
+      installedUpgrades.push({ name: 'Auto Regeneration', detail: `${autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE} HP/s`, qty: autoRegenCount });
     if (state.researchUnlocks['armor_plating'])
-      combatUpgrades.push({ icon: '▣', name: 'Armor Plating', detail: 'Combat ship armor +10%', qty: null });
+      combatUpgrades.push({ name: 'Armor Plating', detail: 'Combat ship armor +10%', qty: null });
     if (state.researchUnlocks['turrets'])
-      combatUpgrades.push({ icon: '■', name: 'Automatic Turret', detail: 'Defensive turrets unlocked', qty: null });
+      combatUpgrades.push({ name: 'Automatic Turret', detail: 'Defensive turrets unlocked', qty: null });
     if (state.researchUnlocks['resource_synthesis'])
-      unlockedPerks.push({ icon: '◎', name: 'Resource Synthesis', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ name: 'Resource Synthesis', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['resource_fabrication'])
-      unlockedPerks.push({ icon: '◆', name: 'Resource Fabrication', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ name: 'Resource Fabrication', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['unlock_bounties'])
-      unlockedPerks.push({ icon: '◉', name: 'Bounties', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ name: 'Bounties', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['galaxy_probes'])
-      unlockedPerks.push({ icon: '▷', name: 'Galaxy Probes', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ name: 'Galaxy Probes', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['storage_facilities'])
-      unlockedPerks.push({ icon: '▤', name: 'Storage Facilities', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ name: 'Storage Facilities', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['research_lab'])
-      unlockedPerks.push({ icon: '✦', name: 'Research Lab', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ name: 'Research Lab', detail: 'Unlocked', qty: null });
+    if (state.researchUnlocks['lab_tower'])
+      unlockedPerks.push({ name: 'Lab Tower', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['market_influence'])
-      unlockedPerks.push({ icon: '▲', name: 'Market Influence', detail: '+10% all sell prices', qty: null });
+      unlockedPerks.push({ name: 'Market Influence', detail: '+10% all sell prices', qty: null });
     if (state.researchUnlocks['laser_turrets'])
-      combatUpgrades.push({ icon: '◈', name: 'Laser Turrets', detail: 'Unlocked', qty: null });
+      combatUpgrades.push({ name: 'Laser Turrets', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['emp_turrets'])
-      combatUpgrades.push({ icon: '◇', name: 'EMP Turrets', detail: 'Unlocked', qty: null });
+      combatUpgrades.push({ name: 'EMP Turrets', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['unique_scanner'])
-      unlockedPerks.push({ icon: '□', name: 'Unique Ship Scanner', detail: 'Unlocked', qty: null });
+      unlockedPerks.push({ name: 'Unique Ship Scanner', detail: 'Unlocked', qty: null });
     if (state.researchUnlocks['multi_demand'])
-      unlockedPerks.push({ icon: '■', name: 'Multi-Demand', detail: 'Up to 3 resources in demand per SOL', qty: null });
+      unlockedPerks.push({ name: 'Multi-Demand', detail: 'Up to 3 resources in demand per SOL', qty: null });
 
     const upgradeBtn = nextCost
-      ? `<button class="btn${canUpgrade?' primary':''}" style="font-size:18px;padding:6px 14px;white-space:nowrap;line-height:1.5;" onclick="upgradeBase()" ${canUpgrade?'':'disabled'}>⬆ UPGRADE</button>`
-      : `<span style="font-size:13px;color:#ffe066">★ MAX TIER</span>`;
+      ? `<button class="btn${canUpgrade?' primary':''} bp-upgrade-btn-large" onclick="upgradeBase()" ${canUpgrade?'':'disabled'}>⬆ UPGRADE</button>`
+      : `<span class="bp-maxed">★ MAX TIER</span>`;
 
     body = `
-      <div class="bp-title bp-title-sign" style="display:flex;flex-direction:row;flex-wrap:nowrap;align-content:space-around;justify-content:space-between;margin-bottom:8px;">
-        <div style="padding:6px 8px;">
-          <span class="bp-title-main" style="margin:0;">⬡ ${state.base.name || 'Base Station'}</span>
-          <button onclick="openBaseRenameOverlay()" title="Rename Base" style="background:none;border:none;color:#6ad;cursor:pointer;font-size:16px;line-height:1;padding:0 0 0 4px;opacity:0.9;vertical-align:middle;">✎</button>
+      <div class="bp-title bp-title-sign bp-title-sign-row">
+        <div class="bp-title-pad">
+          <span class="bp-title-main bp-title-main-wrap">⬡ ${state.base.name || 'Base Station'}</span>
+          <button onclick="openBaseRenameOverlay()" title="Rename Base" class="bp-rename-btn">✎</button>
         </div>
-        <div style="padding:6px 8px;">
-          <div class="bp-level" style="color:${isLightColor(MINE_TIERS[bl]?.color||'#8ab')?'#111':'#fff'};font-family:'Orbitron',sans-serif;font-weight:700;letter-spacing:2px;background:${MINE_TIERS[bl]?.color||'#8ab'};padding:2px 10px;border-radius:4px;">TIER ${toRoman(bl)}</div>
+        <div class="bp-title-pad">
+          <div class="bp-level bp-tier-pill" style="color:${isLightColor(MINE_TIERS[bl]?.color||'#8ab')?'#111':'#fff'};background:${MINE_TIERS[bl]?.color||'#8ab'};">TIER ${toRoman(bl)}</div>
         </div>
       </div>
-      <div class="bp-section-title">◈ Base Stats</div>
-      <div style="padding:8px 10px;border:1px solid ${hpPct<25?'#803030':'#2a6040'};border-radius:6px;background:${hpPct<25?'rgba(60,12,12,0.2)':'rgba(12,45,26,0.16)'};margin-bottom:6px;">
-        <div class="bp-row" style="margin-bottom:6px;"><span style="font-size:18px;">HEALTH</span><span class="bp-val" style="color:${hpPct<25?'#f88':'#4d8'};font-size:17px;padding:2px 8px;line-height:1.2;">${fmt(state.base.health)} / ${fmt(state.base.maxHealth)}</span></div>
+      <div class="bp-section-title">◈ BASE</div>
+      <div class="bp-health-card ${hpPct<25?'danger':'ok'} module-health-card">
+        <div class="bp-row bp-health-head module-health-head"><span class="bp-health-label module-health-label">HEALTH</span><span class="bp-val bp-health-value module-health-value" style="color:${hpPct<25?'#f88':'rgb(68, 221, 136)'};">${fmt(state.base.health)} / ${fmt(state.base.maxHealth)}</span></div>
         ${(() => {
           const total = state.base.maxHealth + maxShield;
           const hpW   = (state.base.health / total * 100).toFixed(2);
           const shW   = (shield / total * 100).toFixed(2);
           const hpCol = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
-          return `<div class="bp-health-bar" style="position:relative;overflow:hidden;">
+          return `<div class="bp-health-bar" style="position:relative;">
             <div style="position:absolute;left:0;top:0;height:100%;width:${hpW}%;background:${hpCol};"></div>
             ${shield > 0 ? `<div style="position:absolute;left:${hpW}%;top:0;height:100%;width:${shW}%;background:linear-gradient(90deg,#1a6aff,#48f);"></div>` : ''}
           </div>
-          ${maxShield > 0 ? `<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-top:5px;">
-            <span style="color:#69a3ff;">◈ Shield (+${fmt(Math.round(shieldPerSec))}/s)</span>
-            <span style="color:#48f;font-size:16px;font-family:'Share Tech Mono',monospace;">${fmt(shield)} / ${fmt(maxShield)}</span>
+          ${maxShield > 0 ? `<div class="bp-shield-row">
+            <span class="bp-shield-label">◈ Shield (+${fmt(Math.round(shieldPerSec))}/s)</span>
+            <span class="bp-shield-value">${fmt(shield)} / ${fmt(maxShield)}</span>
           </div>` : ''}`;
         })()}
       </div>
@@ -151,74 +230,69 @@ export function renderBasePanel() {
         const canRepair = state.coins >= cost.coins;
         const btnClass = 'btn' + (canRepair ? ' primary' : '');
         const disabled = canRepair ? '' : 'disabled';
-        return '<div style="background:rgba(60,10,10,0.4);border:1px solid #803020;border-radius:4px;padding:8px 10px;margin:6px 0;">'
-          + '<div style="font-size:13px;color:#f88;margin-bottom:4px;">⚠ Base damaged — ' + fmt(missing) + ' HP missing</div>'
-          + '<div style="font-size:13px;color:#ffe066;margin-bottom:6px;">Repair cost: $' + fmt(cost.coins) + '</div>'
-          + '<button class="' + btnClass + '" style="width:100%;font-size:14px;" ' + disabled + ' onclick="repairBase(' + missing + ')">🔧 REPAIR FULL</button>'
+        return '<div class="bp-repair-card">'
+          + '<div class="bp-repair-warning">⚠ Base damaged — ' + fmt(missing) + ' HP missing</div>'
+          + '<div class="bp-repair-cost">Repair cost: $' + fmt(cost.coins) + '</div>'
+          + '<button class="' + btnClass + ' bp-repair-btn" ' + disabled + ' onclick="repairBase(' + missing + ')">🔧 REPAIR FULL</button>'
           + '</div>';
       })()}
-      <div style="display:flex;border:1px solid #1a3a6e;border-radius:5px;background:rgba(10,20,50,0.4);overflow:hidden;margin-bottom:8px;">
-        <div style="flex:1;padding:10px 12px;text-align:center;">
-          <div style="color:#3a6a9a;font-size:11px;letter-spacing:1px;font-family:'Orbitron',sans-serif;margin-bottom:4px;">SHIP CAPACITY</div>
-          <div style="color:#cde;font-family:'Share Tech Mono',monospace;font-size:18px;">${state.ships.length + activeCraftCount} / ${maxShips}</div>
-        </div>
-        <div style="width:1px;background:#1a3a6e;"></div>
-        <div style="flex:1;padding:10px 12px;text-align:center;">
-          <div style="color:#3a6a9a;font-size:11px;letter-spacing:1px;font-family:'Orbitron',sans-serif;margin-bottom:4px;">TILE RANGE</div>
-          <div style="color:#cde;font-family:'Share Tech Mono',monospace;font-size:18px;">◎ ${BASE_RANGE[bl-1]}</div>
-        </div>
-        <div style="width:1px;background:#1a3a6e;"></div>
-        <div style="flex:1;padding:10px 12px;text-align:center;">
-          <div style="color:#3a6a9a;font-size:11px;letter-spacing:1px;font-family:'Orbitron',sans-serif;margin-bottom:4px;">RESEARCH PTS</div>
-          <div style="color:#a0f0a0;font-family:'Share Tech Mono',monospace;font-size:18px;">${state.rp} / ${getResearchPointCap(bl)}</div>
-        </div>
-      </div>
-      <div style="background:rgba(8,22,46,0.55);border:1px solid #23426f;border-radius:5px;padding:10px;margin-top:8px;">
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#8fc3ff;letter-spacing:1.4px;margin-bottom:7px;">◈ INSTALLED UPGRADES</div>
+      <table class="module-data-table bp-stat-table">
+        <thead>
+          <tr>
+            <th>Ship Capacity</th>
+            <th>Tile Range</th>
+            <th>Research Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="bp-stat-value">${state.ships.length + activeCraftCount} / ${maxShips}</span></td>
+            <td><span class="bp-stat-value">◎ ${BASE_RANGE[bl-1]}</span></td>
+            <td><span class="bp-stat-value bp-stat-value-rp">${state.rp} / ${getResearchPointCap(bl)}</span></td>
+          </tr>
+        </tbody>
+      </table>
+        <div class="bp-section-title">◈ UPGRADES</div>
         ${installedUpgrades.length
-          ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ? `<div class="bp-group-grid">
               ${installedUpgrades.map(upg => `
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;text-align:center;">
-                  <div style="display:flex;align-items:center;gap:7px;justify-content:center;flex-wrap:wrap;">
-                    <span style="font-size:18px;line-height:1;">${upg.icon}</span>
-                    <span style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${upg.name}</span>
+                <div class="bp-group-card">
+                  <div class="bp-group-head">
+                    <span class="bp-group-name">${upg.name}</span>
                     ${upg.qty ? `<span style="font-size:11px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${upg.qty}</span>` : ''}
                   </div>
-                  <div style="font-size:13px;color:#6f97bc;">${formatUpgradeDetail(upg.detail)}</div>
+                  <div class="bp-group-detail">${formatUpgradeDetail(upg.detail)}</div>
                 </div>`).join('')}
             </div>`
-          : '<div style="font-size:14px;color:#4a6a8a;">No tower upgrades installed yet.</div>'}
-        <div style="height:10px;"></div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#8fc3ff;letter-spacing:1.4px;margin-bottom:7px;">⚔ COMBAT</div>
+          : '<div class="bp-group-empty">No tower upgrades installed yet.</div>'}
+        <div class="bp-group-spacer"></div>
+        <div class="bp-section-title">◈ COMBAT SYSTEMS</div>
         ${combatUpgrades.length
-          ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ? `<div class="bp-group-grid">
               ${combatUpgrades.map(upg => `
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;text-align:center;">
-                  <div style="display:flex;align-items:center;gap:7px;justify-content:center;flex-wrap:wrap;">
-                    <span style="font-size:18px;line-height:1;">${upg.icon}</span>
-                    <span style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${upg.name}</span>
+                <div class="bp-group-card">
+                  <div class="bp-group-head">
+                    <span class="bp-group-name">${upg.name}</span>
                     ${upg.qty ? `<span style="font-size:11px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${upg.qty}</span>` : ''}
                   </div>
-                  <div style="font-size:13px;color:#6f97bc;">${formatUpgradeDetail(upg.detail)}</div>
+                  <div class="bp-group-detail">${formatUpgradeDetail(upg.detail)}</div>
                 </div>`).join('')}
             </div>`
-          : '<div style="font-size:14px;color:#4a6a8a;">No combat upgrades unlocked yet.</div>'}
-        <div style="height:10px;"></div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:#8fc3ff;letter-spacing:1.4px;margin-bottom:7px;">◎ UNLOCKED PERKS</div>
+          : '<div class="bp-group-empty">No combat upgrades unlocked yet.</div>'}
+        <div class="bp-group-spacer"></div>
+        <div class="bp-section-title">◈ RESEARCH UNLOCKS</div>
         ${unlockedPerks.length
-          ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          ? `<div class="bp-group-grid">
               ${unlockedPerks.map(perk => `
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;background:rgba(6,16,34,0.6);border:1px solid #1c3659;border-radius:4px;text-align:center;">
-                  <div style="display:flex;align-items:center;gap:7px;justify-content:center;flex-wrap:wrap;">
-                    <span style="font-size:18px;line-height:1;">${perk.icon}</span>
-                    <span style="font-family:'Orbitron',sans-serif;font-size:13px;color:#cde;letter-spacing:1px;">${perk.name}</span>
+                <div class="bp-group-card">
+                  <div class="bp-group-head">
+                    <span class="bp-group-name">${perk.name}</span>
                     ${perk.qty ? `<span style="font-size:11px;color:#ffe066;background:rgba(60,45,0,0.45);border:1px solid #7a6010;border-radius:3px;padding:1px 5px;">×${perk.qty}</span>` : ''}
                   </div>
-                  <div style="font-size:13px;color:#6f97bc;">${formatUpgradeDetail(perk.detail)}</div>
+                  <div class="bp-group-detail">${formatUpgradeDetail(perk.detail)}</div>
                 </div>`).join('')}
             </div>`
-          : '<div style="font-size:14px;color:#4a6a8a;">No unlocked perks yet.</div>'}
-      </div>
+          : '<div class="bp-group-empty">No unlocked perks yet.</div>'}
       <div class="bp-divider"></div>
       ${nextCost ? (() => {
         const ntColor = MINE_TIERS[bl+1]?.color || '#8ab';
@@ -229,20 +303,46 @@ export function renderBasePanel() {
             reqPills += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r]?.label??r}: ${n}</span>`;
           }
         }
-        return `<div style="background:rgba(8,18,42,0.5);border:1px solid #1a3a6e;border-radius:5px;padding:10px;">
-          <div style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:#4a7aaa;margin-bottom:8px;">UPGRADE → TIER <span style="color:${ntColor};font-family:'Cinzel',serif;font-weight:700;">${toRoman(bl+1)}</span></div>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div style="flex:1;display:flex;flex-wrap:wrap;gap:5px;">${reqPills}</div>
-            <div style="flex-shrink:0;">${upgradeBtn}</div>
+        return `<div class="bp-upgrade-next">
+          <div class="bp-upgrade-next-title">UPGRADE → TIER <span style="color:${ntColor};font-family:'Cinzel',serif;font-weight:700;">${toRoman(bl+1)}</span></div>
+          <div class="bp-upgrade-next-row">
+            <div class="bp-upgrade-next-reqs">${reqPills}</div>
+            <div class="bp-upgrade-next-action">${upgradeBtn}</div>
           </div>
         </div>`;
-      })() : `<div style="text-align:center;padding:10px;font-size:13px;color:#ffe066;">★ BASE FULLY UPGRADED</div>`}
+      })() : `<div class="bp-maxed">★ BASE FULLY UPGRADED</div>`}
       `;
 
   }
 
+  const bodySig = JSON.stringify({
+    bl,
+    maxShips,
+    nextCost,
+    canUpgrade,
+    hp: state.base.health,
+    maxHp: state.base.maxHealth,
+    shield,
+    maxShield,
+    ships: state.ships.length,
+    activeCraftCount,
+    rp: state.rp,
+    baseName: state.base.name,
+    unlocks: state.researchUnlocks,
+    counts: {
+      hpBoostCount,
+      shieldBoostCount,
+      antiCometCount,
+      solarShieldCount,
+      autoRegenCount,
+    },
+    resources: nextResReqs ? Object.fromEntries(Object.keys(nextResReqs).map((key) => [key, state.resources[key] || 0])) : null,
+  });
   const bpBodyEl = document.getElementById('bp-body');
-  if (bpBodyEl) bpBodyEl.innerHTML = body;
+  if (bpBodyEl && _basePanelBodySig !== bodySig) {
+    _basePanelBodySig = bodySig;
+    bpBodyEl.innerHTML = body;
+  }
 }
 
 window.setBpTab = function(tab) {

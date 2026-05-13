@@ -130,6 +130,10 @@ export const NPCS = {
           ? '<span style="color:#f88">Structural failure is a real risk at this level — repair immediately.</span>'
           : 'I recommend repairing via the Base Station when you get a chance.'}<br><br>` +
         `Upgrading the base increases its maximum health pool significantly.`,
+      vane_lab_network_online:
+        `${C}, Dr. Vane here. Excellent — you've just brought a <strong>lab relay network</strong> online.<br><br>` +
+        `With a Research Lab linked to live resource nodes, we can begin routing multiple material streams into a single synthesis chain.<br><br>` +
+        `That network will form the backbone of <strong>advanced material research and resource synthesis</strong> once the lab pipeline is fully commissioned.`,
     },
   },
   doran: {

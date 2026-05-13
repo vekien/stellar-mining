@@ -7,6 +7,7 @@ export const STORAGE_FACILITY_ID = 'storage_facility';
 export const POWER_STATION_ID = 'power_station';
 export const POWER_POLE_ID = 'power_pole';
 export const RESEARCH_LAB_ID = 'research_lab';
+export const LAB_TOWER_ID = 'lab_tower';
 
 const STORAGE_FACILITY_BASE_STATS = {
   maxHealth: 10000,
@@ -29,6 +30,11 @@ const POWER_STATION_BASE_STATS = {
 };
 
 const POWER_POLE_BASE_STATS = {
+  maxHealth: 2500,
+  relayRange: 3,
+};
+
+const LAB_TOWER_BASE_STATS = {
   maxHealth: 2500,
   relayRange: 3,
 };
@@ -129,7 +135,7 @@ export const MODULE_DEFS = {
       return {
         maxHealth: RESEARCH_LAB_BASE_STATS.maxHealth + ((lvl - 1) * 2500),
         storageCapacity: RESEARCH_LAB_BASE_STATS.storageCapacity + ((lvl - 1) * 25000),
-        powerUsage: RESEARCH_LAB_BASE_STATS.powerUsage,
+        powerUsage: RESEARCH_LAB_BASE_STATS.powerUsage + (lvl - 1),
         powerCapacity: RESEARCH_LAB_BASE_STATS.powerCapacity + ((lvl - 1) * 250),
       };
     },
@@ -220,6 +226,41 @@ export const MODULE_DEFS = {
       module.relayRange = Math.max(module.relayRange || 0, stats.relayRange);
     },
   },
+  [LAB_TOWER_ID]: {
+    id: LAB_TOWER_ID,
+    name: 'Lab Tower',
+    panelTitle: 'LAB TOWER',
+    unlockId: 'lab_tower',
+    footprintSize: 1,
+    craftTimeMs: 8000,
+    defaultName: (index) => `Lab Tower #${index}`,
+    summary(module) {
+      return [];
+    },
+    cardStats(level = 1) {
+      const stats = getModuleStats(LAB_TOWER_ID, level);
+      return [
+        ['HEALTH', fmtStat(stats.maxHealth)],
+        ['RANGE', `${stats.relayRange} tiles`],
+        ['NODE TIER', `Tier ${Math.max(1, Math.floor(level || 1))}`],
+      ];
+    },
+    getStats(level = 1) {
+      const lvl = Math.max(1, Math.floor(level || 1));
+      return {
+        maxHealth: LAB_TOWER_BASE_STATS.maxHealth + ((lvl - 1) * 500),
+        relayRange: Math.round(LAB_TOWER_BASE_STATS.relayRange + (((lvl - 1) * 7) / 9)),
+      };
+    },
+    applyDefaults(module, index = 1) {
+      const stats = getModuleStats(LAB_TOWER_ID, module.level || 1);
+      module.name = module.name || `Lab Tower #${index}`;
+      module.level = Math.max(1, module.level || 1);
+      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
+      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
+      module.relayRange = Math.max(module.relayRange || 0, stats.relayRange);
+    },
+  },
 };
 
 function fmtStat(value) {
@@ -252,6 +293,10 @@ export function isPowerStationModule(moduleOrType) {
 
 export function isPowerPoleModule(moduleOrType) {
   return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === POWER_POLE_ID;
+}
+
+export function isLabTowerModule(moduleOrType) {
+  return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === LAB_TOWER_ID;
 }
 
 export function getModuleInventoryTotal(module) {
@@ -313,6 +358,11 @@ function getPowerNodeRange(module) {
   return 0;
 }
 
+function getLabNodeRange(module) {
+  if (isLabTowerModule(module)) return module.relayRange || 0;
+  return 0;
+}
+
 function getModuleLinkRadius(module) {
   if (isPoweredBuildingModule(module) || isPowerStationModule(module)) return getModuleFootprintHalf(module.type || STORAGE_FACILITY_ID);
   if (isPowerPoleModule(module)) return getPowerNodeRange(module);
@@ -336,6 +386,20 @@ function modulesOverlapByRange(a, b) {
   }
   if (isPowerPoleModule(a)) return distance <= (getModuleLinkRadius(a) + getModuleLinkRadius(b));
   if (isPowerPoleModule(b)) return distance <= (getModuleLinkRadius(b) + getModuleLinkRadius(a));
+  return false;
+}
+
+function modulesOverlapByLabRange(a, b) {
+  const distance = getChebyshevDistance(a, b);
+  if (isLabTowerModule(a) && isLabTowerModule(b)) return distance <= (getLabNodeRange(a) + getLabNodeRange(b));
+  if (isLabTowerModule(a) && isResearchLabModule(b)) {
+    return getModuleFootprintCells(b.type || RESEARCH_LAB_ID, b.col || 0, b.row || 0)
+      .some((cell) => Math.max(Math.abs((a.col || 0) - cell.col), Math.abs((a.row || 0) - cell.row)) <= getLabNodeRange(a));
+  }
+  if (isLabTowerModule(b) && isResearchLabModule(a)) {
+    return getModuleFootprintCells(a.type || RESEARCH_LAB_ID, a.col || 0, a.row || 0)
+      .some((cell) => Math.max(Math.abs((b.col || 0) - cell.col), Math.abs((b.row || 0) - cell.row)) <= getLabNodeRange(b));
+  }
   return false;
 }
 
@@ -457,15 +521,165 @@ export function getPowerModuleNetworkInfo(moduleId, modules) {
   return { poles, storages, stations };
 }
 
+export function getLabTowerLinkedNodes(tower, nodes, maxVisibleTier = Number.MAX_SAFE_INTEGER) {
+  if (!isLabTowerModule(tower) || (tower.health || 0) <= 0) return [];
+  const towerTier = Math.max(1, Math.floor(tower.level || 1));
+  const towerRange = tower.relayRange || 0;
+  return (nodes || []).filter((node) => {
+    if (!node || (node.minLevel || 0) > maxVisibleTier) return false;
+    if ((getResourceTier(node.type) || 0) > towerTier) return false;
+    return Math.max(Math.abs((tower.col || 0) - node.gr[0]), Math.abs((tower.row || 0) - node.gr[1])) <= towerRange;
+  });
+}
+
+export function getLabNetworkState(modules, nodes, maxVisibleTier = Number.MAX_SAFE_INTEGER) {
+  const labs = modules.filter(isResearchLabModule).filter((module) => (module.health || 0) > 0);
+  const towers = modules.filter(isLabTowerModule).filter((module) => (module.health || 0) > 0);
+  const labNodes = [...labs, ...towers];
+  const adjacency = new Map();
+  for (const module of labNodes) adjacency.set(module.id, []);
+  for (let i = 0; i < labNodes.length; i++) {
+    for (let j = i + 1; j < labNodes.length; j++) {
+      const a = labNodes[i];
+      const b = labNodes[j];
+      if (!modulesOverlapByLabRange(a, b)) continue;
+      adjacency.get(a.id).push(b.id);
+      adjacency.get(b.id).push(a.id);
+    }
+  }
+
+  const byId = new Map(labNodes.map((module) => [module.id, module]));
+  const labLinkedTowers = new Map();
+  const labLinkedResources = new Map();
+  const towerLinkedNodes = new Map();
+  const edgeKeys = new Set();
+  const activeEdges = [];
+  const nodeEdgeKeys = new Set();
+  const nodeEdges = [];
+  const addEdge = (fromId, toId) => {
+    const key = [fromId, toId].sort((a, b) => a - b).join(':');
+    if (edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    activeEdges.push({ fromId, toId });
+  };
+  const addNodeEdge = (towerId, node) => {
+    const key = `${towerId}:${node.id}`;
+    if (nodeEdgeKeys.has(key)) return;
+    nodeEdgeKeys.add(key);
+    nodeEdges.push({ towerId, nodeId: node.id, nodeCol: node.gr[0], nodeRow: node.gr[1], resourceType: node.type });
+  };
+
+  for (const lab of labs) {
+    const queue = [lab.id];
+    const visited = new Set([lab.id]);
+    const linkedTowers = new Map();
+    const linkedResources = [];
+    while (queue.length) {
+      const currentId = queue.shift();
+      const current = byId.get(currentId);
+      if (isLabTowerModule(current)) {
+        linkedTowers.set(current.id, current);
+        const linkedNodes = getLabTowerLinkedNodes(current, nodes, maxVisibleTier);
+        towerLinkedNodes.set(current.id, linkedNodes.map((node) => node.id));
+        for (const node of linkedNodes) {
+          linkedResources.push({ towerId: current.id, towerName: current.name, node });
+          addNodeEdge(current.id, node);
+        }
+      }
+      for (const nextId of adjacency.get(currentId) || []) {
+        addEdge(currentId, nextId);
+        if (visited.has(nextId)) continue;
+        visited.add(nextId);
+        queue.push(nextId);
+      }
+    }
+    labLinkedTowers.set(lab.id, [...linkedTowers.keys()]);
+    labLinkedResources.set(lab.id, linkedResources);
+  }
+
+  return { adjacency, activeEdges, nodeEdges, labLinkedTowers, labLinkedResources, towerLinkedNodes };
+}
+
+export function getLabModuleNetworkInfo(moduleId, modules, nodes, maxVisibleTier = Number.MAX_SAFE_INTEGER) {
+  const networkState = getLabNetworkState(modules, nodes, maxVisibleTier);
+  const byId = new Map(modules.map((module) => [module.id, module]));
+  const start = byId.get(moduleId);
+  if (!start) return { labs: [], towers: [], resources: [] };
+  const visited = new Set([moduleId]);
+  const queue = [moduleId];
+  const labs = [];
+  const towers = [];
+  while (queue.length) {
+    const currentId = queue.shift();
+    const module = byId.get(currentId);
+    if (!module) continue;
+    if (isResearchLabModule(module) && currentId !== moduleId) labs.push(module);
+    else if (isLabTowerModule(module) && currentId !== moduleId) towers.push(module);
+    for (const nextId of networkState.adjacency.get(currentId) || []) {
+      if (visited.has(nextId)) continue;
+      visited.add(nextId);
+      queue.push(nextId);
+    }
+  }
+
+  const reachableTowerIds = new Set(
+    isLabTowerModule(start)
+      ? [start.id, ...towers.map((tower) => tower.id)]
+      : (networkState.labLinkedTowers.get(start.id) || [])
+  );
+  const resources = [];
+  for (const towerId of reachableTowerIds) {
+    const tower = byId.get(towerId);
+    for (const nodeId of networkState.towerLinkedNodes.get(towerId) || []) {
+      const node = (nodes || []).find((entry) => entry.id === nodeId);
+      if (tower && node) resources.push({ tower, node });
+    }
+  }
+  return { labs, towers, resources };
+}
+
 export function getNoFuelNetworkIds(modules) {
   const ids = new Set();
-  for (const station of modules.filter(isPowerStationModule)) {
-    if (hasPowerStationFuel(station)) continue;
-    ids.add(station.id);
-    const info = getPowerModuleNetworkInfo(station.id, modules);
-    for (const pole of info.poles) ids.add(pole.id);
-    for (const storage of info.storages) ids.add(storage.id);
+  const relevant = modules.filter((module) =>
+    (isPowerStationModule(module) || isPowerPoleModule(module) || isPoweredBuildingModule(module))
+    && (module.health || 0) > 0
+  );
+  const byId = new Map(relevant.map((module) => [module.id, module]));
+  const adjacency = new Map(relevant.map((module) => [module.id, []]));
+  for (const edge of getPowerNetworkState(modules).activeEdges) {
+    if (!adjacency.has(edge.fromId) || !adjacency.has(edge.toId)) continue;
+    adjacency.get(edge.fromId).push(edge.toId);
+    adjacency.get(edge.toId).push(edge.fromId);
   }
+
+  const visited = new Set();
+  for (const module of relevant) {
+    if (visited.has(module.id)) continue;
+    const queue = [module.id];
+    const component = [];
+    visited.add(module.id);
+    while (queue.length) {
+      const currentId = queue.shift();
+      component.push(currentId);
+      for (const nextId of adjacency.get(currentId) || []) {
+        if (visited.has(nextId)) continue;
+        visited.add(nextId);
+        queue.push(nextId);
+      }
+    }
+
+    const stations = component
+      .map((id) => byId.get(id))
+      .filter((entry) => entry && isPowerStationModule(entry));
+    const fueledStations = stations.filter((station) => hasPowerStationFuel(station));
+    const offlineStations = stations.filter((station) => !hasPowerStationFuel(station));
+
+    for (const station of offlineStations) ids.add(station.id);
+    if (stations.length > 0 && fueledStations.length === 0) {
+      for (const id of component) ids.add(id);
+    }
+  }
+
   return ids;
 }
 

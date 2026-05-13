@@ -26,9 +26,11 @@ import {
   getPowerFuelOutput,
   getModuleInventoryTotal,
   getPowerResourceConsumption,
+  getLabModuleNetworkInfo,
   isResearchLabModule,
   isPowerStationModule,
   isPowerPoleModule,
+  isLabTowerModule,
   STORAGE_FACILITY_ID,
 } from './data/modules.js';
 import { getCraft } from './data/crafts.js';
@@ -167,14 +169,15 @@ export function initInput(canvas) {
       `;
       tt.style.display = 'block';
       moveTooltip(e);
-    } else if (hoveredStorage && (isPowerStationModule(hoveredStorage) || isPowerPoleModule(hoveredStorage))) {
+    } else if (hoveredStorage && (isPowerStationModule(hoveredStorage) || isPowerPoleModule(hoveredStorage) || isLabTowerModule(hoveredStorage))) {
       canvasState.lastHoveredNode = null;
       const tt = tooltipEl();
-      const networkInfo = getPowerModuleNetworkInfo(hoveredStorage.id, state.modules);
-      const linkedStations = networkInfo.stations.length + (isPowerStationModule(hoveredStorage) ? 1 : 0);
-      const linkedPoles = networkInfo.poles.length + (isPowerPoleModule(hoveredStorage) ? 1 : 0);
-      const linkedStorages = networkInfo.storages.length;
-      const summaryParts = [
+      const powerInfo = getPowerModuleNetworkInfo(hoveredStorage.id, state.modules);
+      const labInfo = isLabTowerModule(hoveredStorage) ? getLabModuleNetworkInfo(hoveredStorage.id, state.modules, state.nodes, state.base.level) : null;
+      const linkedStations = powerInfo.stations.length + (isPowerStationModule(hoveredStorage) ? 1 : 0);
+      const linkedPoles = powerInfo.poles.length + (isPowerPoleModule(hoveredStorage) ? 1 : 0);
+      const linkedStorages = powerInfo.storages.length;
+      const powerSummary = [
         linkedStations > 0 ? `${linkedStations}x Power Stations` : '',
         linkedPoles > 0 ? `${linkedPoles}x Poles` : '',
         linkedStorages > 0 ? `${linkedStorages}x Powered Buildings` : '',
@@ -190,13 +193,25 @@ export function initInput(canvas) {
           <div>Current Load: <span style="color:#ffe066">${linkedStorages} buildings · ${loadCost} ${fuelName}/s</span></div>
           <div>Selected Fuel: <span style="color:#cde">${fmt(hoveredStorage.inventory?.[fuelType] || 0)} / ${fmt(hoveredStorage.resourceCapacity || 0)}</span></div>
           <div>Output: <span style="color:#cde">+${fuelOutput} power/second per storage</span></div>
-          <div style="margin-top:4px;color:#d9c3ff;">${summaryParts}</div>
+          <div style="margin-top:4px;color:#d9c3ff;">${powerSummary}</div>
+        `;
+      } else if (isLabTowerModule(hoveredStorage)) {
+        const linkedLabs = labInfo?.labs.length || 0;
+        const linkedTowers = (labInfo?.towers.length || 0) + 1;
+        const linkedResources = labInfo?.resources.length || 0;
+        tt.innerHTML = `
+          <div class="tt-name">${hoveredStorage.name}</div>
+          <div>Relay Range: <span style="color:#8ff0c4">${hoveredStorage.relayRange} tiles</span></div>
+          <div>Node Tier: <span style="color:#8ff0c4">Tier ${hoveredStorage.level || 1}</span></div>
+          <div>Linked Labs: <span style="color:#cde">${linkedLabs}</span></div>
+          <div>Linked Nodes: <span style="color:#cde">${linkedResources}</span></div>
+          <div style="margin-top:4px;color:#8ff0c4;">${linkedTowers}x Lab Towers${linkedLabs ? ` • ${linkedLabs}x Research Labs` : ''}</div>
         `;
       } else {
         tt.innerHTML = `
           <div class="tt-name">${hoveredStorage.name}</div>
           <div>Relay Range: <span style="color:#cde">${hoveredStorage.relayRange} tiles</span></div>
-          <div style="margin-top:4px;color:#d9c3ff;">${summaryParts}</div>
+          <div style="margin-top:4px;color:#d9c3ff;">${powerSummary}</div>
         `;
       }
       tt.style.display = 'block';
@@ -291,6 +306,12 @@ function handleCanvasClick(canvas, clientX, clientY) {
     return;
   }
 
+  const clickedStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(baseCol, baseRow);
+  if (clickedStorage) {
+    openStorageModal(clickedStorage.id);
+    return;
+  }
+
   // Close base panel on click elsewhere
   if (state.basePanelOpen) {
     state.basePanelOpen = false;
@@ -381,8 +402,6 @@ function handleCanvasClick(canvas, clientX, clientY) {
 
   const clickCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
   const clickRow = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
-  const clickedStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(clickCol, clickRow);
-  if (clickedStorage) { openStorageModal(clickedStorage.id); return; }
 
   if (!state.pendingAssign) return;
 

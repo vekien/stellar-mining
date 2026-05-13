@@ -97,7 +97,7 @@ export function commitRename(newName) {
     state.basePanelOpen = true;
     renderBasePanel();
   }
-  if (state.selectedModule && window.renderStorageModal) window.renderStorageModal();
+  if (window.patchStorageModal) window.patchStorageModal();
   if (refresh.ui) refresh.ui();
 }
 

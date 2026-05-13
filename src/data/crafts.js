@@ -120,6 +120,13 @@ export const CRAFTS = {
       cost: 25000,
       reqs: { iron: 1800, copper: 1400, oxygen: 900, nickel: 650, silicon: 900, cobalt: 500, titanium: 350, aluminum: 250, gold: 180 },
     },
+    {
+      id: 'lab_tower',
+      name: 'Lab Tower',
+      desc: '1x1 relay tower that chains with research labs and matching-tier resource nodes',
+      cost: 2400,
+      reqs: { iron: 180, copper: 140, silicon: 90, nickel: 60, titanium: 35, gold: 20 },
+    },
   ],
 
   base: [

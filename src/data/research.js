@@ -133,6 +133,10 @@ export const RESEARCH_TREE = [
         id: 'research_lab', name: 'Research Lab', cost: 8, icon: '✦',
         desc: 'Unlocks construction of research lab buildings that can receive and consume delivered materials for future research systems.',
       },
+      {
+        id: 'lab_tower', name: 'Lab Tower', cost: 6, icon: '╪',
+        desc: 'Unlocks lab tower relays that chain to Research Labs and connect matching-tier resource nodes for future synthesis routing.',
+      },
     ],
   },
   {

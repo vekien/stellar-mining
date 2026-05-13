@@ -367,10 +367,7 @@ window.sortFleetManifest = function(key) {
 };
 
 export function handleBasePanelOverlayClick(e) {
-  if (e.target === document.getElementById('base-panel-overlay')) {
-    state.basePanelOpen = false;
-    renderBasePanel();
-  }
+  return;
 }
 
 function switchCodexTab(tab) {
@@ -973,11 +970,10 @@ export function openHdrPanel(type, options = {}) {
         })();
         treeHtml += `<div class="research-card ${isUnlocked?'unlocked':''} ${tierLocked?'locked':''}">
           <div class="research-row">
-            <span class="research-icon">${u.icon}</span>
             <div class="research-main">
               <div class="research-copy">
               <div class="research-title-row">
-                <div class="research-title ${isUnlocked?'unlocked':''}">${u.name}</div>
+                <div class="research-title ${isUnlocked?'unlocked':''}"><span class="research-title-bullet">•</span>${u.name}</div>
                 ${u.repeatable && count > 0 ? `<span class="research-count">×${count}</span>` : ''}
                 ${isUnlocked && !u.repeatable ? `<span class="research-badge">✓ UNLOCKED</span>` : ''}
               </div>
@@ -1480,7 +1476,7 @@ export function openHdrPanel(type, options = {}) {
         const limitLabel = u.repeatable ? `MAX ${maxCount}` : 'ONE-TIME';
         return `<tr>
           <td class="codex-ships-td">
-            <div class="codex-research-name"><span class="codex-research-icon">${u.icon}</span>${u.name}</div>
+            <div class="codex-research-name"><span class="codex-research-icon">•</span>${u.name}</div>
             <div class="codex-ships-desc">${u.desc}</div>
           </td>
           <td class="codex-ships-td"><span class="codex-ships-tier-pill" style="border:1px solid ${tierColor}44;background:${tierColor}18;color:${tierColor};">${toRoman(tier.tier)}</span></td>
