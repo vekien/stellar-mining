@@ -6,13 +6,14 @@ import { generateNodes } from './data/nodes.js';
 import { MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
+import { CRASHED_SHIP_NODE_TYPE } from './data/nodes.js';
 import { SOL_DURATION } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI, fmt } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
 import { initRenderer, resizeRenderer, render, setOnCameraMove, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
 import {
-  tickFloaties, tickSolarFlare, tickComet,
+  tickFloaties, tickSolarFlare, tickBlackHole, tickComet,
   tickScreenShake, tickRangePulses, tickNodeParticles,
 } from './render/animations.js';
 import { scheduleNextEvent, tickSOL, rollMarketDemands } from './systems/sol.js';
@@ -40,8 +41,8 @@ import {
   isPowerStationModule,
   getLabNetworkState,
   getPowerNetworkState,
-  getPowerFuelOutput,
   getPowerResourceConsumption,
+  getPowerStationEffectiveOutput,
 } from './data/modules.js';
 
 let _baseDestroyedNoticeShown = false;
@@ -129,9 +130,15 @@ for (const s of state.ships) {
   if (!s.mineTier || !MINE_TIERS[s.mineTier]) s.mineTier = 1;
 }
 
-focusOnBase(2.0);
+focusOnBase(2.0, { snap: true });
 updateHeader();
 showStartupInfrastructureWarnings();
+
+const crashedShipNode = state.nodes.find((node) => node.type === CRASHED_SHIP_NODE_TYPE);
+if (crashedShipNode) {
+  const [col, row] = crashedShipNode.gr;
+  setTimeout(() => showTransmissionMessage(NPCS.zoe.transmissionLines.crashed_ship_detected(col, row), 20, 'zoe'), 1400);
+}
 
 // Re-dispatch ships that had a target node when the game was saved.
 // Stagger launch so they do not all fire at once on load.
@@ -226,8 +233,10 @@ window.openSettings   = () => {
   const overlay = document.getElementById('settings-overlay');
   const chkShowGrid = document.getElementById('setting-show-grid');
   const chkStars = document.getElementById('setting-bg-stars');
+  const chkEffects = document.getElementById('setting-visual-effects');
   if (chkShowGrid) chkShowGrid.checked = state.settings?.showGrid !== false;
   if (chkStars) chkStars.checked = state.settings?.showBackgroundStars !== false;
+  if (chkEffects) chkEffects.checked = state.settings?.showVisualEffects !== false;
   if (overlay) overlay.classList.add('show');
 };
 window.closeSettings  = () => {
@@ -242,6 +251,10 @@ window.toggleBackgroundStars = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showBackgroundStars = !!enabled;
   setStarsEnabled(state.settings.showBackgroundStars);
+};
+window.toggleVisualEffects = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showVisualEffects = !!enabled;
 };
 window.switchTab      = function(tab) {
   dismissHdrModal();
@@ -266,6 +279,7 @@ function gameLoop() {
 
   tickFloaties(dt);
   tickSolarFlare(dt);
+  tickBlackHole(dt);
   tickComet(dt);
   tickScreenShake(dt);
   tickShootingStars(dt);
@@ -308,20 +322,21 @@ function gameLoop() {
     _storagePowerTimer -= 1;
     if (_storageOfflineNoticeSol !== null && _storageOfflineNoticeSol !== state.sol) _storageOfflineNoticeSol = null;
     const storageChargeById = new Map();
-    const networkState = getPowerNetworkState(state.modules);
+    const networkState = getPowerNetworkState(state.modules, state.turrets);
     for (const station of state.modules.filter(isPowerStationModule)) {
       if ((station.health || 0) <= 0) continue;
       const linkedStorageIds = networkState.stationLinkedStorages.get(station.id) || [];
-      if (!linkedStorageIds.length) continue;
+      const linkedTurretIds = networkState.stationLinkedTurrets.get(station.id) || [];
+      const linkedConsumerIds = [...linkedStorageIds, ...linkedTurretIds];
+      if (!linkedConsumerIds.length) continue;
       const fuelType = station.fuelResource || 'iron';
       const availableFuel = station.inventory?.[fuelType] || 0;
-      const fuelCost = getPowerResourceConsumption(station) * linkedStorageIds.length;
-      if (availableFuel < fuelCost) continue;
-      const output = getPowerFuelOutput(fuelType);
+      const fuelCost = getPowerResourceConsumption(station) * linkedConsumerIds.length;
+      const output = getPowerStationEffectiveOutput(station, linkedConsumerIds.length);
       if (output <= 0) continue;
-      station.inventory[fuelType] = Math.max(0, availableFuel - fuelCost);
-      for (const storageId of linkedStorageIds) {
-        storageChargeById.set(storageId, (storageChargeById.get(storageId) || 0) + output);
+      station.inventory[fuelType] = Math.max(0, availableFuel - Math.min(availableFuel, fuelCost));
+      for (const consumerId of linkedConsumerIds) {
+        storageChargeById.set(consumerId, (storageChargeById.get(consumerId) || 0) + output);
       }
     }
 
@@ -331,6 +346,11 @@ function gameLoop() {
       const incomingPower = storageChargeById.get(storage.id) || 0;
       storage.power = Math.max(0, Math.min(storage.powerCapacity || 0, prevPower + incomingPower - getStoragePowerUsage(storage)));
       if (prevPower > 0 && storage.power <= 0) storageWentOffline = true;
+    }
+    for (const turret of state.turrets) {
+      const prevPower = turret.power || 0;
+      const incomingPower = storageChargeById.get(turret.id) || 0;
+      turret.power = Math.max(0, Math.min(turret.powerCapacity || 0, prevPower + incomingPower - (turret.powerUsage || 0)));
     }
     if (storageWentOffline && _storageOfflineNoticeSol !== state.sol) {
       _storageOfflineNoticeSol = state.sol;
@@ -345,6 +365,10 @@ function gameLoop() {
     if (state.selectedModule && window.patchStorageModal) {
       const overlay = document.getElementById('storage-modal-overlay');
       if (overlay?.style.display === 'flex') window.patchStorageModal();
+    }
+    if (state.selectedTurret && window.patchTurretModal) {
+      const overlay = document.getElementById('turret-modal-overlay');
+      if (overlay?.style.display === 'flex') window.patchTurretModal();
     }
   }
 

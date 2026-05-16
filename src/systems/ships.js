@@ -26,6 +26,21 @@ import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
 import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf } from '../data/modules.js';
+import { getBlackHoleRadiusScale } from '../render/animations.js';
+
+function getBlackHoleSpeedMult(ship) {
+  if (!state.blackHole) return 1;
+  const scale = Number.isFinite(state.blackHole.scale) ? state.blackHole.scale : getBlackHoleRadiusScale(state.blackHole);
+  if (scale <= 0) return 1;
+  const radius = (state.blackHole.radiusWorld || 0) * scale;
+  const dx = ship.x - state.blackHole.wx;
+  const dy = ship.y - state.blackHole.wy;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist >= radius) return 1;
+  const t = dist / radius; // 0 = center, 1 = edge
+  return 0.1 + 0.8 * t;   // 0.1 at center, 0.9 at edge
+}
+import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 
 function getStorageModules() {
   return state.modules.filter(isStorageModule);
@@ -606,6 +621,7 @@ export function assignShip(ship, node) {
   if ((ship.mineSpeed || 0) <= 0) { addLog(`⚠ ${ship.name} has no mining equipment.`); return; }
   if (ship.targetNode === node.id) { state.selectedShip = null; state.pendingAssign = null; state.followShip = null; document.getElementById('main-canvas').style.cursor = ''; if (refresh.ui) refresh.ui(); return; }
   if (node.minLevel > state.base.level) return;
+  const isSpecialNode = node.type === CRASHED_SHIP_NODE_TYPE;
   const alreadyAssigned = state.ships.some(s => s.id !== ship.id && s.targetNode === node.id);
   if (alreadyAssigned) {
     addLog(`⚠ ${RESOURCE_DEFS[node.type].label} node already occupied — expand range for more nodes`);
@@ -613,7 +629,7 @@ export function assignShip(ship, node) {
   }
   const accessible = [];
   for (let t = 1; t <= ship.mineTier; t++) accessible.push(...MINE_TIERS[t].resources);
-  if (!accessible.includes(node.type)) return;
+  if (!isSpecialNode && !accessible.includes(node.type)) return;
   if (ship.cargo > 0) addLog(`⚠ ${ship.name} dropped ${ship.cargo} cargo to change course`);
   clearTransportCargo(ship);
   if (state.tutStep < 2) state.tutStep = 2;
@@ -673,7 +689,10 @@ export function tickShip(ship, dt) {
     }
   }
 
-  const FLY_SPEED = ship.status === 'holding' ? 100 : 80 * flySpeedToMultiplier(ship.flySpeed);
+  let FLY_SPEED = ship.status === 'holding' ? 100 : 80 * flySpeedToMultiplier(ship.flySpeed);
+  if (ship.status === 'flying' || ship.status === 'returning' || ship.status === 'holding') {
+    FLY_SPEED *= getBlackHoleSpeedMult(ship);
+  }
 
   if (ship.status==='flying'||ship.status==='returning'||ship.status==='holding') {
     // Trail length is data-driven per ship type.
@@ -739,6 +758,11 @@ export function tickShip(ship, dt) {
 
         return;
       }
+        if (state.nodes.find(n => n.id === ship.targetNode)?.type === CRASHED_SHIP_NODE_TYPE) {
+          ship.status = 'idle';
+          ship.mineTimer = 0;
+          return;
+        }
         ship.status='mining'; ship.mineTimer=0;
         if (state.tutStep === 2) state.tutStep = 3;
       } else if (ship.status === 'holding') {
@@ -875,6 +899,10 @@ export function tickShip(ship, dt) {
     const MINE_INTERVAL = 1.0 / ship.mineSpeed;
     const node = state.nodes.find(n => n.id === ship.targetNode);
     if (!node) { ship.targetNode=null; ship.status='idle'; tickEvents.push({ type:'idle', ship }); return; }
+    if (node.type === CRASHED_SHIP_NODE_TYPE) {
+      ship.status = 'idle';
+      return;
+    }
     if (ship.mineTimer >= MINE_INTERVAL) {
       const prevResource = ship.cargoResource;
       ship.cargo = Math.min(ship.capacity, ship.cargo+1);

@@ -30,6 +30,14 @@ export const COMET_WARNING_DURATION_MS = 10000;
 // Delay before Vane's transmission fires (ms)
 export const COMET_TRANSMISSION_DELAY_MS = 15000;
 
+// ── Black Hole ────────────────────────────────────────────────
+export const BLACK_HOLE_DURATION_S = 60;
+export const BLACK_HOLE_FADE_TIME_S = 10;
+export const BLACK_HOLE_RANGE_MIN = 3;
+export const BLACK_HOLE_RANGE_MAX = 10;
+export const BLACK_HOLE_WARNING_DURATION_MS = 10000;
+export const BLACK_HOLE_TRIGGER_DELAY_MS = 2000;
+
 // ── General event scheduling ──────────────────────────────────
 // How many SOLs from now until the next random event fires
 export const EVENT_SCHEDULE_MIN_SOLS = 2;

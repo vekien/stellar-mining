@@ -3,11 +3,12 @@
 // ============================================================
 import { state } from '../state.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
-import { addLog, fmt } from '../helpers.js';
+import { addLog, fmt, resourceIconHtml } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { spawnSolarFlare, spawnComet } from '../render/animations.js';
 import { queueTransmissions } from '../ui/transmissions.js';
 import { NPCS } from '../data/npcs.js';
+import { BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS, TILE_W, TILE_H } from '../constants.js';
 import {
   SOLAR_FLARE_MIN_TYPES, SOLAR_FLARE_MAX_TYPES,
   SOLAR_FLARE_LOSS_MIN, SOLAR_FLARE_LOSS_MAX,
@@ -15,14 +16,53 @@ import {
   COMET_BASE_DMG_MIN, COMET_BASE_DMG_MAX,
   COMET_SCALE_DMG_MIN, COMET_SCALE_DMG_MAX,
   COMET_WARNING_DURATION_MS, COMET_TRANSMISSION_DELAY_MS,
+  BLACK_HOLE_DURATION_S, BLACK_HOLE_FADE_TIME_S, BLACK_HOLE_RANGE_MIN, BLACK_HOLE_RANGE_MAX, BLACK_HOLE_WARNING_DURATION_MS,
   EVENT_SCHEDULE_MIN_SOLS, EVENT_SCHEDULE_MAX_SOLS,
-  SOLAR_FLARE_TRIGGER_DELAY_MS, COMET_TRIGGER_DELAY_MS,
+  SOLAR_FLARE_TRIGGER_DELAY_MS, COMET_TRIGGER_DELAY_MS, BLACK_HOLE_TRIGGER_DELAY_MS,
 } from '../data/events.js';
 import {
   ANTI_COMET_CHANCE_PER_PURCHASE,
   SOLAR_SHIELD_REDUCTION_PER_PURCHASE,
 } from '../data/research.js';
 import { getMaxShield } from './research.js';
+import { isStorageModule, isPowerStationModule } from '../data/modules.js';
+import { BASE_RANGE } from '../data/base.js';
+import { focusOn, gridToWorld } from '../render/camera.js';
+
+function getSolarFlareResourcePools(resourceType) {
+  const pools = [
+    {
+      amount: () => state.resources[resourceType] || 0,
+      applyLoss(loss) {
+        state.resources[resourceType] = Math.max(0, (state.resources[resourceType] || 0) - loss);
+      },
+    },
+  ];
+
+  for (const module of state.modules) {
+    if (!isStorageModule(module) && !isPowerStationModule(module)) continue;
+    pools.push({
+      amount: () => module.inventory?.[resourceType] || 0,
+      applyLoss(loss) {
+        const inv = module.inventory || (module.inventory = {});
+        inv[resourceType] = Math.max(0, (inv[resourceType] || 0) - loss);
+      },
+    });
+  }
+
+  return pools;
+}
+
+function getSolarFlareAvailableTypes() {
+  return Object.keys(RESOURCE_DEFS).filter((resourceType) => {
+    const baseAmount = state.resources[resourceType] || 0;
+    if (baseAmount > 0) return true;
+    return state.modules.some((module) =>
+      (isStorageModule(module) || isPowerStationModule(module))
+      && ((module.inventory?.[resourceType] || 0) > 0)
+    );
+  });
+}
 
 export function showEventWarning(label, detail, duration = 6000) {
   const banner = document.getElementById('event-warning');
@@ -74,7 +114,7 @@ export const RANDOM_EVENTS = [
     label: '☀ SOLAR FLARE',
     trigger(sol) {
       // Dynamically pick 3–8 resource types the player currently has stock of
-      const available = Object.keys(state.resources).filter(t => (state.resources[t] || 0) > 0 && RESOURCE_DEFS[t]);
+      const available = getSolarFlareAvailableTypes();
       const count = Math.min(available.length, SOLAR_FLARE_MIN_TYPES + Math.floor(Math.random() * (SOLAR_FLARE_MAX_TYPES - SOLAR_FLARE_MIN_TYPES + 1)));
       // Shuffle and slice to get the affected subset
       const shuffled = available.slice().sort(() => Math.random() - 0.5);
@@ -84,8 +124,15 @@ export const RANDOM_EVENTS = [
       const losses = {};
       for (const type of affectedTypes) {
         const pct = (SOLAR_FLARE_LOSS_MIN + Math.random() * (SOLAR_FLARE_LOSS_MAX - SOLAR_FLARE_LOSS_MIN)) * (1 - solarReduction);
-        const lost = Math.floor((state.resources[type]||0) * pct);
-        if (lost > 0) { state.resources[type] -= lost; losses[type] = lost; }
+        let totalLost = 0;
+        for (const pool of getSolarFlareResourcePools(type)) {
+          const poolAmount = pool.amount();
+          const lost = Math.floor(poolAmount * pct);
+          if (lost <= 0) continue;
+          pool.applyLoss(lost);
+          totalLost += lost;
+        }
+        if (totalLost > 0) losses[type] = totalLost;
       }
       const summary = Object.entries(losses).map(([t,n]) => `${fmt(n)} ${RESOURCE_DEFS[t].label}`).join(' · ');
       const totalLost = Object.values(losses).reduce((sum, n) => sum + n, 0);
@@ -94,7 +141,7 @@ export const RANDOM_EVENTS = [
       const lossRows = sortedLosses.map(([t, n]) => {
         const def = RESOURCE_DEFS[t];
         return `<div class="event-loss-row event-loss-row-solar">
-          <span class="event-loss-dot event-loss-dot-solar" style="background:${def.color};box-shadow:0 0 12px ${def.color}bb;"></span>
+          ${resourceIconHtml(t, 16)}
           <span class="event-loss-name">${def.label}</span>
           <span class="event-loss-amt" style="color:#ff8080;">−${fmt(n)}</span>
         </div>`;
@@ -105,6 +152,43 @@ export const RANDOM_EVENTS = [
       showEventWarning('☀ SOLAR FLARE', flareDetail, SOLAR_FLARE_WARNING_DURATION_MS);
       spawnSolarFlare();
       queueTransmissions([{ key: 'vane_solar_explain', text: NPCS.vane.transmissionLines.vane_solar_explain, duration: 14, npc: 'vane', delay: SOLAR_FLARE_TRANSMISSION_DELAY_MS }]);
+      if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+      if (window.patchStorageModal) window.patchStorageModal();
+      if (refresh.ui) refresh.ui();
+    }
+  },
+  {
+    id: 'black_hole',
+    label: '● BLACK HOLE',
+    trigger() {
+      const currentRange = BASE_RANGE[(state.base.level - 1)] || 6;
+      const candidates = [];
+      for (let col = Math.max(0, BASE_COL - currentRange); col <= Math.min(GRID_COLS - 1, BASE_COL + currentRange); col++) {
+        for (let row = Math.max(0, BASE_ROW - currentRange); row <= Math.min(GRID_ROWS - 1, BASE_ROW + currentRange); row++) {
+          const cheb = Math.max(Math.abs(col - BASE_COL), Math.abs(row - BASE_ROW));
+          if (cheb < 3 || cheb > currentRange) continue;
+          candidates.push({ col, row });
+        }
+      }
+      if (!candidates.length) return;
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      const rangeTiles = BLACK_HOLE_RANGE_MIN + Math.floor(Math.random() * (BLACK_HOLE_RANGE_MAX - BLACK_HOLE_RANGE_MIN + 1));
+      const duration = 45 + Math.floor(Math.random() * 256);
+      const world = gridToWorld(pick.col, pick.row);
+      state.blackHole = {
+        col: pick.col,
+        row: pick.row,
+        wx: world.x,
+        wy: world.y + TILE_H / 2,
+        rangeTiles,
+        radiusWorld: rangeTiles * (TILE_W / 2),
+        age: 0,
+        duration,
+      };
+      focusOn(state.blackHole.wx, state.blackHole.wy);
+      addLog(`● Black Hole anomaly detected near (${pick.col},${pick.row})`);
+      showEventWarning('● BLACK HOLE', `<div style="color:#cde;">A spatial distortion has formed near <strong>${pick.col},${pick.row}</strong>.</div>`, BLACK_HOLE_WARNING_DURATION_MS);
+      queueTransmissions([{ text: NPCS.zoe.transmissionLines.black_hole_detected(pick.col, pick.row, rangeTiles), duration: 18, npc: 'zoe', delay: 1200 }]);
       if (refresh.ui) refresh.ui();
     }
   },
@@ -180,7 +264,7 @@ export function fireEventById(eventId) {
   if (!ev) return false;
   if (ev.id === 'comet') spawnComet();
   state.eventCounts[ev.id] = (state.eventCounts[ev.id] || 0) + 1;
-  const triggerDelay = ev.id === 'comet' ? COMET_TRIGGER_DELAY_MS : SOLAR_FLARE_TRIGGER_DELAY_MS;
+  const triggerDelay = ev.id === 'comet' ? COMET_TRIGGER_DELAY_MS : ev.id === 'black_hole' ? BLACK_HOLE_TRIGGER_DELAY_MS : SOLAR_FLARE_TRIGGER_DELAY_MS;
   setTimeout(() => ev.trigger(state.sol), triggerDelay);
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();

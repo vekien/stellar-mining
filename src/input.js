@@ -3,11 +3,11 @@
 // ============================================================
 import { state } from './state.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from './data/resources.js';
-import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, ZOOM_MIN, ZOOM_MAX, isBaseFootprintCell } from './constants.js';
-import { cam, gridToWorld, screenToWorld, focusOnBase, adjustZoom } from './render/camera.js';
+import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, ZOOM_MIN, ZOOM_MAX, BASE_COL, BASE_ROW, isBaseFootprintCell } from './constants.js';
+import { cam, gridToWorld, screenToWorld, focusOn, focusOnBase, adjustZoom } from './render/camera.js';
 import { W, H } from './render/renderer.js';
 import { canvasState } from './render/canvasState.js';
-import { addLog, fmt, tooltipEl, showTooltip, moveTooltip, hideTooltip } from './helpers.js';
+import { addLog, fmt, resourceIconHtml, tooltipEl, showTooltip, moveTooltip, hideTooltip } from './helpers.js';
 import { refresh } from './ui/refresh.js';
 import { renderTutPointers } from './ui/tutorial.js';
 import { removeReassignTooltip } from './ui/tutorial.js';
@@ -18,12 +18,14 @@ import { closeRenameOverlay } from './ui/rename.js';
 import { openTurretModal } from './ui/turretUI.js';
 import { assignShip } from './systems/ships.js';
 import { getStoragePowerUsage } from './data/storage.js';
-import { TURRET_BASE_STATS, getTurretTypeDef, getTurretStats } from './data/turrets.js';
+import { TURRET_BASE_STATS, getTurretPowerCapacity, getTurretPowerUsage, getTurretTypeDef, getTurretStats } from './data/turrets.js';
 import {
   createModuleInstance,
   getModuleDef,
   getPowerModuleNetworkInfo,
+  getPowerNetworkState,
   getPowerFuelOutput,
+  getPowerStationEffectiveOutput,
   getModuleInventoryTotal,
   getPowerResourceConsumption,
   getLabModuleNetworkInfo,
@@ -34,6 +36,17 @@ import {
   STORAGE_FACILITY_ID,
 } from './data/modules.js';
 import { getCraft } from './data/crafts.js';
+import { CRASHED_SHIP_NODE_TYPE } from './data/nodes.js';
+import { getBlackHoleRadiusScale } from './render/animations.js';
+
+const BASE_CLICK_RADIUS = 52;
+
+function isNearBase(wx, wy) {
+  const baseWorld = gridToWorld(BASE_COL, BASE_ROW);
+  const dx = wx - baseWorld.x;
+  const dy = wy - (baseWorld.y + TILE_H / 2);
+  return (dx * dx) + (dy * dy) <= (BASE_CLICK_RADIUS * BASE_CLICK_RADIUS);
+}
 
 export function initInput(canvas) {
   let isPanning   = false;
@@ -117,6 +130,11 @@ export function initInput(canvas) {
     const wx = (e.clientX - rect.left - W/2) / cam.zoom + cam.x;
     const wy = (e.clientY - rect.top  - H/2) / cam.zoom + cam.y;
 
+    const blackHole = state.blackHole;
+    const blackHoleScale = getBlackHoleRadiusScale(blackHole);
+    const blackHoleRadius = blackHole && blackHoleScale > 0 ? (blackHole.radiusWorld || 0) * blackHoleScale : 0;
+    const hoveringBlackHole = blackHoleRadius > 0 && (((wx - blackHole.wx) * (wx - blackHole.wx)) + ((wy - blackHole.wy) * (wy - blackHole.wy)) <= (blackHoleRadius * blackHoleRadius));
+
     // Node hit test
     let hit = null;
     for (const node of state.nodes) {
@@ -138,7 +156,7 @@ export function initInput(canvas) {
     const hoveredStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(hoverCol, hoverRow);
     canvasState.storageHoverId = hoveredStorage?.id ?? null;
 
-    const onBase = isBaseFootprintCell(hoverCol, hoverRow);
+    const onBase = !hoveredStorage && (isBaseFootprintCell(hoverCol, hoverRow) || isNearBase(wx, wy));
     if (onBase !== canvasState.baseHovered) canvasState.baseHovered = onBase;
 
     // Turret hover detection
@@ -155,15 +173,28 @@ export function initInput(canvas) {
       }
     }
 
-    if (hoveredTurret) {
+    if (hoveringBlackHole) {
+      canvasState.lastHoveredNode = null;
+      const tt = tooltipEl();
+      tt.innerHTML = `
+        <div class="tt-name">● Black Hole</div>
+        <div>Radius: <span style="color:#cde">${blackHole.rangeTiles} tiles</span></div>
+        <div>Effect: <span style="color:#ffb6ff">Distorts spacetime — affects ship travel velocity</span></div>
+      `;
+      tt.style.display = 'block';
+      moveTooltip(e);
+    } else if (hoveredTurret) {
       canvasState.lastHoveredNode = null;
       const hpPct    = Math.round(hoveredTurret.health / hoveredTurret.maxHealth * 100);
       const hpColor  = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
       const turretName = getTurretTypeDef(hoveredTurret.type).name;
+      const turretOffline = (hoveredTurret.power || 0) <= 0;
       const tt = tooltipEl();
       tt.innerHTML = `
         <div class="tt-name">${turretName} <span style="color:#ffe066;font-size:11px;">Lv${hoveredTurret.level}</span></div>
         <div>Health: <span style="color:${hpColor}">${fmt(hoveredTurret.health)} / ${fmt(hoveredTurret.maxHealth)}</span></div>
+        <div>Status: <span style="color:${turretOffline ? '#ff8a8a' : '#8ff0c4'}">${turretOffline ? 'No Power' : 'Online'}</span></div>
+        <div>Power: <span style="color:#cde">${fmt(Math.round(hoveredTurret.power || 0))} / ${fmt(hoveredTurret.powerCapacity || 0)}</span></div>
         <div>Damage: <span style="color:#cde">${hoveredTurret.damage}</span></div>
         <div>Range: <span style="color:#cde">${hoveredTurret.range} tiles</span></div>
       `;
@@ -172,21 +203,23 @@ export function initInput(canvas) {
     } else if (hoveredStorage && (isPowerStationModule(hoveredStorage) || isPowerPoleModule(hoveredStorage) || isLabTowerModule(hoveredStorage))) {
       canvasState.lastHoveredNode = null;
       const tt = tooltipEl();
-      const powerInfo = getPowerModuleNetworkInfo(hoveredStorage.id, state.modules);
+      const powerInfo = getPowerModuleNetworkInfo(hoveredStorage.id, state.modules, state.turrets);
       const labInfo = isLabTowerModule(hoveredStorage) ? getLabModuleNetworkInfo(hoveredStorage.id, state.modules, state.nodes, state.base.level) : null;
       const linkedStations = powerInfo.stations.length + (isPowerStationModule(hoveredStorage) ? 1 : 0);
       const linkedPoles = powerInfo.poles.length + (isPowerPoleModule(hoveredStorage) ? 1 : 0);
       const linkedStorages = powerInfo.storages.length;
+      const linkedTurrets = powerInfo.turrets.length;
       const powerSummary = [
         linkedStations > 0 ? `${linkedStations}x Power Stations` : '',
         linkedPoles > 0 ? `${linkedPoles}x Poles` : '',
         linkedStorages > 0 ? `${linkedStorages}x Powered Buildings` : '',
+        linkedTurrets > 0 ? `${linkedTurrets}x Turrets` : '',
       ].filter(Boolean).join(' • ') || 'No linked modules';
       if (isPowerStationModule(hoveredStorage)) {
         const fuelType = hoveredStorage.fuelResource || 'iron';
         const fuelOutput = getPowerFuelOutput(fuelType);
         const fuelName = RESOURCE_DEFS[fuelType]?.label || 'Fuel';
-        const loadCost = getPowerResourceConsumption(hoveredStorage) * linkedStorages;
+        const loadCost = getPowerResourceConsumption(hoveredStorage) * (linkedStorages + linkedTurrets);
         tt.innerHTML = `
           <div class="tt-name">${hoveredStorage.name}</div>
           <div>Power Source: <span style="color:#d9c3ff">${fuelName}</span></div>
@@ -208,9 +241,19 @@ export function initInput(canvas) {
           <div style="margin-top:4px;color:#8ff0c4;">${linkedTowers}x Lab Towers${linkedLabs ? ` • ${linkedLabs}x Research Labs` : ''}</div>
         `;
       } else {
+        const networkState = getPowerNetworkState(state.modules, state.turrets);
+        const totalLoad = powerInfo.storages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0) + powerInfo.turrets.reduce((sum, turret) => sum + (turret.powerUsage || 0), 0);
+        const activeStations = [hoveredStorage, ...powerInfo.stations].filter((station) => isPowerStationModule(station) && (station.health || 0) > 0 && (station.inventory?.[station.fuelResource || 'iron'] || 0) > 0);
+        const totalOutput = activeStations.reduce((sum, station) => sum + getPowerStationEffectiveOutput(station, ((networkState.stationLinkedStorages.get(station.id) || []).length + (networkState.stationLinkedTurrets.get(station.id) || []).length)), 0);
+        const netDelta = totalOutput - totalLoad;
+        const statusColor = netDelta > 0 ? '#6fff9a' : netDelta < 0 ? '#ff8a8a' : '#ffe066';
+        const statusLabel = netDelta > 0 ? 'Surplus' : netDelta < 0 ? 'Deficit' : 'Balanced';
         tt.innerHTML = `
           <div class="tt-name">${hoveredStorage.name}</div>
           <div>Relay Range: <span style="color:#cde">${hoveredStorage.relayRange} tiles</span></div>
+          <div>Output: <span style="color:#cde">${totalOutput.toFixed(1).replace(/\.0$/, '')}/s</span></div>
+          <div>Load: <span style="color:#ffe066">${totalLoad.toFixed(1).replace(/\.0$/, '')}/s</span></div>
+          <div>Status: <span style="color:${statusColor}">${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1).replace(/\.0$/, '')}/s ${statusLabel}</span></div>
           <div style="margin-top:4px;color:#d9c3ff;">${powerSummary}</div>
         `;
       }
@@ -225,7 +268,7 @@ export function initInput(canvas) {
         .filter(([, amount]) => amount > 0)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
-        .map(([type, amount]) => `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${RESOURCE_DEFS[type].color};margin-right:5px;vertical-align:middle;position:relative;top:-1px;box-shadow:0 0 6px ${RESOURCE_DEFS[type].color}88;"></span>${RESOURCE_DEFS[type].label}: ${fmt(amount)}`)
+        .map(([type, amount]) => `${resourceIconHtml(type, 13, 'margin-right:5px;position:relative;top:-1px;')}${RESOURCE_DEFS[type].label}: ${fmt(amount)}`)
         .join('<br>');
       tt.innerHTML = `
         <div class="tt-name">${hoveredStorage.name}</div>
@@ -239,10 +282,14 @@ export function initInput(canvas) {
       moveTooltip(e);
     } else if (hit && hit.minLevel <= state.base.level) {
       canvasState.baseHovered = false;
-      const nodeTier = getResourceTier(hit.type) || 1;
-      const unmineableByFleet = nodeTier > (state.highestAvailableNodeTier || 1);
       canvasState.lastHoveredNode = hit.id;
-      showTooltip(e, hit.type, { unmineableByFleet });
+      if (hit.type === CRASHED_SHIP_NODE_TYPE) {
+        showTooltip(e, hit.type);
+      } else {
+        const nodeTier = getResourceTier(hit.type) || 1;
+        const unmineableByFleet = nodeTier > (state.highestAvailableNodeTier || 1);
+        showTooltip(e, hit.type, { unmineableByFleet });
+      }
     } else if (onBase) {
       if (canvasState.lastHoveredNode !== null) canvasState.lastHoveredNode = null;
       hideTooltip();
@@ -260,7 +307,7 @@ export function initInput(canvas) {
   // ── KEYBOARD ────────────────────────────────────────────────
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (state.renamingShip || state.renamingBase || state.renamingStorage) { closeRenameOverlay(); return; }
+      if (state.renamingShip || state.renamingBase || state.renamingStorage || state.renamingTurret) { closeRenameOverlay(); return; }
       const sellOverlay = document.getElementById('sell-overlay');
       if (sellOverlay && sellOverlay.classList.contains('show')) {
         if (window.closeSellOverlay) window.closeSellOverlay();
@@ -296,7 +343,8 @@ function handleCanvasClick(canvas, clientX, clientY) {
   // Check base click
   const baseCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
   const baseRow = Math.round((wy / (TILE_H/2) - wx / (TILE_W/2)) / 2);
-  if (isBaseFootprintCell(baseCol, baseRow)) {
+  const clickedStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(baseCol, baseRow);
+  if (!clickedStorage && (isBaseFootprintCell(baseCol, baseRow) || isNearBase(wx, wy))) {
     state.basePanelOpen = !state.basePanelOpen;
     if (state.basePanelOpen) {
       focusOnBase(cam.zoom);
@@ -306,8 +354,9 @@ function handleCanvasClick(canvas, clientX, clientY) {
     return;
   }
 
-  const clickedStorage = getModuleAtWorld(wx, wy) || getModuleAtCell(baseCol, baseRow);
   if (clickedStorage) {
+    const modulePos = gridToWorld(clickedStorage.col, clickedStorage.row);
+    focusOn(modulePos.x, modulePos.y, cam.zoom);
     openStorageModal(clickedStorage.id);
     return;
   }
@@ -380,7 +429,23 @@ function handleCanvasClick(canvas, clientX, clientY) {
       state.unplacedTurrets = queue.length;
       const turretName = getCraft('turrets', turretType)?.name || 'Turret';
       const stats = getTurretStats(turretType, 1);
-      state.turrets.push({ id: Date.now(), type: turretType, col, row, health: stats.maxHealth, maxHealth: stats.maxHealth, damage: stats.damage, range: stats.range, fireRate: stats.fireRate, stunDuration: stats.stunDuration, level: 1 });
+      state.turrets.push({
+        id: Date.now(),
+        name: turretName,
+        type: turretType,
+        col,
+        row,
+        health: stats.maxHealth,
+        maxHealth: stats.maxHealth,
+        damage: stats.damage,
+        range: stats.range,
+        fireRate: stats.fireRate,
+        stunDuration: stats.stunDuration,
+        level: 1,
+        powerUsage: getTurretPowerUsage(turretType, 1),
+        powerCapacity: getTurretPowerCapacity({ type: turretType, level: 1 }),
+        power: getTurretPowerCapacity({ type: turretType, level: 1 }),
+      });
       addLog(`${turretName} placed at (${col},${row})!`);
       if (state.unplacedTurrets > 0) addLog(`${state.unplacedTurrets} turret(s) remaining in inventory.`);
       state.placingTurret = false;
@@ -397,7 +462,11 @@ function handleCanvasClick(canvas, clientX, clientY) {
     const tw  = gridToWorld(turret.col, turret.row);
     const tcx = tw.x, tcy = tw.y + TILE_H/2;
     const tdx = wx - tcx, tdy = wy - tcy;
-    if (tdx*tdx + tdy*tdy < 28*28) { openTurretModal(turret.id); return; }
+    if (tdx*tdx + tdy*tdy < 28*28) {
+      focusOn(tcx, tcy, cam.zoom);
+      openTurretModal(turret.id);
+      return;
+    }
   }
 
   const clickCol = Math.round((wx / (TILE_W/2) + wy / (TILE_H/2)) / 2);
@@ -414,6 +483,14 @@ function handleCanvasClick(canvas, clientX, clientY) {
     if (dx*dx + dy*dy < 28*28) {
       const ship = state.ships.find(s => s.id === state.pendingAssign);
       if (!ship) { state.pendingAssign = null; if (refresh.ui) refresh.ui(); return; }
+      if (node.type === CRASHED_SHIP_NODE_TYPE) {
+        state.pendingAssign = null;
+        state.selectedShip  = null;
+        canvas.style.cursor = '';
+        removeReassignTooltip();
+        assignShip(ship, node);
+        return;
+      }
       const accessible = [];
       for (let t = 1; t <= ship.mineTier; t++) accessible.push(...MINE_TIERS[t].resources);
       if (!accessible.includes(node.type)) {

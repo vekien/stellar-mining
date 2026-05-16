@@ -6,6 +6,9 @@ import { gridToWorld, BASE_POS } from './camera.js';
 import { TILE_W, TILE_H } from '../constants.js';
 import { BASE_COL, BASE_ROW } from '../constants.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
+import { getResourceIconPath } from '../helpers.js';
+import { state } from '../state.js';
+import { BLACK_HOLE_DURATION_S, BLACK_HOLE_FADE_TIME_S } from '../data/events.js';
 
 let _ctx = null;
 export function setAnimCtx(ctx) { _ctx = ctx; }
@@ -28,6 +31,7 @@ export function tickSolarFlare(dt) {
 
 export function drawSolarFlare() {
   if (!solarFlareAnims.length) return;
+  if (state.settings?.showVisualEffects === false) return;
   const base = BASE_POS();
   const cx = base.x, cy = base.y + TILE_H/2;
   _ctx.save();
@@ -85,6 +89,7 @@ export function tickComet(dt) {
 
 export function drawComet() {
   if (!cometAnims.length) return;
+  if (state.settings?.showVisualEffects === false) return;
   _ctx.save();
   for (const c of cometAnims) {
     if (!c.exploded) {
@@ -143,6 +148,79 @@ export function drawComet() {
   _ctx.restore();
 }
 
+export function tickBlackHole(dt) {
+  if (!state.blackHole) return;
+  state.blackHole.age = (state.blackHole.age || 0) + dt;
+  state.blackHole.scale = getBlackHoleRadiusScale(state.blackHole);
+  if (state.blackHole.age >= state.blackHole.duration) state.blackHole = null;
+}
+
+export function getBlackHoleRadiusScale(blackHole = state.blackHole) {
+  if (!blackHole) return 0;
+  const age = blackHole.age || 0;
+  const duration = blackHole.duration || BLACK_HOLE_DURATION_S;
+  const minFrac = 1 / Math.max(1, blackHole.rangeTiles || 1);
+  if (age <= BLACK_HOLE_FADE_TIME_S) {
+    const t = age / BLACK_HOLE_FADE_TIME_S;
+    const eased = t * t * (3 - 2 * t);
+    return minFrac + eased * (1 - minFrac);
+  }
+  const fadeOutStart = duration - BLACK_HOLE_FADE_TIME_S;
+  if (age >= fadeOutStart) {
+    const t = Math.max(0, Math.min(1, (age - fadeOutStart) / BLACK_HOLE_FADE_TIME_S));
+    const eased = t * t * (3 - 2 * t);
+    return 1 - eased;
+  }
+  return 1;
+}
+
+export function drawBlackHole() {
+  if (!state.blackHole || !_ctx) return;
+  const scale = Number.isFinite(state.blackHole.scale) ? state.blackHole.scale : getBlackHoleRadiusScale(state.blackHole);
+  if (scale <= 0) return;
+  const radius = (state.blackHole.radiusWorld || 0) * scale;
+  const { wx, wy } = state.blackHole;
+  _ctx.save();
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+  const glow = _ctx.createRadialGradient(wx, wy, radius * 0.08, wx, wy, radius);
+  glow.addColorStop(0, 'rgba(0,0,0,1)');
+  glow.addColorStop(0.22, 'rgba(8,8,16,0.98)');
+  glow.addColorStop(0.45, 'rgba(40,18,75,0.9)');
+  glow.addColorStop(0.78, `rgba(110,60,180,${0.52 * scale})`);
+  glow.addColorStop(1, 'rgba(110,60,180,0)');
+  _ctx.fillStyle = glow;
+  _ctx.beginPath();
+  _ctx.arc(wx, wy, radius, 0, Math.PI * 2);
+  _ctx.fill();
+
+  _ctx.beginPath();
+  _ctx.arc(wx, wy, radius * 0.94, 0, Math.PI * 2);
+  _ctx.strokeStyle = `rgba(170,120,255,${0.45 + pulse * 0.25})`;
+  _ctx.lineWidth = 3;
+  _ctx.stroke();
+
+  _ctx.beginPath();
+  _ctx.arc(wx, wy, radius * (1.02 + pulse * 0.03), 0, Math.PI * 2);
+  _ctx.strokeStyle = `rgba(120,210,255,${0.18 + pulse * 0.12})`;
+  _ctx.lineWidth = 1.5;
+  _ctx.stroke();
+
+  const swirlT = performance.now() / 400;
+  for (let i = 0; i < 3; i++) {
+    _ctx.beginPath();
+    _ctx.arc(wx, wy, radius * (0.35 + i * 0.16), swirlT + i, swirlT + i + Math.PI * 1.15);
+    _ctx.strokeStyle = `rgba(200,160,255,${(0.44 - i * 0.08) * scale})`;
+    _ctx.lineWidth = 2.5 - (i * 0.45);
+    _ctx.stroke();
+  }
+
+  _ctx.beginPath();
+  _ctx.arc(wx, wy, radius * 0.28, 0, Math.PI * 2);
+  _ctx.fillStyle = 'rgba(0,0,0,0.98)';
+  _ctx.fill();
+  _ctx.restore();
+}
+
 // ── Screen Shake ──
 let screenShake = { active:false, duration:0, age:0, intensity:8 };
 
@@ -178,6 +256,7 @@ export function tickRangePulses(dt) {
 }
 
 export function drawRangePulses() {
+  if (state.settings?.showVisualEffects === false) return;
   const BASE_C = BASE_COL, BASE_R = BASE_ROW;
   for (const p of rangePulses) {
     const t = p.age / p.duration;
@@ -235,6 +314,7 @@ export function tickNodeParticles(dt) {
 }
 
 export function drawNodeParticles() {
+  if (state.settings?.showVisualEffects === false) return;
   for (const p of nodeUnlockParticles) {
     const t = p.age / p.duration;
     _ctx.save();
@@ -249,14 +329,26 @@ export function drawNodeParticles() {
 
 // ── Floaties (deposit numbers) ──
 export const floaties = [];
+const resourceFloatieIcons = new Map();
+
+function getFloatieIcon(resourceType) {
+  if (!resourceType) return null;
+  if (!resourceFloatieIcons.has(resourceType)) {
+    const img = new Image();
+    img.src = getResourceIconPath(resourceType);
+    resourceFloatieIcons.set(resourceType, img);
+  }
+  return resourceFloatieIcons.get(resourceType);
+}
 
 export function spawnFloatie(resourceType, amount, worldPos = null) {
   const base = worldPos || gridToWorld(BASE_COL, BASE_ROW);
   const def  = RESOURCE_DEFS[resourceType];
   floaties.push({
-    wx: base.x + (Math.random()-0.5)*20,
+    wx: base.x + (Math.random()-0.5)*36,
     wy: base.y - 30,
     color: def.color,
+    resourceType,
     label: `+${amount} ${def.label}`,
     age: 0,
     duration: 2.2,
@@ -275,15 +367,26 @@ export function drawFloaties() {
     const t = f.age / f.duration;
     const alpha = t < 0.15 ? t/0.15 : t > 0.65 ? 1-(t-0.65)/0.35 : 1;
     const rise  = f.wy - t*55;
+    const icon = getFloatieIcon(f.resourceType);
     _ctx.save();
     _ctx.globalAlpha = Math.max(0, alpha);
-    _ctx.beginPath();
-    _ctx.arc(f.wx-16, rise+4, 4, 0, Math.PI*2);
-    _ctx.fillStyle = f.color;
-    _ctx.fill();
+    if (icon?.complete && icon.naturalWidth > 0) {
+      _ctx.drawImage(icon, f.wx - 22, rise - 5, 14, 14);
+    } else {
+      _ctx.beginPath();
+      _ctx.arc(f.wx-16, rise+4, 4, 0, Math.PI*2);
+      _ctx.fillStyle = f.color;
+      _ctx.fill();
+    }
     _ctx.font = 'bold 9px Share Tech Mono, monospace';
     _ctx.fillStyle = '#ddeeff';
     _ctx.textAlign = 'left';
+    if (state.settings?.showVisualEffects !== false) {
+      _ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+      _ctx.shadowBlur = 4;
+      _ctx.shadowOffsetX = 0;
+      _ctx.shadowOffsetY = 1;
+    }
     _ctx.fillText(f.label, f.wx-9, rise+6);
     _ctx.restore();
   }
