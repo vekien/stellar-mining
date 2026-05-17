@@ -1,329 +1,59 @@
 // ============================================================
-// PLACEABLE MODULES — shared module defs and helpers
+// PLACEABLE MODULES — shared helpers + network solvers
 // ============================================================
-import { RESOURCE_DEFS, getResourceTier } from './resources.js';
+import { getResourceTier } from './resources.js';
+import {
+  BUILDING_DEFS,
+  DRONE_LAB_ID,
+  LAB_TOWER_ID,
+  POWER_DISABLED_RESOURCES,
+  POWER_POLE_ID,
+  POWER_RESOURCE_CONSUMPTION,
+  POWER_RESOURCE_CONSUMPTION_MIN,
+  POWER_STATION_ID,
+  RESEARCH_LAB_ID,
+  STORAGE_FACILITY_ID,
+  createBuildingInstance,
+  formatPowerFuelRate,
+  getBuildingDef,
+  getBuildingStats,
+  getPowerFuelOptions,
+  getPowerFuelOutput,
+  getPowerResourceConsumption,
+  getPowerStationEffectiveOutput,
+  hasPowerStationFuel,
+  makeEmptyInventory,
+  normalizeBuilding,
+} from './buildings.js';
 
-export const STORAGE_FACILITY_ID = 'storage_facility';
-export const POWER_STATION_ID = 'power_station';
-export const POWER_POLE_ID = 'power_pole';
-export const RESEARCH_LAB_ID = 'research_lab';
-export const LAB_TOWER_ID = 'lab_tower';
-export const DRONE_LAB_ID = 'drone_lab';
-
-const STORAGE_FACILITY_BASE_STATS = {
-  maxHealth: 10000,
-  storageCapacity: 50000,
-  powerUsage: 1,
-  powerCapacity: 1000,
+export {
+  DRONE_LAB_ID,
+  LAB_TOWER_ID,
+  POWER_DISABLED_RESOURCES,
+  POWER_POLE_ID,
+  POWER_RESOURCE_CONSUMPTION,
+  POWER_RESOURCE_CONSUMPTION_MIN,
+  POWER_STATION_ID,
+  RESEARCH_LAB_ID,
+  STORAGE_FACILITY_ID,
+  createBuildingInstance as createModuleInstance,
+  formatPowerFuelRate,
+  getPowerFuelOptions,
+  getPowerFuelOutput,
+  getPowerResourceConsumption,
+  getPowerStationEffectiveOutput,
+  hasPowerStationFuel,
+  makeEmptyInventory,
 };
 
-const RESEARCH_LAB_BASE_STATS = {
-  maxHealth: 12000,
-  storageCapacity: 50000,
-  powerUsage: 1,
-  powerCapacity: 1000,
-};
-
-const POWER_STATION_BASE_STATS = {
-  maxHealth: 14000,
-  powerRange: 2,
-  resourceCapacity: 5000,
-};
-
-const POWER_POLE_BASE_STATS = {
-  maxHealth: 2500,
-  relayRange: 3,
-};
-
-const LAB_TOWER_BASE_STATS = {
-  maxHealth: 2500,
-  relayRange: 3,
-};
-
-const DRONE_LAB_BASE_STATS = {
-  maxHealth: 5000,
-  powerUsage: 1,
-  powerCapacity: 10000,
-  droneCapacity: 2,
-};
-
-function makeEmptyInventory() {
-  return Object.fromEntries(Object.keys(RESOURCE_DEFS).map((k) => [k, 0]));
-}
-
-export const POWER_RESOURCE_CONSUMPTION = 10;
-export const POWER_RESOURCE_CONSUMPTION_MIN = 1;
-export const POWER_DISABLED_RESOURCES = new Set(['oxygen', 'neon', 'xenon']);
-
-const POWER_RESOURCE_OUTPUT = {
-  iron: 9,
-  copper: 9,
-  nickel: 12,
-  silicon: 15,
-  cobalt: 15,
-  titanium: 18,
-  aluminum: 18,
-  gold: 21,
-  chromium: 21,
-  silver: 24,
-  platinum: 30,
-  iridium: 33,
-  palladium: 33,
-  uranium: 36,
-  osmium: 36,
-  rhodium: 39,
-  hafnium: 39,
-};
-
-export const MODULE_DEFS = {
-  [STORAGE_FACILITY_ID]: {
-    id: STORAGE_FACILITY_ID,
-    name: 'Storage Facility',
-    panelTitle: 'STORAGE FACILITY',
-    unlockId: 'storage_facilities',
-    footprintSize: 3,
-    craftTimeMs: 15000,
-    defaultName: (index) => `Storage Facility #${index}`,
-    summary(module) {
-      return [];
-    },
-    cardStats(level = 1) {
-      const stats = getModuleStats(STORAGE_FACILITY_ID, level);
-      return [
-        ['HEALTH', fmtStat(stats.maxHealth)],
-        ['STORAGE', fmtStat(stats.storageCapacity)],
-        ['POWER USE', `${stats.powerUsage}/s`],
-        ['POWER CAP', fmtStat(stats.powerCapacity)],
-      ];
-    },
-    getStats(level = 1) {
-      const lvl = Math.max(1, Math.floor(level || 1));
-      return {
-        maxHealth: STORAGE_FACILITY_BASE_STATS.maxHealth + ((lvl - 1) * 2500),
-        storageCapacity: STORAGE_FACILITY_BASE_STATS.storageCapacity + ((lvl - 1) * 25000),
-        powerUsage: STORAGE_FACILITY_BASE_STATS.powerUsage,
-        powerCapacity: STORAGE_FACILITY_BASE_STATS.powerCapacity + ((lvl - 1) * 250),
-      };
-    },
-    applyDefaults(module, index = 1) {
-      const stats = getModuleStats(STORAGE_FACILITY_ID, module.level || 1);
-      module.name = module.name || `Storage Facility #${index}`;
-      module.level = Math.max(1, module.level || 1);
-      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
-      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
-      module.storageCapacity = Math.max(module.storageCapacity || 0, stats.storageCapacity);
-      module.powerUsage = Number.isFinite(module.powerUsage) ? module.powerUsage : stats.powerUsage;
-      module.powerCapacity = Math.max(module.powerCapacity || 0, stats.powerCapacity);
-      module.power = Math.max(0, Math.min(Number.isFinite(module.power) ? module.power : module.powerCapacity, module.powerCapacity));
-      module.inventory = { ...makeEmptyInventory(), ...(module.inventory || {}) };
-    },
-  },
-  [RESEARCH_LAB_ID]: {
-    id: RESEARCH_LAB_ID,
-    name: 'Research Lab',
-    panelTitle: 'RESEARCH LAB',
-    unlockId: 'research_lab',
-    footprintSize: 3,
-    craftTimeMs: 20000,
-    defaultName: (index) => `Research Lab #${index}`,
-    summary(module) {
-      return [];
-    },
-    cardStats(level = 1) {
-      const stats = getModuleStats(RESEARCH_LAB_ID, level);
-      return [
-        ['HEALTH', fmtStat(stats.maxHealth)],
-        ['THROUGHPUT', 'Unlimited'],
-        ['POWER USE', `${stats.powerUsage}/s`],
-        ['POWER CAP', fmtStat(stats.powerCapacity)],
-      ];
-    },
-    getStats(level = 1) {
-      const lvl = Math.max(1, Math.floor(level || 1));
-      return {
-        maxHealth: RESEARCH_LAB_BASE_STATS.maxHealth + ((lvl - 1) * 2500),
-        storageCapacity: RESEARCH_LAB_BASE_STATS.storageCapacity + ((lvl - 1) * 25000),
-        powerUsage: RESEARCH_LAB_BASE_STATS.powerUsage + (lvl - 1),
-        powerCapacity: RESEARCH_LAB_BASE_STATS.powerCapacity + ((lvl - 1) * 250),
-      };
-    },
-    applyDefaults(module, index = 1) {
-      const stats = getModuleStats(RESEARCH_LAB_ID, module.level || 1);
-      module.name = module.name || `Research Lab #${index}`;
-      module.level = Math.max(1, module.level || 1);
-      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
-      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
-      module.storageCapacity = Math.max(module.storageCapacity || 0, stats.storageCapacity);
-      module.powerUsage = Number.isFinite(module.powerUsage) ? module.powerUsage : stats.powerUsage;
-      module.powerCapacity = Math.max(module.powerCapacity || 0, stats.powerCapacity);
-      module.power = Math.max(0, Math.min(Number.isFinite(module.power) ? module.power : module.powerCapacity, module.powerCapacity));
-      module.inventory = { ...makeEmptyInventory(), ...(module.inventory || {}) };
-    },
-  },
-  [POWER_STATION_ID]: {
-    id: POWER_STATION_ID,
-    name: 'Power Station',
-    panelTitle: 'POWER STATION',
-    unlockId: 'power_station',
-    footprintSize: 3,
-    craftTimeMs: 18000,
-    defaultName: (index) => `Power Station #${index}`,
-    summary(module) {
-      return [];
-    },
-    cardStats(level = 1) {
-      const stats = getModuleStats(POWER_STATION_ID, level);
-      return [
-        ['HEALTH', fmtStat(stats.maxHealth)],
-        ['OUTPUT', formatPowerFuelRate('iron')],
-        ['CAPACITY', fmtStat(stats.resourceCapacity)],
-      ];
-    },
-    getStats(level = 1) {
-      const lvl = Math.max(1, Math.floor(level || 1));
-      return {
-        maxHealth: POWER_STATION_BASE_STATS.maxHealth + ((lvl - 1) * 2500),
-        powerRange: Math.round(POWER_STATION_BASE_STATS.powerRange + (((lvl - 1) * 4) / 9)),
-        resourceCapacity: POWER_STATION_BASE_STATS.resourceCapacity,
-      };
-    },
-    applyDefaults(module, index = 1) {
-      const stats = getModuleStats(POWER_STATION_ID, module.level || 1);
-      module.name = module.name || `Power Station #${index}`;
-      module.level = Math.max(1, module.level || 1);
-      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
-      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
-      module.powerRange = Math.max(module.powerRange || 0, stats.powerRange);
-      module.resourceCapacity = Math.max(module.resourceCapacity || 0, stats.resourceCapacity);
-      module.inventory = { ...makeEmptyInventory(), ...(module.inventory || {}) };
-      module.fuelResource = getPowerFuelOutput(module.fuelResource) > 0 ? module.fuelResource : 'iron';
-    },
-  },
-  [POWER_POLE_ID]: {
-    id: POWER_POLE_ID,
-    name: 'Power Pole',
-    panelTitle: 'POWER POLE',
-    unlockId: 'power_poles',
-    footprintSize: 1,
-    craftTimeMs: 1000,
-    defaultName: (index) => `Power Pole #${index}`,
-    summary(module) {
-      return [];
-    },
-    cardStats(level = 1) {
-      const stats = getModuleStats(POWER_POLE_ID, level);
-      return [
-        ['HEALTH', fmtStat(stats.maxHealth)],
-        ['RANGE', `${stats.relayRange} tiles`],
-        ['TIER CAP', '10 tiles'],
-      ];
-    },
-    getStats(level = 1) {
-      const lvl = Math.max(1, Math.floor(level || 1));
-      return {
-        maxHealth: POWER_POLE_BASE_STATS.maxHealth + ((lvl - 1) * 500),
-        relayRange: Math.round(POWER_POLE_BASE_STATS.relayRange + (((lvl - 1) * 7) / 9)),
-      };
-    },
-    applyDefaults(module, index = 1) {
-      const stats = getModuleStats(POWER_POLE_ID, module.level || 1);
-      module.name = module.name || `Power Pole #${index}`;
-      module.level = Math.max(1, module.level || 1);
-      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
-      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
-      module.relayRange = Math.max(module.relayRange || 0, stats.relayRange);
-    },
-  },
-  [LAB_TOWER_ID]: {
-    id: LAB_TOWER_ID,
-    name: 'Lab Tower',
-    panelTitle: 'LAB TOWER',
-    unlockId: 'lab_tower',
-    footprintSize: 1,
-    craftTimeMs: 1000,
-    defaultName: (index) => `Lab Tower #${index}`,
-    summary(module) {
-      return [];
-    },
-    cardStats(level = 1) {
-      const stats = getModuleStats(LAB_TOWER_ID, level);
-      return [
-        ['HEALTH', fmtStat(stats.maxHealth)],
-        ['RANGE', `${stats.relayRange} tiles`],
-        ['NODE TIER', `Tier ${Math.max(1, Math.floor(level || 1))}`],
-      ];
-    },
-    getStats(level = 1) {
-      const lvl = Math.max(1, Math.floor(level || 1));
-      return {
-        maxHealth: LAB_TOWER_BASE_STATS.maxHealth + ((lvl - 1) * 500),
-        relayRange: Math.round(LAB_TOWER_BASE_STATS.relayRange + (((lvl - 1) * 7) / 9)),
-      };
-    },
-    applyDefaults(module, index = 1) {
-      const stats = getModuleStats(LAB_TOWER_ID, module.level || 1);
-      module.name = module.name || `Lab Tower #${index}`;
-      module.level = Math.max(1, module.level || 1);
-      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
-      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
-      module.relayRange = Math.max(module.relayRange || 0, stats.relayRange);
-    },
-  },
-  [DRONE_LAB_ID]: {
-    id: DRONE_LAB_ID,
-    name: 'Drone Lab',
-    panelTitle: 'DRONE LAB',
-    unlockId: 'drone_lab',
-    footprintSize: 3,
-    craftTimeMs: 17000,
-    defaultName: (index) => `Drone Lab #${index}`,
-    summary(module) {
-      return [];
-    },
-    cardStats(level = 1) {
-      const stats = getModuleStats(DRONE_LAB_ID, level);
-      return [
-        ['HEALTH', fmtStat(stats.maxHealth)],
-        ['POWER/DRONE', '1/s'],
-        ['POWER CAP', fmtStat(stats.powerCapacity)],
-        ['DRONE CAP', String(stats.droneCapacity)],
-      ];
-    },
-    getStats(level = 1) {
-      const lvl = Math.max(1, Math.floor(level || 1));
-      return {
-        maxHealth: DRONE_LAB_BASE_STATS.maxHealth + ((lvl - 1) * 2222),
-        powerUsage: DRONE_LAB_BASE_STATS.powerUsage,
-        powerCapacity: DRONE_LAB_BASE_STATS.powerCapacity + ((lvl - 1) * 2222),
-        droneCapacity: DRONE_LAB_BASE_STATS.droneCapacity + ((lvl - 1) * 2),
-      };
-    },
-    applyDefaults(module, index = 1) {
-      const stats = getModuleStats(DRONE_LAB_ID, module.level || 1);
-      module.name = module.name || `Drone Lab #${index}`;
-      module.level = Math.max(1, module.level || 1);
-      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
-      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
-      module.powerUsage = Number.isFinite(module.powerUsage) ? module.powerUsage : stats.powerUsage;
-      module.powerCapacity = Math.max(module.powerCapacity || 0, stats.powerCapacity);
-      module.power = Math.max(0, Math.min(Number.isFinite(module.power) ? module.power : module.powerCapacity, module.powerCapacity));
-      module.droneCapacity = Math.max(module.droneCapacity || 0, stats.droneCapacity);
-      // Initialize droneCount: default to 1 (free drone) if not yet set
-      module.droneCount = Number.isFinite(module.droneCount) ? Math.min(Math.max(0, module.droneCount), module.droneCapacity) : 1;
-    },
-  },
-};
-
-function fmtStat(value) {
-  return Number.isFinite(value) ? value.toLocaleString() : String(value);
-}
+export const MODULE_DEFS = BUILDING_DEFS;
 
 export function getModuleDef(moduleType = STORAGE_FACILITY_ID) {
-  return MODULE_DEFS[moduleType] || MODULE_DEFS[STORAGE_FACILITY_ID];
+  return getBuildingDef(moduleType);
 }
 
 export function getModuleStats(moduleType = STORAGE_FACILITY_ID, level = 1) {
-  return getModuleDef(moduleType).getStats(level);
+  return getBuildingStats(moduleType, level);
 }
 
 export function isStorageModule(moduleOrType) {
@@ -787,12 +517,5 @@ export function moduleContainsCell(module, col, row) {
 }
 
 export function normalizeModule(module, index = 1) {
-  module.type = module.type || STORAGE_FACILITY_ID;
-  const def = getModuleDef(module.type);
-  def.applyDefaults(module, index);
-  return module;
-}
-
-export function createModuleInstance(moduleType, { id, col, row, index }) {
-  return normalizeModule({ id, type: moduleType, col, row, level: 1 }, index);
+  return normalizeBuilding(module, index);
 }
