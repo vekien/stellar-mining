@@ -2,11 +2,12 @@
 // MODULE UI — craft timers, placement, and modal
 // ============================================================
 import { state } from '../state.js';
-import { addLog, fmt, spendCoins, addCoins, isLightColor, showHintTooltip, hideTooltip } from '../helpers.js';
+import { addLog, fmt, resourceIconHtml, spendCoins, addCoins, isLightColor, showHintTooltip, hideTooltip } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { getCraft } from '../data/crafts.js';
 import {
   STORAGE_FACILITY_ID,
+  DRONE_LAB_ID,
   getModuleDef,
   getModuleStats,
   getModuleFootprintCells,
@@ -14,6 +15,7 @@ import {
   normalizeModule,
   isStorageModule,
   isResearchLabModule,
+  isDroneLabModule,
   isPoweredBuildingModule,
   isPowerStationModule,
   isPowerPoleModule,
@@ -26,13 +28,14 @@ import {
   getLabModuleNetworkInfo,
   getPowerResourceConsumption,
   getPowerFuelOutput,
+  getPowerStationEffectiveOutput,
   hasPowerStationFuel,
   getNoFuelNetworkIds,
 } from '../data/modules.js';
 import { getStoragePowerUsage, isStorageOperational } from '../data/storage.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
-import { gridToWorld } from '../render/camera.js';
+import { cam, focusOn, gridToWorld } from '../render/camera.js';
 import { BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS, TILE_W, TILE_H, isBaseFootprintCell } from '../constants.js';
 
 function getModuleCraftTimeMs(moduleType = STORAGE_FACILITY_ID) {
@@ -179,6 +182,20 @@ function bringStorageModalToFront(modal) {
   if (!modal) return;
   _storageModalTopZ += 1;
   modal.style.zIndex = String(_storageModalTopZ);
+}
+
+function buildPowerStationInfoTooltip({ fuelCost, fuelName, powerOutputText, totalLoadText, netDeltaText, statusLabel, noFuel }) {
+  const keyStyle = 'color:#8bd6ff;font-weight:700;';
+  const valueStyle = 'color:#ffe066;font-weight:700;';
+  const statusColor = statusLabel === 'Deficit' ? '#ff8a8a' : statusLabel === 'Balanced' ? '#ffe066' : '#6fff9a';
+  return [
+    `This power station uses <span style="${keyStyle}">Input</span> of <span style="${valueStyle}">${fuelCost} ${fuelName}</span> per second.`,
+    noFuel
+      ? `This generates <span style="${keyStyle}">Output</span> of <span style="${valueStyle}">${powerOutputText}/s</span> electricity because there is no ${fuelName} in reserve right now.`
+      : `This generates <span style="${keyStyle}">Output</span> of <span style="${valueStyle}">${powerOutputText}/s</span> electricity.`,
+    `The current <span style="${keyStyle}">Load</span> on the network is <span style="${valueStyle}">${totalLoadText}/s</span> - this is how much electricity is being demanded.`,
+    `The <span style="${keyStyle}">Status</span> shows that you're producing <span style="color:${statusColor};font-weight:700;">${netDeltaText}/s ${statusLabel}</span> from this power station.`,
+  ].join('<br>');
 }
 
 function applyStorageModalPosition(modal, left = null, top = null) {
@@ -350,6 +367,51 @@ function buildLabLinkedResourcesHtml(module, info) {
     }).join('');
 }
 
+function buildPowerConsumerListHtml(linkedStorages, linkedTurrets) {
+  const consumers = [
+    ...linkedStorages.map((storage) => ({
+      kind: 'module',
+      id: storage.id,
+      name: storage.name,
+      label: getModuleLabel(storage).toUpperCase(),
+      usage: getStoragePowerUsage(storage),
+      color: '#8ff0c4',
+    })),
+    ...linkedTurrets.map((turret) => ({
+      kind: 'turret',
+      id: turret.id,
+      name: turret.name || getCraft('turrets', turret.type)?.name || 'Turret',
+      label: getCraft('turrets', turret.type)?.name?.toUpperCase() || 'TURRET',
+      usage: turret.powerUsage || 0,
+      color: '#ffe066',
+    })),
+  ].sort((a, b) => b.usage - a.usage || a.name.localeCompare(b.name));
+
+  if (!consumers.length) return '<div class="module-empty-note">No linked consumers.</div>';
+  return consumers.map((consumer) => `
+    <div class="module-resource-row">
+      <button class="btn module-btn-small" style="width:auto;padding:4px 8px;min-width:0;background:rgba(10,20,50,0.52);border-color:#2a5090;color:${consumer.color};" onclick="focusPowerNetworkTarget('${consumer.kind}', ${consumer.id})">${escapeHtml(consumer.name)}</button>
+      <span class="module-resource-meta">${escapeHtml(consumer.label)} · ${consumer.usage.toFixed(1).replace(/\.0$/, '')}/s</span>
+    </div>
+  `).join('');
+}
+
+window.focusPowerNetworkTarget = function(kind, id) {
+  if (kind === 'turret') {
+    const turret = state.turrets.find((entry) => entry.id === id);
+    if (!turret) return;
+    const pos = gridToWorld(turret.col, turret.row);
+    focusOn(pos.x, pos.y + 16, cam.zoom);
+    if (window.openTurretModal) window.openTurretModal(id);
+    return;
+  }
+  const module = state.modules.find((entry) => entry.id === id);
+  if (!module) return;
+  const pos = gridToWorld(module.col, module.row);
+  focusOn(pos.x, pos.y, cam.zoom);
+  openStorageModal(id);
+};
+
 export function renderModuleModal(moduleId = state.selectedModule, modalRoot = null) {
   const module = getModuleById(moduleId);
   const modal = modalRoot || getStorageModalWindow(moduleId);
@@ -376,7 +438,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
     </div>
     <div class="module-health-card">
       <div class="module-health-head"><span class="module-health-label">HEALTH</span><span id="storage-health-value" class="module-health-value"></span></div>
-      <div class="module-health-track" style="margin-bottom:6px;">
+      <div class="module-health-track">
         <div id="storage-health-bar" class="module-health-bar"></div>
       </div>
     </div>
@@ -392,7 +454,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
         <table class="storage-power-table">
           <thead>
             <tr>
-              <th><span style="cursor:help;" onmouseover="showHintTooltip(event, 'Power usage scales with stored cargo: 1/s at empty, up to 10/s at full capacity.');" onmouseout="hideTooltip()">Usage</span></th>
+              <th><span style="cursor:help;" onmouseover="showHintTooltip(event, '${isDroneLabModule(module) ? 'Power usage scales with drone count: 1/s per drone deployed.' : 'Power usage scales with stored cargo: 1/s at empty, up to 10/s at full capacity.'}');" onmouseout="hideTooltip()">Usage</span></th>
               <th>Capacity</th>
             </tr>
           </thead>
@@ -411,10 +473,10 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
       <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO POWER</div>
       <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER <span style="color:#ffe066;">- $${fmt(buyPowerCost)}</span></button>
     </div>
-    <div class="module-section-label">◈ ${isResearchLabModule(module) ? 'RESEARCH INTAKE' : 'STORAGE'}</div>
+    <div class="module-section-label">◈ ${isDroneLabModule(module) ? 'DRONE BAY' : isResearchLabModule(module) ? 'RESEARCH INTAKE' : 'STORAGE'}</div>
     <div class="module-meter-card">
-      <div class="module-meter-head"><span class="module-meter-label">${isResearchLabModule(module) ? 'THROUGHPUT' : 'STORAGE USED'}</span><span id="storage-used-value" class="module-meter-value"></span></div>
-      <div class="module-meter-track"><div id="storage-used-bar" class="module-meter-bar" style="background:linear-gradient(90deg,#1a6aff,#48f);"></div></div>
+      <div class="module-meter-head"><span class="module-meter-label">${isDroneLabModule(module) ? 'DRONES' : isResearchLabModule(module) ? 'THROUGHPUT' : 'STORAGE USED'}</span><span id="storage-used-value" class="module-meter-value"></span></div>
+      <div class="module-meter-track"><div id="storage-used-bar" class="module-meter-bar" style="background:${isDroneLabModule(module) ? 'linear-gradient(90deg,#1a6aff,#5af)' : 'linear-gradient(90deg,#1a6aff,#48f)'};"></div></div>
     </div>
     ` : ''}
     ${summaryRows.length ? `<table class="module-summary-table">${renderStatRows(summaryRows)}</table>` : ''}
@@ -434,28 +496,31 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
     ` : ''}
     ${isPowerPoleModule(module) ? `
     <div class="module-section-label">◈ POWER LOAD</div>
-    <div class="power-station-panel">
-      <div class="power-station-fuel-table-wrap">
-        <table class="power-station-fuel-table">
-          <thead>
-            <tr>
-              <th>Output</th>
-              <th>Load</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td id="power-pole-network-output"></td>
-              <td id="power-pole-network-load"></td>
-              <td id="power-pole-network-status"></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <div class="power-station-fuel-table-wrap">
+      <table class="power-station-fuel-table">
+        <thead>
+          <tr>
+            <th>Output</th>
+            <th>Load</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td id="power-pole-network-output"></td>
+            <td id="power-pole-network-load"></td>
+            <td id="power-pole-network-status"></td>
+          </tr>
+        </tbody>
+      </table>
     </div>
     ` : ''}
-    ${isStorageModule(module) ? `
+    ${isDroneLabModule(module) ? `
+    <div class="module-section-label">◈ LINKED NETWORK</div>
+    <div class="power-station-network-panel">
+      <div id="power-station-link-summary" class="power-station-link-summary"></div>
+    </div>
+    ` : isStorageModule(module) ? `
     <div class="module-section-label-tight">◈ INVENTORY</div>
     <div id="storage-inventory-list" class="module-scroll-panel"></div>
     <div class="module-section-label">◈ LINKED NETWORK</div>
@@ -484,7 +549,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
     <div class="module-section-label-tight">◈ FUEL</div>
     <div class="power-station-panel">
       <div class="power-station-row">
-        <span class="power-station-power-label"><span class="storage-power-icon">ϟ</span><span class="storage-power-title">POWER SOURCE</span></span>
+        <span class="power-station-power-label"><span class="storage-power-icon">ϟ</span><span class="storage-power-title">POWER SOURCE</span><span id="power-station-info-badge" class="power-station-info-badge">INFO</span></span>
         <select id="power-station-fuel-select" class="power-station-select" onchange="setPowerStationFuel(${module.id}, this.value)"></select>
       </div>
       <div class="power-station-fuel-table-wrap">
@@ -514,6 +579,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
     <div class="module-section-label-tight">◈ LINKED NETWORK</div>
     <div class="power-station-network-panel">
       <div id="power-station-link-summary" class="power-station-link-summary"></div>
+      ${(isPowerStationModule(module) || isPowerPoleModule(module)) ? '<div id="power-station-network-consumers" class="module-scroll-panel compact" style="margin-top:8px;"></div>' : ''}
     </div>
     <div id="storage-inventory-list" class="module-scroll-panel"></div>
     ` : ''}
@@ -544,6 +610,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
   const title = modal?.querySelector('.storage-modal-title');
   if (!module || !title || !modal) return;
   const qs = (selector) => modal.querySelector(selector);
+  if (!qs('#storage-modal-name')) { renderModuleModal(moduleId, modal); return; }
   const moduleDef = getModuleDef(module.type);
   const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
   const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
@@ -570,20 +637,21 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
   const invRows = Object.entries(module.inventory || {})
     .filter(([, amt]) => amt > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([type, amt]) => `<div class="module-inventory-row"><span style="color:${RESOURCE_DEFS[type].color}">${RESOURCE_DEFS[type].label}</span><span style="color:#ffe066">${fmt(amt)}</span></div>`)
+    .map(([type, amt]) => `<div class="module-inventory-row"><span style="display:flex;align-items:center;gap:8px;color:${RESOURCE_DEFS[type].color}">${resourceIconHtml(type, 14)}${RESOURCE_DEFS[type].label}</span><span style="color:#ffe066">${fmt(amt)}</span></div>`)
     .join('');
 
   if (isPoweredBuildingModule(module)) {
     const buyPowerCost = upgradeCost.coins * 5;
     const powerPct = Math.round(((module.power || 0) / Math.max(1, module.powerCapacity || 1)) * 100);
     const currentPowerUsage = getStoragePowerUsage(module);
-    const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules);
+    const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
     const linkedPoles = networkInfo.poles;
     const linkedStorages = networkInfo.storages;
     const linkedStations = networkInfo.stations;
-    const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
-    setTextIfChangedIn(modal, '#storage-used-value', isResearchLabModule(module) ? 'ACTIVE' : `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
-    qs('#storage-used-bar').style.width = `${isResearchLabModule(module) ? 100 : Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
+    const linkedTurrets = networkInfo.turrets;
+    const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedTurrets.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
+    setTextIfChangedIn(modal, '#storage-used-value', isDroneLabModule(module) ? `${module.droneCount || 0} / ${module.droneCapacity || 2}` : isResearchLabModule(module) ? 'ACTIVE' : `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
+    qs('#storage-used-bar').style.width = `${isDroneLabModule(module) ? Math.max(0, Math.min(100, ((module.droneCount || 0) / Math.max(1, module.droneCapacity || 2)) * 100)) : isResearchLabModule(module) ? 100 : Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
     setTextIfChangedIn(modal, '#storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
     setTextIfChangedIn(modal, '#storage-power-value', `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`);
     qs('#storage-power-bar').style.width = `${powerPct}%`;
@@ -599,11 +667,13 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
         ...linkedStations.map((station) => `POWER STATION: ${escapeHtml(station.name)}`),
         ...linkedPoles.map((pole) => `POLE: ${escapeHtml(pole.name)}`),
         ...linkedStorages.map((storage) => `${escapeHtml(getModuleLabel(storage).toUpperCase())}: ${escapeHtml(storage.name)}`),
+        ...linkedTurrets.map((turret) => `TURRET: ${escapeHtml(turret.name || getCraft('turrets', turret.type)?.name || 'Turret')}`),
       ];
       const summaryParts = [
         linkedStations.length > 0 ? `${linkedStations.length}x Power Stations` : '',
         linkedPoles.length > 0 ? `${linkedPoles.length}x Poles` : '',
         linkedStorages.length > 0 ? `${linkedStorages.length}x Powered Buildings` : '',
+        linkedTurrets.length > 0 ? `${linkedTurrets.length}x Turrets` : '',
       ].filter(Boolean);
       const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
       summaryEl.dataset.networkSig = networkSig;
@@ -616,15 +686,18 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
       setHtmlIfChangedIn(modal, '#lab-linked-resources', buildLabLinkedResourcesHtml(module, labInfo));
     }
   } else if (isPowerStationModule(module) || isPowerPoleModule(module) || isLabTowerModule(module)) {
-    const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules);
+    const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
+    const networkState = getPowerNetworkState(state.modules, state.turrets);
     const linkedPoles = networkInfo.poles;
     const linkedStorages = networkInfo.storages;
     const linkedStations = networkInfo.stations;
-    const noFuelIds = getNoFuelNetworkIds(state.modules);
+    const linkedTurrets = networkInfo.turrets;
+    const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
     const noFuelWarning = document.getElementById('power-station-no-fuel-warning');
     const inputQty = getPowerResourceConsumption(module);
-    const fuelCost = inputQty * linkedStorages.length;
-    const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
+    const linkedConsumers = linkedStorages.length + linkedTurrets.length;
+    const fuelCost = inputQty * linkedConsumers;
+    const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedTurrets.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
     if (isPowerStationModule(module)) {
       const fuelSelect = qs('#power-station-fuel-select');
       if (fuelSelect) {
@@ -633,26 +706,35 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
       }
       const fuelType = module.fuelResource || 'iron';
       const fuelName = RESOURCE_DEFS[fuelType].label;
-      const powerOutput = getPowerFuelOutput(fuelType);
+      const powerOutput = getPowerStationEffectiveOutput(module, linkedConsumers);
+      const powerOutputText = powerOutput.toFixed(1).replace(/\.0$/, '');
       const noFuel = !hasPowerStationFuel(module);
       const offline = (module.health || 0) <= 0 || noFuel;
       const inputText = `${fuelCost} ${fuelName}`;
-      const outputText = `${powerOutput}/s`;
-      const totalLoad = linkedStorages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0);
+      const outputText = `${powerOutputText}/s`;
+      const totalLoad = linkedStorages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0) + linkedTurrets.reduce((sum, turret) => sum + (turret.powerUsage || 0), 0);
+      const totalLoadText = totalLoad.toFixed(1).replace(/\.0$/, '');
       const netDelta = powerOutput - totalLoad;
+      const netDeltaText = `${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1).replace(/\.0$/, '')}`;
       const statusColor = netDelta > 0 ? '#6fff9a' : netDelta < 0 ? '#ff8a8a' : '#ffe066';
       const statusLabel = netDelta > 0 ? 'Surplus' : netDelta < 0 ? 'Deficit' : 'Balanced';
-      const facilityLabel = linkedStorages.length === 1 ? 'Building' : 'Buildings';
+      const facilityLabel = linkedConsumers === 1 ? 'Consumer' : 'Consumers';
       const operationalBanner = qs('#module-operational-banner');
       const deficitWarning = qs('#power-station-deficit-warning');
+      const infoBadge = qs('#power-station-info-badge');
       setTextIfChangedIn(modal, '#power-station-fuel-rate', inputText);
       setTextIfChangedIn(modal, '#power-station-fuel-output', outputText);
-      setHtmlIfChangedIn(modal, '#power-station-fuel-cost', `${totalLoad.toFixed(1).replace(/\.0$/, '')}/s<div class="power-station-fuel-sub">(${linkedStorages.length} ${facilityLabel})</div>`);
-      setHtmlIfChangedIn(modal, '#power-station-fuel-status', `<span style="color:${statusColor};">${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1).replace(/\.0$/, '')}/s</span><div class="power-station-fuel-sub" style="color:${statusColor};">${statusLabel}</div>`);
+      setHtmlIfChangedIn(modal, '#power-station-fuel-cost', `${totalLoadText}/s<div class="power-station-fuel-sub">(${linkedConsumers} ${facilityLabel})</div>`);
+      setHtmlIfChangedIn(modal, '#power-station-fuel-status', `<span style="color:${statusColor};">${netDeltaText}/s</span><div class="power-station-fuel-sub" style="color:${statusColor};">${statusLabel}</div>`);
       const selectedFuelStored = module.inventory?.[fuelType] || 0;
       setTextIfChangedIn(modal, '#power-station-used-label', `△ FUEL: ${fuelName.toUpperCase()}`);
       setTextIfChangedIn(modal, '#power-station-used-value', `${fmt(selectedFuelStored)} / ${fmt(module.resourceCapacity || 0)}`);
       qs('#power-station-used-bar').style.width = `${Math.max(0, Math.min(100, (selectedFuelStored / Math.max(1, module.resourceCapacity || 1)) * 100))}%`;
+      if (infoBadge) {
+        const tooltipText = buildPowerStationInfoTooltip({ fuelCost, fuelName, powerOutputText, totalLoadText, netDeltaText, statusLabel, noFuel });
+        infoBadge.onmouseover = (event) => showHintTooltip(event, tooltipText);
+        infoBadge.onmouseout = () => hideTooltip();
+      }
       if (noFuelWarning) {
         noFuelWarning.textContent = `WARNING: NO ${fuelName.toUpperCase()}`;
         noFuelWarning.style.display = noFuel ? '' : 'none';
@@ -662,6 +744,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
         operationalBanner.textContent = offline ? 'OFFLINE' : 'ONLINE';
         operationalBanner.className = `module-status-banner ${offline ? 'module-status-banner-offline' : 'module-status-banner-online'}`;
       }
+      setHtmlIfChangedIn(modal, '#power-station-network-consumers', buildPowerConsumerListHtml(linkedStorages, linkedTurrets));
     } else if (isPowerPoleModule(module)) {
       const operationalBanner = qs('#module-operational-banner');
       if (operationalBanner) {
@@ -671,17 +754,19 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
       }
       setTextIfChangedIn(modal, '#relay-range-value', `${module.relayRange || 0} TILES`);
       setTextIfChangedIn(modal, '#relay-range-blocks', Array.from({ length: Math.max(0, module.relayRange || 0) }, () => '■').join(' '));
-      const totalLoad = linkedStorages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0);
+      const totalLoad = linkedStorages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0) + linkedTurrets.reduce((sum, turret) => sum + (turret.powerUsage || 0), 0);
       const activeStations = linkedStations.filter((station) => (station.health || 0) > 0 && hasPowerStationFuel(station));
       const offlineStations = linkedStations.filter((station) => (station.health || 0) > 0 && !hasPowerStationFuel(station));
-      const totalOutput = activeStations.reduce((sum, station) => sum + getPowerFuelOutput(station.fuelResource || 'iron'), 0);
+      const totalOutput = activeStations.reduce((sum, station) => sum + getPowerStationEffectiveOutput(station, ((networkState.stationLinkedStorages.get(station.id) || []).length + (networkState.stationLinkedTurrets.get(station.id) || []).length)), 0);
+      const totalOutputText = totalOutput.toFixed(1).replace(/\.0$/, '');
       const offlineOutput = offlineStations.reduce((sum, station) => sum + getPowerFuelOutput(station.fuelResource || 'iron'), 0);
       const netDelta = totalOutput - totalLoad;
       const statusColor = netDelta > 0 ? '#6fff9a' : netDelta < 0 ? '#ff8a8a' : '#ffe066';
       const statusLabel = netDelta > 0 ? 'Surplus' : netDelta < 0 ? 'Deficit' : 'Balanced';
-      setHtmlIfChangedIn(modal, '#power-pole-network-output', `${totalOutput}/s${offlineOutput > 0 ? `<div class="power-station-fuel-sub" style="color:#ff8a8a;">(-${offlineOutput}/s offline)</div>` : ''}`);
-      setHtmlIfChangedIn(modal, '#power-pole-network-load', `${totalLoad.toFixed(1).replace(/\.0$/, '')}/s<div class="power-station-fuel-sub">(${linkedStorages.length} Buildings)</div>`);
+      setHtmlIfChangedIn(modal, '#power-pole-network-output', `${totalOutputText}/s${offlineOutput > 0 ? `<div class="power-station-fuel-sub" style="color:#ff8a8a;">(-${offlineOutput}/s offline)</div>` : ''}`);
+      setHtmlIfChangedIn(modal, '#power-pole-network-load', `${totalLoad.toFixed(1).replace(/\.0$/, '')}/s<div class="power-station-fuel-sub">(${linkedConsumers} Consumers)</div>`);
       setHtmlIfChangedIn(modal, '#power-pole-network-status', `<span style="color:${statusColor};">${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1).replace(/\.0$/, '')}/s</span><div class="power-station-fuel-sub" style="color:${statusColor};">${statusLabel}</div>`);
+      setHtmlIfChangedIn(modal, '#power-station-network-consumers', buildPowerConsumerListHtml(linkedStorages, linkedTurrets));
       if (noFuelWarning) noFuelWarning.style.display = noFuelIds.has(module.id) ? '' : 'none';
     } else if (isLabTowerModule(module)) {
       const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
@@ -720,11 +805,13 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
         ...linkedStations.map((station) => `POWER STATION: ${escapeHtml(station.name)}`),
         ...linkedPoles.map((pole) => `POLE: ${escapeHtml(pole.name)}`),
         ...linkedStorages.map((storage) => `${escapeHtml(getModuleLabel(storage).toUpperCase())}: ${escapeHtml(storage.name)}`),
+        ...linkedTurrets.map((turret) => `TURRET: ${escapeHtml(turret.name || getCraft('turrets', turret.type)?.name || 'Turret')}`),
       ];
       const summaryParts = [
         linkedStations.length > 0 ? `${linkedStations.length}x Power Stations` : '',
         linkedPoles.length > 0 ? `${linkedPoles.length}x Poles` : '',
         linkedStorages.length > 0 ? `${linkedStorages.length}x Powered Buildings` : '',
+        linkedTurrets.length > 0 ? `${linkedTurrets.length}x Turrets` : '',
       ].filter(Boolean);
       const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
       summaryEl.dataset.networkSig = networkSig;
@@ -904,8 +991,63 @@ window.syncBuildingCraftTimers = function() {
   }
 };
 
+function completeCraftDrone() {
+  const timer = state.droneCraftTimers?.['drone'];
+  if (!timer) return;
+  delete state.droneCraftTimers['drone'];
+  const availableLab = state.modules.find(m => isDroneLabModule(m) && (m.droneCount || 0) < (m.droneCapacity || 2));
+  if (availableLab) {
+    availableLab.droneCount = (availableLab.droneCount || 0) + 1;
+    addLog(`✅ Drone ready — assigned to ${availableLab.name}.`);
+  } else {
+    addLog(`✅ Drone built — no Drone Lab with available capacity.`);
+  }
+  if (refresh.header) refresh.header();
+  if (refresh.ui) refresh.ui();
+  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
+}
+
+function scheduleDroneCraftCompletion(endsAt) {
+  const wait = Math.max(0, endsAt - Date.now());
+  setTimeout(() => {
+    const timer = state.droneCraftTimers?.['drone'];
+    if (!timer) return;
+    if (Date.now() >= timer.endsAt) completeCraftDrone();
+    else scheduleDroneCraftCompletion(timer.endsAt);
+  }, wait + 5);
+}
+
+window.startCraftDrone = function() {
+  const droneDef = getCraft('drones', 'drone');
+  if (!droneDef) return;
+  if (!state.researchUnlocks['drone_crafting']) return;
+  if (state.droneCraftTimers?.['drone'] && Date.now() < state.droneCraftTimers['drone'].endsAt) return;
+  if (state.coins < droneDef.cost) return;
+  for (const [r, n] of Object.entries(droneDef.reqs || {})) if ((state.resources[r] || 0) < n) return;
+  spendCoins(droneDef.cost);
+  for (const [r, n] of Object.entries(droneDef.reqs || {})) state.resources[r] -= n;
+  const durationMs = droneDef.craftTimeMs || 1000;
+  const now = Date.now();
+  if (!state.droneCraftTimers) state.droneCraftTimers = {};
+  state.droneCraftTimers['drone'] = { startedAt: now, endsAt: now + durationMs, durationMs };
+  addLog(`🛠 Crafting started: Drone (${Math.ceil(durationMs / 1000)}s)`);
+  scheduleDroneCraftCompletion(now + durationMs);
+  if (refresh.ui) refresh.ui();
+  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+};
+
+window.syncDroneCraftTimers = function() {
+  if (!state.droneCraftTimers) return;
+  for (const [, timer] of Object.entries(state.droneCraftTimers)) {
+    if (!timer?.endsAt) continue;
+    if (Date.now() >= timer.endsAt) completeCraftDrone();
+    else scheduleDroneCraftCompletion(timer.endsAt);
+  }
+};
+
 state.modules = (state.modules || []).map((module, index) => normalizeModule(module, index + 1));
 window.syncBuildingCraftTimers();
+window.syncDroneCraftTimers();
 window.openStorageModal = openStorageModal;
 window.openModuleModal = openModuleModal;
 window.closeStorageModal = closeStorageModal;

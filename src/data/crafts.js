@@ -127,6 +127,24 @@ export const CRAFTS = {
       cost: 2400,
       reqs: { iron: 180, copper: 140, silicon: 90, nickel: 60, titanium: 35, gold: 20 },
     },
+    {
+      id: 'drone_lab',
+      name: 'Drone Lab',
+      desc: '3x3 operations hub for deploying drones to salvage ships, scan ruins, and tackle anomalies',
+      cost: 15000,
+      reqs: { iron: 1400, copper: 1000, oxygen: 600, nickel: 400, silicon: 500, cobalt: 200 },
+    },
+  ],
+
+  drones: [
+    {
+      id: 'drone',
+      name: 'Drone',
+      desc: 'Compact autonomous unit deployable from a Drone Lab for salvage, recon, and anomaly response',
+      cost: 5000,
+      craftTimeMs: 1000,
+      reqs: { iron: 300, copper: 200, silicon: 150, cobalt: 100, nickel: 100 },
+    },
   ],
 
   base: [

@@ -5,7 +5,7 @@ import { TILE_W, TILE_H } from '../constants.js';
 import { gridToIso } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
-import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, getModuleDef, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, hasPowerStationFuel } from '../data/modules.js';
+import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, DRONE_LAB_ID, getModuleDef, getModuleStats, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, isDroneLabModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, hasPowerStationFuel } from '../data/modules.js';
 import { canPlaceModuleAt } from '../ui/storageUI.js';
 
 let ctx = null;
@@ -30,6 +30,10 @@ const powerPoleHoverImage = new Image();
 powerPoleHoverImage.src = 'assets/images/buildings/power_pole_hover.png';
 const noPowerImage = new Image();
 noPowerImage.src = 'assets/images/buildings/no-power.png';
+const droneLabImage = new Image();
+droneLabImage.src = 'assets/images/buildings/drone_lab.png';
+const droneLabHoverImage = new Image();
+droneLabHoverImage.src = 'assets/images/buildings/drone_lab_hover.png';
 
 function getModuleSprite(module, hovered) {
   const defs = {
@@ -73,6 +77,14 @@ function getModuleSprite(module, hovered) {
       offsetY: 24,
       shadow: hovered ? 8 : 5,
     },
+    [DRONE_LAB_ID]: {
+      normal: droneLabImage,
+      hover: droneLabHoverImage,
+      width: 150,
+      height: 150,
+      offsetY: 31,
+      shadow: hovered ? 10 : 8,
+    },
   }[module.type];
 
   if (!defs) return null;
@@ -84,6 +96,7 @@ function getModuleSprite(module, hovered) {
 function drawModuleSprite(module, hovered, options = {}) {
   const sprite = getModuleSprite(module, hovered);
   if (!sprite) return false;
+  const showEffects = state.settings?.showVisualEffects !== false;
 
   const { x, y } = gridToIso(module.col, module.row);
   const cx = x;
@@ -99,7 +112,7 @@ function drawModuleSprite(module, hovered, options = {}) {
     ctx.globalAlpha = 0.72 + (pulse * 0.18);
   }
   ctx.shadowColor = options.shadowColor || 'rgba(80,200,255,0.14)';
-  ctx.shadowBlur = sprite.shadow;
+  ctx.shadowBlur = showEffects ? sprite.shadow : 0;
   ctx.drawImage(sprite.image, imageX, imageY, sprite.width, sprite.height);
   ctx.restore();
 
@@ -108,7 +121,7 @@ function drawModuleSprite(module, hovered, options = {}) {
     ctx.fillRect(imageX, imageY, sprite.width, sprite.height);
   }
 
-  if (options.disabledFlash && noPowerImage.complete && noPowerImage.naturalWidth > 0) {
+  if (showEffects && options.disabledFlash && noPowerImage.complete && noPowerImage.naturalWidth > 0) {
     const pulse = options.disabledFlash;
     const overlaySize = 64;
     const overlayX = cx - (overlaySize / 2);
@@ -179,11 +192,12 @@ function drawModuleRange(module) {
 }
 
 export function drawPowerLinks() {
-  const { activeEdges } = getPowerNetworkState(state.modules);
+  const { activeEdges } = getPowerNetworkState(state.modules, state.turrets);
   if (!activeEdges.length) return;
-  const byId = new Map(state.modules.map((module) => [module.id, module]));
-  const noFuelIds = getNoFuelNetworkIds(state.modules);
-  const pulse = 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 220)));
+  const byId = new Map([...state.modules, ...state.turrets].map((module) => [module.id, module]));
+  const turretIds = new Set(state.turrets.map((turret) => turret.id));
+  const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
+  const pulse = state.settings?.showVisualEffects !== false ? 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 220))) : 0.45;
   ctx.save();
   for (const edge of activeEdges) {
     const from = byId.get(edge.fromId);
@@ -199,8 +213,11 @@ export function drawPowerLinks() {
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
+    const turretLink = turretIds.has(edge.fromId) || turretIds.has(edge.toId);
+    if (turretLink) ctx.setLineDash([7, 5]);
+    ctx.lineDashOffset = turretLink ? -(performance.now() / 70) % 12 : 0;
     ctx.strokeStyle = alert ? `rgba(255,110,110,${0.45 + pulse})` : 'rgba(255,220,90,0.85)';
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = turretLink ? 1.8 : 2.2;
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
@@ -208,6 +225,7 @@ export function drawPowerLinks() {
     ctx.strokeStyle = alert ? `rgba(255,210,210,${0.18 + (pulse * 0.5)})` : 'rgba(255,245,180,0.38)';
     ctx.lineWidth = 0.9;
     ctx.stroke();
+    if (turretLink) ctx.setLineDash([]);
   }
   ctx.restore();
 }
@@ -216,7 +234,7 @@ export function drawLabLinks() {
   const { activeEdges, nodeEdges } = getLabNetworkState(state.modules, state.nodes, state.base.level);
   if (!activeEdges.length && !nodeEdges.length) return;
   const byId = new Map(state.modules.map((module) => [module.id, module]));
-  const pulse = 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 240)));
+  const pulse = state.settings?.showVisualEffects !== false ? 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 240))) : 0.45;
   ctx.save();
   for (const edge of activeEdges) {
     const from = byId.get(edge.fromId);
@@ -377,7 +395,7 @@ function drawStorageModule(module, hovered) {
   ctx.shadowBlur = 3;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 1;
-  ctx.fillText(isResearchLabModule(module) ? 'RESEARCH' : 'STORAGE', cx, cy - 34);
+  ctx.fillText(isResearchLabModule(module) ? 'RESEARCH' : isDroneLabModule(module) ? 'DRONE LAB' : 'STORAGE', cx, cy - 34);
   ctx.restore();
 }
 
@@ -463,7 +481,7 @@ function drawPowerStationModule(module, hovered) {
 function drawSingleTileModule(module, hovered) {
   const isPole = module.type === 'power_pole';
   const isLabTower = module.type === LAB_TOWER_ID;
-  const noFuelIds = getNoFuelNetworkIds(state.modules);
+  const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
   const alert = (isPole && noFuelIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module));
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
   const fill = alert
@@ -535,10 +553,95 @@ export function drawStorageFacilities() {
     const hovered = canvasState.storageHoverId === module.id;
     const showRange = !state.placingModule && (module.type === POWER_POLE_ID || module.type === LAB_TOWER_ID) && (hovered || state.selectedModule === module.id);
     if (showRange) drawModuleRange(module);
-    if (isStorageModule(module) || isResearchLabModule(module)) drawStorageModule(module, hovered);
+    if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) drawStorageModule(module, hovered);
     else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) drawPowerStationModule(module, hovered);
     else drawSingleTileModule(module, hovered);
   }
+}
+
+function drawPowerPolePlacementPreview(col, row, moduleType) {
+  const movingModule = state.movingModule ? state.modules.find((module) => module.id === state.movingModule) : null;
+  const previewLevel = movingModule?.type === moduleType ? (movingModule.level || 1) : 1;
+  const stats = getModuleStats(moduleType, previewLevel);
+  const range = stats.relayRange || 0;
+  if (range <= 0) return;
+
+  ctx.save();
+  traceDiamondForRange(col, row, range);
+  ctx.fillStyle = 'rgba(255,220,90,0.08)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,226,120,0.26)';
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+
+  const preview = { col, row, relayRange: range };
+  const pulse = 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 220)));
+  const footprintHalf = getModuleFootprintHalf(POWER_STATION_ID);
+  const drawPreviewLink = (toCol, toRow) => {
+    const fromIso = gridToIso(col, row);
+    const toIso = gridToIso(toCol, toRow);
+    const fromX = fromIso.x;
+    const fromY = fromIso.y + TILE_H / 2;
+    const toX = toIso.x;
+    const toY = toIso.y + TILE_H / 2;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.setLineDash([2, 7]);
+    ctx.lineDashOffset = -(performance.now() / 32) % 9;
+    ctx.strokeStyle = `rgba(255,238,140,${0.72 + pulse * 0.22})`;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.setLineDash([1, 9]);
+    ctx.lineDashOffset = -(performance.now() / 24) % 10;
+    ctx.strokeStyle = 'rgba(255,255,220,0.42)';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+
+  for (const module of state.modules) {
+    if (state.movingModule && module.id === state.movingModule) continue;
+    if (module.type !== POWER_POLE_ID && !isPowerStationModule(module)) continue;
+
+    let linked = false;
+    if (module.type === POWER_POLE_ID) {
+      const distance = Math.max(Math.abs(col - module.col), Math.abs(row - module.row));
+      linked = distance <= (range + (module.relayRange || 0));
+    } else {
+      for (const cell of getModuleFootprintCells(module.type, module.col, module.row)) {
+        if (Math.max(Math.abs(col - cell.col), Math.abs(row - cell.row)) <= range) {
+          linked = true;
+          break;
+        }
+      }
+      if (!linked) {
+        const distance = Math.max(Math.abs(col - module.col), Math.abs(row - module.row));
+        linked = distance <= (range + footprintHalf);
+      }
+    }
+    if (!linked) continue;
+    drawPreviewLink(module.col, module.row);
+  }
+
+  for (const module of state.modules) {
+    if (state.movingModule && module.id === state.movingModule) continue;
+    if (module.type === POWER_POLE_ID || isPowerStationModule(module)) continue;
+    const linked = getModuleFootprintCells(module.type, module.col, module.row)
+      .some((cell) => Math.max(Math.abs(col - cell.col), Math.abs(row - cell.row)) <= range);
+    if (!linked) continue;
+    drawPreviewLink(module.col, module.row);
+  }
+
+  for (const turret of state.turrets) {
+    const linked = Math.max(Math.abs(col - turret.col), Math.abs(row - turret.row)) <= range;
+    if (!linked) continue;
+    drawPreviewLink(turret.col, turret.row);
+  }
+  ctx.restore();
 }
 
 export function drawStoragePlacementHover() {
@@ -557,6 +660,7 @@ export function drawStoragePlacementHover() {
       cell.col === col && cell.row === row ? 1.8 : 1.1,
     );
   }
+  if (moduleType === POWER_POLE_ID) drawPowerPolePlacementPreview(col, row, moduleType);
 }
 
 export function getStorageHoverAtCell(col, row) {

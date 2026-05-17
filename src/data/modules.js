@@ -8,6 +8,7 @@ export const POWER_STATION_ID = 'power_station';
 export const POWER_POLE_ID = 'power_pole';
 export const RESEARCH_LAB_ID = 'research_lab';
 export const LAB_TOWER_ID = 'lab_tower';
+export const DRONE_LAB_ID = 'drone_lab';
 
 const STORAGE_FACILITY_BASE_STATS = {
   maxHealth: 10000,
@@ -37,6 +38,13 @@ const POWER_POLE_BASE_STATS = {
 const LAB_TOWER_BASE_STATS = {
   maxHealth: 2500,
   relayRange: 3,
+};
+
+const DRONE_LAB_BASE_STATS = {
+  maxHealth: 5000,
+  powerUsage: 1,
+  powerCapacity: 10000,
+  droneCapacity: 2,
 };
 
 function makeEmptyInventory() {
@@ -197,7 +205,7 @@ export const MODULE_DEFS = {
     panelTitle: 'POWER POLE',
     unlockId: 'power_poles',
     footprintSize: 1,
-    craftTimeMs: 6000,
+    craftTimeMs: 1000,
     defaultName: (index) => `Power Pole #${index}`,
     summary(module) {
       return [];
@@ -232,7 +240,7 @@ export const MODULE_DEFS = {
     panelTitle: 'LAB TOWER',
     unlockId: 'lab_tower',
     footprintSize: 1,
-    craftTimeMs: 8000,
+    craftTimeMs: 1000,
     defaultName: (index) => `Lab Tower #${index}`,
     summary(module) {
       return [];
@@ -261,6 +269,49 @@ export const MODULE_DEFS = {
       module.relayRange = Math.max(module.relayRange || 0, stats.relayRange);
     },
   },
+  [DRONE_LAB_ID]: {
+    id: DRONE_LAB_ID,
+    name: 'Drone Lab',
+    panelTitle: 'DRONE LAB',
+    unlockId: 'drone_lab',
+    footprintSize: 3,
+    craftTimeMs: 17000,
+    defaultName: (index) => `Drone Lab #${index}`,
+    summary(module) {
+      return [];
+    },
+    cardStats(level = 1) {
+      const stats = getModuleStats(DRONE_LAB_ID, level);
+      return [
+        ['HEALTH', fmtStat(stats.maxHealth)],
+        ['POWER/DRONE', '1/s'],
+        ['POWER CAP', fmtStat(stats.powerCapacity)],
+        ['DRONE CAP', String(stats.droneCapacity)],
+      ];
+    },
+    getStats(level = 1) {
+      const lvl = Math.max(1, Math.floor(level || 1));
+      return {
+        maxHealth: DRONE_LAB_BASE_STATS.maxHealth + ((lvl - 1) * 2222),
+        powerUsage: DRONE_LAB_BASE_STATS.powerUsage,
+        powerCapacity: DRONE_LAB_BASE_STATS.powerCapacity + ((lvl - 1) * 2222),
+        droneCapacity: DRONE_LAB_BASE_STATS.droneCapacity + ((lvl - 1) * 2),
+      };
+    },
+    applyDefaults(module, index = 1) {
+      const stats = getModuleStats(DRONE_LAB_ID, module.level || 1);
+      module.name = module.name || `Drone Lab #${index}`;
+      module.level = Math.max(1, module.level || 1);
+      module.maxHealth = Math.max(module.maxHealth || 0, stats.maxHealth);
+      module.health = Math.min(module.health ?? module.maxHealth, module.maxHealth);
+      module.powerUsage = Number.isFinite(module.powerUsage) ? module.powerUsage : stats.powerUsage;
+      module.powerCapacity = Math.max(module.powerCapacity || 0, stats.powerCapacity);
+      module.power = Math.max(0, Math.min(Number.isFinite(module.power) ? module.power : module.powerCapacity, module.powerCapacity));
+      module.droneCapacity = Math.max(module.droneCapacity || 0, stats.droneCapacity);
+      // Initialize droneCount: default to 1 (free drone) if not yet set
+      module.droneCount = Number.isFinite(module.droneCount) ? Math.min(Math.max(0, module.droneCount), module.droneCapacity) : 1;
+    },
+  },
 };
 
 function fmtStat(value) {
@@ -284,7 +335,7 @@ export function isResearchLabModule(moduleOrType) {
 }
 
 export function isPoweredBuildingModule(moduleOrType) {
-  return isStorageModule(moduleOrType) || isResearchLabModule(moduleOrType);
+  return isStorageModule(moduleOrType) || isResearchLabModule(moduleOrType) || isDroneLabModule(moduleOrType);
 }
 
 export function isPowerStationModule(moduleOrType) {
@@ -297,6 +348,10 @@ export function isPowerPoleModule(moduleOrType) {
 
 export function isLabTowerModule(moduleOrType) {
   return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === LAB_TOWER_ID;
+}
+
+export function isDroneLabModule(moduleOrType) {
+  return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === DRONE_LAB_ID;
 }
 
 export function getModuleInventoryTotal(module) {
@@ -350,6 +405,18 @@ export function formatPowerFuelRate(resourceType, moduleOrLevel = 1) {
   const label = RESOURCE_DEFS[resourceType]?.label || 'Fuel';
   const output = getPowerFuelOutput(resourceType);
   return `${getPowerResourceConsumption(moduleOrLevel)} ${label} = ${output}/s`;
+}
+
+export function getPowerStationEffectiveOutput(module, linkedStorageCount = 0) {
+  if (!isPowerStationModule(module) || (module.health || 0) <= 0) return 0;
+  const fuelType = module.fuelResource || 'iron';
+  const output = getPowerFuelOutput(fuelType);
+  if (output <= 0) return 0;
+  const fuelCost = getPowerResourceConsumption(module) * Math.max(0, linkedStorageCount);
+  if (fuelCost <= 0) return output;
+  const availableFuel = Math.max(0, module.inventory?.[fuelType] || 0);
+  const fuelScale = Math.max(0, Math.min(1, availableFuel / fuelCost));
+  return output * fuelScale;
 }
 
 function getPowerNodeRange(module) {
@@ -418,19 +485,20 @@ function buildPowerAdjacency(modules) {
   return adjacency;
 }
 
-export function getPowerNetworkState(modules) {
+export function getPowerNetworkState(modules, turrets = []) {
   const stations = modules.filter(isPowerStationModule).filter(module => (module.health || 0) > 0);
   const poles = modules.filter(isPowerPoleModule).filter(module => (module.health || 0) > 0);
   const storages = modules.filter(isPoweredBuildingModule).filter(module => (module.health || 0) > 0);
+  const activeTurrets = (turrets || []).filter((turret) => (turret?.health || 0) > 0);
   const powerNodes = [...stations, ...poles];
   const adjacency = buildPowerAdjacency(powerNodes);
   const byId = new Map(powerNodes.map((module) => [module.id, module]));
   const stationTargets = new Map();
   const stationLinkedStorages = new Map();
+  const stationLinkedTurrets = new Map();
   const stationLinkedPoles = new Map();
   const edgeKeys = new Set();
   const activeEdges = [];
-  const reachableNodeIds = new Set();
 
   const addEdge = (fromId, toId) => {
     const key = [fromId, toId].sort((a, b) => a - b).join(':');
@@ -444,14 +512,15 @@ export function getPowerNetworkState(modules) {
     const visited = new Set([station.id]);
     let bestTarget = null;
     const linkedStorages = new Map();
+    const linkedTurrets = new Map();
     const linkedPoles = new Map();
 
     while (queue.length) {
       const current = queue.shift();
-      reachableNodeIds.add(current.id);
       const node = byId.get(current.id);
+      if (!node) continue;
       if (isPowerPoleModule(node)) linkedPoles.set(node.id, node);
-      if (isPowerPoleModule(node)) {
+      if (isPowerPoleModule(node) || isPowerStationModule(node)) {
         const candidateStorages = storages
           .filter((storage) => modulesOverlapByRange(node, storage))
           .sort((a, b) => getChebyshevDistance(node, a) - getChebyshevDistance(node, b) || a.id - b.id);
@@ -459,8 +528,17 @@ export function getPowerNetworkState(modules) {
           linkedStorages.set(storage.id, storage);
           addEdge(current.id, storage.id);
         }
-        if (candidateStorages.length && !bestTarget) {
-          bestTarget = { storage: candidateStorages[0], path: current.path.slice() };
+        const nodeRange = getPowerNodeRange(node);
+        const candidateTurrets = activeTurrets
+          .filter((turret) => Math.max(Math.abs((node.col || 0) - (turret.col || 0)), Math.abs((node.row || 0) - (turret.row || 0))) <= nodeRange)
+          .sort((a, b) => getChebyshevDistance(node, a) - getChebyshevDistance(node, b) || a.id - b.id);
+        for (const turret of candidateTurrets) {
+          linkedTurrets.set(turret.id, turret);
+          addEdge(current.id, turret.id);
+        }
+        if (!bestTarget) {
+          const bestConsumer = candidateStorages[0] || candidateTurrets[0] || null;
+          if (bestConsumer) bestTarget = { targetId: bestConsumer.id, path: current.path.slice() };
         }
       }
       for (const nextId of adjacency.get(current.id) || []) {
@@ -472,21 +550,22 @@ export function getPowerNetworkState(modules) {
     }
 
     stationLinkedStorages.set(station.id, [...linkedStorages.keys()]);
+    stationLinkedTurrets.set(station.id, [...linkedTurrets.keys()]);
     stationLinkedPoles.set(station.id, [...linkedPoles.keys()]);
     if (!bestTarget) continue;
-    stationTargets.set(station.id, bestTarget.storage.id);
+    stationTargets.set(station.id, bestTarget.targetId);
     for (let i = 0; i < bestTarget.path.length - 1; i++) {
       addEdge(bestTarget.path[i], bestTarget.path[i + 1]);
     }
     const lastFromId = bestTarget.path[bestTarget.path.length - 1];
-    addEdge(lastFromId, bestTarget.storage.id);
+    addEdge(lastFromId, bestTarget.targetId);
   }
 
-  return { stationTargets, stationLinkedStorages, stationLinkedPoles, activeEdges };
+  return { stationTargets, stationLinkedStorages, stationLinkedTurrets, stationLinkedPoles, activeEdges };
 }
 
-export function getPowerModuleNetworkInfo(moduleId, modules) {
-  const networkState = getPowerNetworkState(modules);
+export function getPowerModuleNetworkInfo(moduleId, modules, turrets = []) {
+  const networkState = getPowerNetworkState(modules, turrets);
   const adjacency = new Map();
   for (const edge of networkState.activeEdges) {
     if (!adjacency.has(edge.fromId)) adjacency.set(edge.fromId, []);
@@ -494,15 +573,17 @@ export function getPowerModuleNetworkInfo(moduleId, modules) {
     adjacency.get(edge.fromId).push(edge.toId);
     adjacency.get(edge.toId).push(edge.fromId);
   }
-  const byId = new Map(modules.map((module) => [module.id, module]));
+  const byId = new Map([...modules, ...(turrets || [])].map((module) => [module.id, module]));
   const start = byId.get(moduleId);
-  if (!start) return { poles: [], storages: [], stations: [] };
+  const turretIds = new Set((turrets || []).map((turret) => turret.id));
+  if (!start) return { poles: [], storages: [], stations: [], turrets: [] };
 
   const visited = new Set([moduleId]);
   const queue = [moduleId];
   const poles = [];
   const storages = [];
   const stations = [];
+  const linkedTurrets = [];
 
   while (queue.length) {
     const currentId = queue.shift();
@@ -511,6 +592,7 @@ export function getPowerModuleNetworkInfo(moduleId, modules) {
     if (isPowerPoleModule(module) && currentId !== moduleId) poles.push(module);
     else if (isPoweredBuildingModule(module)) storages.push(module);
     else if (isPowerStationModule(module) && currentId !== moduleId) stations.push(module);
+    else if (turretIds.has(currentId) && currentId !== moduleId) linkedTurrets.push(module);
     for (const nextId of adjacency.get(currentId) || []) {
       if (visited.has(nextId)) continue;
       visited.add(nextId);
@@ -518,7 +600,7 @@ export function getPowerModuleNetworkInfo(moduleId, modules) {
     }
   }
 
-  return { poles, storages, stations };
+  return { poles, storages, stations, turrets: linkedTurrets };
 }
 
 export function getLabTowerLinkedNodes(tower, nodes, maxVisibleTier = Number.MAX_SAFE_INTEGER) {
@@ -638,15 +720,15 @@ export function getLabModuleNetworkInfo(moduleId, modules, nodes, maxVisibleTier
   return { labs, towers, resources };
 }
 
-export function getNoFuelNetworkIds(modules) {
+export function getNoFuelNetworkIds(modules, turrets = []) {
   const ids = new Set();
-  const relevant = modules.filter((module) =>
+  const relevant = [...modules.filter((module) =>
     (isPowerStationModule(module) || isPowerPoleModule(module) || isPoweredBuildingModule(module))
     && (module.health || 0) > 0
-  );
+  ), ...(turrets || []).filter((turret) => (turret?.health || 0) > 0)];
   const byId = new Map(relevant.map((module) => [module.id, module]));
   const adjacency = new Map(relevant.map((module) => [module.id, []]));
-  for (const edge of getPowerNetworkState(modules).activeEdges) {
+  for (const edge of getPowerNetworkState(modules, turrets).activeEdges) {
     if (!adjacency.has(edge.fromId) || !adjacency.has(edge.toId)) continue;
     adjacency.get(edge.fromId).push(edge.toId);
     adjacency.get(edge.toId).push(edge.fromId);

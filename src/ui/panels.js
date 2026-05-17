@@ -11,13 +11,13 @@ import {
   CARGO_PROFILE, FLY_SPEED_PROFILE, MINE_SPEED_PROFILE, LOAD_SPEED_PROFILE,
   HP_PROFILE, ATTACK_PROFILE, ATK_RATE_PROFILE,
 } from '../data/ships.js';
-import { NODE_BANDS } from '../data/nodes.js';
+import { NODE_BANDS, CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
-import { MODULE_DEFS, getModuleDef, getModuleStats, getPowerFuelOutput, POWER_DISABLED_RESOURCES, POWER_RESOURCE_CONSUMPTION, STORAGE_FACILITY_ID } from '../data/modules.js';
-import { fmt } from '../helpers.js';
+import { MODULE_DEFS, getModuleDef, getModuleStats, getPowerFuelOutput, POWER_DISABLED_RESOURCES, POWER_RESOURCE_CONSUMPTION, STORAGE_FACILITY_ID, DRONE_LAB_ID, isDroneLabModule } from '../data/modules.js';
+import { fmt, resourceIconHtml } from '../helpers.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
 import { cancelStoragePlacement } from './storageUI.js';
@@ -53,6 +53,15 @@ setInterval(() => {
     const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
     const fillEl  = document.getElementById(`craft-building-fill-${moduleType}`);
     const labelEl = document.getElementById(`craft-building-label-${moduleType}`);
+    if (fillEl) fillEl.style.width = `${pct}%`;
+    if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
+  }
+  for (const [droneKey, timer] of Object.entries(state.droneCraftTimers || {})) {
+    if (!timer || Date.now() >= timer.endsAt) continue;
+    const remainMs = Math.max(0, timer.endsAt - Date.now());
+    const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
+    const fillEl  = document.getElementById(`craft-drone-fill-${droneKey}`);
+    const labelEl = document.getElementById(`craft-drone-label-${droneKey}`);
     if (fillEl) fillEl.style.width = `${pct}%`;
     if (labelEl) labelEl.textContent = `CRAFTING ${Math.ceil(remainMs / 1000)}s`;
   }
@@ -178,14 +187,30 @@ export function patchSolPanel(what) {
     if (el) el.textContent = `◈ KEPLER-7 SECTOR — SOL ${state.sol}`;
   }
   if (what === 'power') {
-    const shipPow   = state.ships.reduce((s, sh) => s + (sh.capacityLevel||0) + (sh.flySpeedLevel||0) + (sh.mineSpeedLevel||0), 0);
-    const turretPow = state.turrets.reduce((s, t) => s + (t.level||1), 0);
-    const basePow   = state.base.level || 1;
+    const shipPow   = getFleetShipPower();
+    const turretPow = getFleetTurretPower();
+    const basePow   = getFleetBasePower();
     const el = document.getElementById('sol-fleet-power');
     const bd = document.getElementById('sol-fleet-breakdown');
     if (el) el.textContent = shipPow + turretPow + basePow;
     if (bd) bd.textContent = `SHP ${shipPow} · TUR ${turretPow} · BASE ${basePow}`;
   }
+}
+
+function getShipRank(ship) {
+  return Math.min(10, Math.max(1, ship.mineTier || ship.tier || 1));
+}
+
+function getFleetShipPower() {
+  return state.ships.reduce((sum, ship) => sum + getShipRank(ship), 0);
+}
+
+function getFleetTurretPower() {
+  return state.turrets.reduce((sum, turret) => sum + ((turret.level || 1) * 2), 0);
+}
+
+function getFleetBasePower() {
+  return (state.base.level || 1) * 10;
 }
 
 function getFleetTypeCounts() {
@@ -378,7 +403,8 @@ function switchCodexTab(tab) {
 window.switchCodexTab = switchCodexTab;
 
 function normalizeCraftTab(tab) {
-  return tab === 'modules' ? 'buildings' : tab;
+  if (tab === 'modules' || tab === 'buildings') return 'storage';
+  return tab;
 }
 
 function switchCraftTab(tab) {
@@ -452,7 +478,7 @@ function buildStatsHtml() {
         ? `<div style="font-size:12px;color:#f66;min-width:60px;text-align:right;">${unoccupied} empty</div>`
         : `<div style="min-width:60px;"></div>`;
     return `<div id="stats-node-${type}" data-occ="${d.occupied}" style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #0e1e3a;${rowBg}">
-      <div style="width:10px;height:10px;border-radius:50%;background:${def.color};flex-shrink:0;box-shadow:0 0 6px ${def.color}88;"></div>
+      ${resourceIconHtml(type, 16)}
       <div style="flex:1;color:#8ab;font-size:14px;">${def.label}</div>
       <div style="font-size:11px;color:${tierColor};font-family:'Orbitron',sans-serif;letter-spacing:1px;margin-right:8px;">T${tierEntry?.[0]??'?'}</div>
       <div style="font-size:14px;font-weight:bold;color:${allFull?'#4d8':'#ffe066'};">${d.occupied}/${d.total}</div>
@@ -478,7 +504,7 @@ function buildStatsHtml() {
         ? `<span id="stockpile-alert-${k}" style="color:#f44;font-size:14px;margin-left:4px;cursor:help;" onmouseover="showHintTooltip(event,'No ships assigned — this resource is not being mined')" onmouseout="hideTooltip()">⚠</span>`
         : `<span id="stockpile-alert-${k}" style="display:none;"></span>`;
       return `<div id="stockpile-card-${k}" class="resources-stock-card${noShips?' no-ships':''}" style="border-left-color:${def.color};">
-        <span class="resources-stock-dot" style="background:${def.color};box-shadow:0 0 6px ${def.color}99;"></span>
+        ${resourceIconHtml(k, 14)}
         <span class="resources-stock-name">${def.label}${alert}</span>
         <span id="stockpile-val-${k}" class="resources-stock-value" style="color:${v===0?'#4a6a8a':'#ffe066'};">${fmt(v)}</span>
         <span class="resources-stock-nodes">(${d.total} Nodes)</span>
@@ -512,7 +538,7 @@ function buildYieldHtml(nodesByType) {
   return entries.map(([type, d]) => {
     const def = RESOURCE_DEFS[type];
     return `<div class="resources-yield-pill">
-      <div class="resources-yield-dot" style="background:${def.color};"></div>
+      ${resourceIconHtml(type, 13)}
       <span class="resources-yield-name">${def.label}</span>
       <span class="resources-yield-val" id="stats-yield-${type}">${Math.round(d.yield)}/m</span>
     </div>`;
@@ -626,9 +652,9 @@ export function openHdrPanel(type, options = {}) {
   // ── SOL OVERVIEW ───────────────────────────────────────────
   if (type === 'sol') {
     heading.textContent = 'SECTOR OVERVIEW';
-    const shipPow   = state.ships.reduce((s, sh) => s + (sh.capacityLevel||0) + (sh.flySpeedLevel||0) + (sh.mineSpeedLevel||0), 0);
-    const turretPow = state.turrets.reduce((s, t) => s + (t.level||1), 0);
-    const basePow   = state.base.level || 1;
+    const shipPow   = getFleetShipPower();
+    const turretPow = getFleetTurretPower();
+    const basePow   = getFleetBasePower();
     const fleetPower = shipPow + turretPow + basePow;
     body.innerHTML = `
       <div class="overview-hero">
@@ -699,7 +725,7 @@ export function openHdrPanel(type, options = {}) {
 
   // ── CRAFT ─────────────────────────────────────────────────
   else if (type === 'craft') {
-    heading.textContent = 'FABRICATION';
+    heading.textContent = 'CRAFTING & FABRICATION';
 
     // Advance tutorial: step 5 (point at CRAFT button) → step 6 (point at SHIPS tab)
     if (state.tutStep === 5) { state.tutStep = 6; requestAnimationFrame(() => renderTutPointers()); }
@@ -713,7 +739,10 @@ export function openHdrPanel(type, options = {}) {
     const craftTabDefs = [
       { id: 'ships',   label: 'SHIPS' },
       { id: 'defense', label: 'DEFENSE' },
-      { id: 'buildings', label: 'BUILDINGS' },
+      { id: 'storage', label: 'STORAGE' },
+      { id: 'power', label: 'POWER' },
+      { id: 'research', label: 'RESEARCH' },
+      { id: 'drones', label: 'DRONES' },
     ];
     const navBar = `<div class="craft-nav">${craftTabDefs.map(t =>
       `<button id="craft-tab-${t.id}" class="craft-nav-btn${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.label}</button>`
@@ -840,9 +869,9 @@ export function openHdrPanel(type, options = {}) {
         const queuedCount = (id) => queue.filter(t => t === id).length;
         const pill = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}">${label}</span>`;
         const turretCards = [
-          { id: 'turret', unlocked: true, desc: 'Build automatic turrets on free map tiles to defend your base.', stats: ['5,000 HP', '100', '2s -> 0.2s', '2 tiles (MAX 5)'] },
-          { id: 'laser_turret', unlocked: !!state.researchUnlocks['laser_turrets'], desc: 'Fires a single heavy beam burst for big damage, then must recharge before firing again.', stats: ['8,000 HP', '500', '15s -> 5s', '4 tiles (MAX 12)'] },
-          { id: 'emp_turret', unlocked: !!state.researchUnlocks['emp_turrets'], desc: 'Stuns enemy ships so they cannot move or fire, while also dropping their defenses.', stats: ['15,000 HP', 'STUN 2s', '60s -> 45s', '3 tiles (MAX 15)'] },
+          { id: 'turret', unlocked: true, desc: 'Build automatic turrets on free map tiles to defend your base.', stats: ['5,000 -> 10,000 HP', '100', '1/s -> 5/s', '2 tiles (MAX 5)'] },
+          { id: 'laser_turret', unlocked: !!state.researchUnlocks['laser_turrets'], desc: 'Fires a single heavy beam burst for big damage, then must recharge before firing again.', stats: ['8,000 -> 16,000 HP', '500', '15s -> 5s', '4 tiles (MAX 12)'] },
+          { id: 'emp_turret', unlocked: !!state.researchUnlocks['emp_turrets'], desc: 'Stuns enemy ships so they cannot move or fire, while also dropping their defenses.', stats: ['15,000 -> 30,000 HP', 'STUN 2s', '60s -> 45s', '3 tiles (MAX 15)'] },
         ];
         for (const card of turretCards) {
           if (!card.unlocked) continue;
@@ -883,13 +912,20 @@ export function openHdrPanel(type, options = {}) {
 
       tabContent = defHtml;
 
-    } else if (activeCraftTab === 'buildings') {
+    } else if (activeCraftTab === 'storage' || activeCraftTab === 'power' || activeCraftTab === 'research' || activeCraftTab === 'drones') {
       const queue = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue : Array.from({ length: state.unplacedModules || 0 }, () => 'storage_facility');
-      const unlockedBuildings = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId]);
+      const moduleTabIds = {
+        storage: new Set(['storage_facility']),
+        power: new Set(['power_station', 'power_pole']),
+        research: new Set(['research_lab', 'lab_tower']),
+        drones: new Set(['drone_lab']),
+      };
+      const tabLabel = activeCraftTab.charAt(0).toUpperCase() + activeCraftTab.slice(1);
+      const unlockedBuildings = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId] && moduleTabIds[activeCraftTab].has(module.id));
       if (!unlockedBuildings.length) {
         tabContent = `<div class="craft-defense-empty">
-            🔒 Buildings are still locked.<br><br>
-            <span style="font-size:13px;">Unlock placeable <strong style="color:#8ab">Buildings</strong> in the Research panel first.</span>
+            🔒 ${tabLabel} fabrication is still locked.<br><br>
+            <span style="font-size:13px;">Unlock placeable <strong style="color:#8ab">${tabLabel}</strong> modules in the Research panel first.</span>
           </div>`;
       } else {
         tabContent = unlockedBuildings.map((moduleConfig) => {
@@ -924,6 +960,50 @@ export function openHdrPanel(type, options = {}) {
                 : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startCraftBuilding('${moduleConfig.id}')">${buildLabel}</button>`}
             </div>`;
         }).join('');
+
+      // Drone crafting section — shown below drone lab building card on the drones tab
+      if (activeCraftTab === 'drones') {
+        const droneDef = getCraft('drones', 'drone');
+        const droneLabsBuilt = (state.modules || []).filter(m => m.type === DRONE_LAB_ID);
+        const droneTimer = state.droneCraftTimers?.['drone'];
+        const droneTimerActive = !!(droneTimer && Date.now() < droneTimer.endsAt);
+        const droneRemainMs = droneTimerActive ? Math.max(0, droneTimer.endsAt - Date.now()) : 0;
+        const droneRemainSec = Math.ceil(droneRemainMs / 1000);
+        const dronePct = droneTimerActive ? Math.max(0, Math.min(100, ((droneTimer.durationMs - droneRemainMs) / droneTimer.durationMs) * 100)) : 0;
+        const droneCanCoins = state.coins >= (droneDef?.cost || 0);
+        const droneReqPills = droneDef
+          ? Object.entries(droneDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')
+          : '';
+        const droneCanBuild = !!droneDef && droneCanCoins && Object.entries(droneDef?.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
+        const totalDroneCount = droneLabsBuilt.reduce((sum, m) => sum + (m.droneCount || 0), 0);
+        const totalDroneCapacity = droneLabsBuilt.reduce((sum, m) => sum + (m.droneCapacity || 2), 0);
+        const dronesFull = totalDroneCount >= totalDroneCapacity && droneLabsBuilt.length > 0;
+
+        const droneCraftingUnlocked = !!state.researchUnlocks['drone_crafting'];
+        if (droneDef && droneLabsBuilt.length > 0) {
+          const droneStatusHtml = `<div style="font-size:12px;color:#8ab;margin-bottom:8px;">Drone capacity across ${droneLabsBuilt.length} lab${droneLabsBuilt.length > 1 ? 's' : ''}: <span style="color:#ffe066;">${totalDroneCount} / ${totalDroneCapacity}</span></div>`;
+          tabContent += `<div class="craft-defense-card" style="margin-top:12px;border-color:#2a5090;">
+            <div class="craft-defense-head">
+              <div class="craft-defense-title">◬ DRONE</div>
+              <span class="craft-defense-meta" style="color:#ffe066;">${totalDroneCount} active</span>
+            </div>
+            <div class="craft-defense-desc">${droneDef.desc}</div>
+            ${droneStatusHtml}
+            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
+              <span class="craft-stat">CRAFT TIME <span style="color:#ffe066;">1s</span></span>
+              <span class="craft-stat">POWER <span style="color:#ffe066;">1/s each</span></span>
+            </div>
+            <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${droneCanCoins ? 'met' : 'unmet'}">$${fmt(droneDef.cost)}</span>${droneReqPills}</div>
+            ${!droneCraftingUnlocked
+              ? `<button class="btn craft-defense-btn" disabled>🔒 UNLOCK DRONE IN RESEARCH</button>`
+              : dronesFull
+              ? `<button class="btn craft-defense-btn" disabled>◬ ALL LABS AT CAPACITY</button>`
+              : droneTimerActive
+              ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-drone-fill-drone" style="width:${dronePct}%;"></span><span class="bp-craft-btn-label" id="craft-drone-label-drone">CRAFTING ${droneRemainSec}s</span></button>`
+              : `<button class="btn primary craft-defense-btn" ${droneCanBuild ? '' : 'disabled'} onclick="startCraftDrone()">◬ BUILD DRONE</button>`}
+          </div>`;
+        }
+      }
       }
     } else {
       tabContent = `<div class="craft-placeholder">
@@ -1014,7 +1094,7 @@ export function openHdrPanel(type, options = {}) {
       const demandCells = Array.from(demandMap.entries()).map(([type, mult]) => {
         const def = RESOURCE_DEFS[type];
         return `<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 8px;border:1px solid rgba(255,255,255,0.12);border-radius:4px;background:rgba(10,25,50,0.35);color:${def.color};text-shadow:0 0 10px ${def.color}55;">
-          <span class="trade-demand-dot" style="background:${def.color};box-shadow:0 0 8px ${def.color}aa;"></span>
+          ${resourceIconHtml(type, 16)}
           <span>${def.label}<span class="trade-demand-gap"></span><span class="trade-demand-mult">${mult}x!</span></span>
         </div>`;
       }).join('');
@@ -1045,7 +1125,7 @@ export function openHdrPanel(type, options = {}) {
           ? `<span class="trade-price">$${price} <span class="trade-price-boost" title="Market boosted this SOL — ${boostMult}× sell price!">✦</span></span>`
           : `<span class="trade-price">$${price}</span>`;
         tradeHtml += `<div class="sell-row">
-          <span class="trade-res-dot" style="background:${def.color};"></span>
+          ${resourceIconHtml(type, 14)}
           ${priceHtml}
           <span class="res-name-s">${def.label}</span>
           <span class="res-qty">${fmt(amt)}</span>
@@ -1138,6 +1218,7 @@ export function openHdrPanel(type, options = {}) {
     const codexTabs = [
       { id: 'crew',     label: 'Crew & Contacts' },
       { id: 'events',   label: 'Events' },
+      { id: 'discoveries', label: 'Discoveries' },
       { id: 'resources',label: 'Resources' },
       { id: 'ships',    label: 'Ships' },
       { id: 'turrets',  label: 'Turrets' },
@@ -1176,6 +1257,19 @@ export function openHdrPanel(type, options = {}) {
         }).join('');
       }
 
+    } else if (_codexTab === 'discoveries') {
+      const crashedShipDef = RESOURCE_DEFS[CRASHED_SHIP_NODE_TYPE];
+      const discovered = state.nodes.some((node) => node.type === CRASHED_SHIP_NODE_TYPE);
+      tabContent = `<div class="codex-group-label codex-section-title">◈ BELT DISCOVERIES</div>
+        <div class="codex-card" style="align-items:flex-start;gap:14px;${discovered ? '' : 'opacity:0.6;'}">
+          <img src="assets/images/crashed_ships/crashed_ship_1.png" alt="Crashed Ship" style="width:84px;height:84px;object-fit:contain;image-rendering:auto;filter:drop-shadow(0 0 10px rgba(180,200,255,0.15));">
+          <div class="codex-info">
+            <div class="codex-name">${crashedShipDef.label}</div>
+            <div class="codex-title">${discovered ? 'RECORDED ANOMALY' : 'UNCONFIRMED SIGNAL'}</div>
+            <div class="codex-bio">${discovered ? crashedShipDef.blurb : 'A fragmented contact is rumored to drift somewhere in the sector. Locate it to add it to your navigational records.'}</div>
+          </div>
+        </div>`;
+
     } else if (_codexTab === 'resources') {
       const resourceTier = {};
       const boostMap = new Map();
@@ -1186,8 +1280,8 @@ export function openHdrPanel(type, options = {}) {
           if (!resourceTier[r]) resourceTier[r] = { tier: Number(tier), label: def.label, color: def.color };
         }
       }
-      tabContent = Object.entries(RESOURCE_DEFS).map(([key, def]) => {
-        const tierInfo = resourceTier[key];
+      tabContent = Object.entries(RESOURCE_DEFS).filter(([, def]) => !def.special).map(([key, def]) => {
+        const tierInfo = resourceTier[key] || { label: def.special ? 'SPECIAL' : 'UNKNOWN', color: def.color || '#8ab' };
         const abundanceHint = getResourceAbundanceHint(key);
         const abundanceColor = abundanceHint === 'Abundant' ? '#78d69c' : abundanceHint === 'Uncommon' ? '#ffd36b' : '#ff8c8c';
         const mult = boostMap.get(key);
@@ -1199,11 +1293,15 @@ export function openHdrPanel(type, options = {}) {
           : `<span class="codex-resources-stat-value" style="color:#ffe066;">${POWER_RESOURCE_CONSUMPTION} ${def.label} = ${powerOutput}/s</span>`;
         return `<div class="codex-resources-card" style="border-left: 5px solid ${def.color};">
           <div class="codex-resources-header">
-            <div class="codex-resources-dot" style="background:${def.color};box-shadow:0 0 8px ${def.color}88;"></div>
-            <div class="codex-resources-name">${def.label}</div>
-            <span class="codex-resources-tier-pill" style="border:1px solid ${tierInfo.color}44;background:${tierInfo.color}18;color:${tierInfo.color};">${tierInfo.label}</span>
+            <div class="codex-resources-icon-wrap">${resourceIconHtml(key, 64)}</div>
+            <div class="codex-resources-copy">
+              <div class="codex-resources-title-row">
+                <div class="codex-resources-name">${def.label}</div>
+                <span class="codex-resources-tier-pill" style="border:1px solid ${tierInfo.color}44;background:${tierInfo.color}18;color:${tierInfo.color};">${tierInfo.label}</span>
+              </div>
+              <div class="codex-resources-blurb">${def.blurb || 'Industrial resource used by frontier fleet operations.'}</div>
+            </div>
           </div>
-          <div class="codex-resources-blurb">${def.blurb || 'Industrial resource used by frontier fleet operations.'}</div>
           <div class="codex-resources-stats">
             <div class="codex-resources-stat"><span class="codex-resources-stat-label">SELL PRICE</span><br><span class="codex-resources-stat-value">${sellDisplay}</span></div>
             <div class="codex-resources-divider"></div>
@@ -1322,13 +1420,13 @@ export function openHdrPanel(type, options = {}) {
       }).join('');
     } else if (_codexTab === 'turrets') {
       const turretDefs = [
-        { id: 'turret', name: 'Automatic Turret', tier: 'Tier III', color: '#4a90e2', stats: [{ label: 'HEALTH', value: '5,000 HP (+0/lv)' }, { label: 'DAMAGE', value: '100 (+25/lv)' }, { label: 'FIRE RATE', value: '2s (lv50: 0.2s)' }, { label: 'RANGE', value: '2 tiles (MAX 5)' }], desc: 'Baseline autonomous defense platform. Tracks and fires automatically at hostile ships entering range.' },
-        { id: 'laser_turret', name: 'Laser Turret', tier: 'Tier V', color: '#ffd700', stats: [{ label: 'HEALTH', value: '8,000 HP (+350/lv)' }, { label: 'DAMAGE', value: '500 (+40/lv)' }, { label: 'FIRE RATE', value: '15s (lv50: 5s)' }, { label: 'RANGE', value: '4 tiles (MAX 12)' }], desc: 'Fires a single high-damage beam burst, then enters a long recharge cycle before it can fire again.' },
-        { id: 'emp_turret', name: 'EMP Turret', tier: 'Tier VII', color: '#ff60b0', stats: [{ label: 'HEALTH', value: '15,000 HP (+200/lv)' }, { label: 'DAMAGE', value: 'STUN 2s (lv50: 8s)' }, { label: 'FIRE RATE', value: '60s (lv50: 45s)' }, { label: 'RANGE', value: '3 tiles (MAX 15)' }], desc: 'Control platform that disables ship movement and firing while also dropping active defenses.' },
+        { id: 'turret', name: 'Automatic Turret', tier: 'Tier III', color: '#4a90e2', stats: [{ label: 'HEALTH', value: '5,000 -> 10,000 HP' }, { label: 'DAMAGE', value: '100 (+25/rank)' }, { label: 'FIRE RATE', value: '1/s (rank10: 5/s)' }, { label: 'RANGE', value: '2 tiles (MAX 5)' }], desc: 'Baseline autonomous defense platform. Tracks and fires automatically at hostile ships entering range.' },
+        { id: 'laser_turret', name: 'Laser Turret', tier: 'Tier V', color: '#ffd700', stats: [{ label: 'HEALTH', value: '8,000 -> 16,000 HP' }, { label: 'DAMAGE', value: '500 (+40/rank)' }, { label: 'FIRE RATE', value: '15s (rank10: 5s)' }, { label: 'RANGE', value: '4 tiles (MAX 12)' }], desc: 'Fires a single high-damage beam burst, then enters a long recharge cycle before it can fire again.' },
+        { id: 'emp_turret', name: 'EMP Turret', tier: 'Tier VII', color: '#ff60b0', stats: [{ label: 'HEALTH', value: '15,000 -> 30,000 HP' }, { label: 'DAMAGE', value: 'STUN 2s (rank10: 8s)' }, { label: 'FIRE RATE', value: '60s (rank10: 45s)' }, { label: 'RANGE', value: '3 tiles (MAX 15)' }, { label: 'POWER DRIVE', value: '200 (rank10: 800)' }], desc: 'Control platform that disables ship movement and firing while also dropping active defenses.' },
       ];
       const formatTurretStatValue = (value) => String(value)
-        .replace(/\((\+[^)]*\/lv)\)/gi, '<span class="codex-turret-inc">($1)</span>')
-        .replace(/\((lv50:[^)]+)\)/gi, '<span class="codex-turret-inc">($1)</span>')
+        .replace(/\((\+[^)]*\/rank)\)/gi, '<span class="codex-turret-inc">($1)</span>')
+        .replace(/\((rank10:[^)]+)\)/gi, '<span class="codex-turret-inc">($1)</span>')
         .replace(/\((MAX\s*\d+)\)/gi, '<br><span class="codex-turret-inc">($1)</span>');
       const turretRows = turretDefs.map(t => {
         return `<tr>
@@ -1443,6 +1541,11 @@ export function openHdrPanel(type, options = {}) {
           desc: 'A comet strikes the base station, dealing structural damage that scales with SOL number. Repair via the Base Station.',
           effect: '💥 Deals direct damage to your base HP. Damage scales with SOL progression — repair from the Tower panel.',
         },
+        {
+          id: 'black_hole', icon: '●', label: 'Black Hole',
+          desc: 'A temporary spatial anomaly forms somewhere in the sector, slowing ships that cross through its field until it collapses.',
+          effect: '🌀 Lasts about 60 seconds. Ships whose route crosses the anomaly are slowed to 20% speed while it is active.',
+        },
       ];
       tabContent = eventDefs.map(ev => {
         const count = state.eventCounts[ev.id] || 0;
@@ -1532,15 +1635,15 @@ export function openHdrPanel(type, options = {}) {
           <div class="codex-sector-list">
             <div class="codex-sector-item">
               <span class="codex-sector-key ships">SHIPS</span>
-              <span class="codex-sector-val">Sum of all ship upgrade levels (cargo + fly speed + mine/load speed)</span>
+              <span class="codex-sector-val">1 point per ship rank. A rank 10 ship contributes 10 Fleet Power.</span>
             </div>
             <div class="codex-sector-item">
               <span class="codex-sector-key turrets">TURRETS</span>
-              <span class="codex-sector-val">Sum of all placed turret levels</span>
+              <span class="codex-sector-val">2 points per turret rank.</span>
             </div>
             <div class="codex-sector-item">
               <span class="codex-sector-key base">BASE</span>
-              <span class="codex-sector-val">Your current base tier level</span>
+              <span class="codex-sector-val">10 points per base rank.</span>
             </div>
           </div>
         </div>
@@ -1583,7 +1686,7 @@ export function openHdrPanel(type, options = {}) {
               const tierInfo = (() => { for (const [t,td] of Object.entries(MINE_TIERS)) if (td.resources.includes(key)) return td; return null; })();
               return `<tr>
                 <td class="codex-ships-td codex-trade-resource">
-                  <span class="codex-trade-dot" style="background:${def.color};"></span>${def.label}
+                  ${resourceIconHtml(key, 16, 'margin-right:7px;')}${def.label}
                 </td>
                 <td class="codex-ships-td"><span class="codex-trade-tier-pill" style="border-color:${tierInfo?.color||'#8ab'}44;background:${tierInfo?.color||'#8ab'}18;color:${tierInfo?.color||'#8ab'};">${tierInfo?.label||'—'}</span></td>
                 <td class="codex-ships-td codex-ships-td-stat">$${def.sellPrice}</td>

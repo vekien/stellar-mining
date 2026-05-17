@@ -53,6 +53,14 @@ export const RESEARCH_TREE = [
         id: 'shield_increase', name: 'Shield Increase', cost: 1, icon: '◈', repeatable: true,
         desc: 'Increases shield capacity by 5% of base max HP per purchase. Shields absorb all incoming damage before HP and regenerate automatically over time. Max 10 purchases.',
       },
+      {
+        id: 'drone_lab', name: 'Drone Lab', cost: 3, icon: '◬',
+        desc: 'Unlocks the Drone Lab building — an operations hub for sending drones to salvage ships, scan ruins, and tackle anomalies.',
+      },
+      {
+        id: 'drone_crafting', name: 'Drone', cost: 2, icon: '◬',
+        desc: 'Unlocks the ability to craft drones for deployment from a Drone Lab.',
+      },
     ],
   },
   {
