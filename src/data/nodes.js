@@ -18,6 +18,18 @@ export const NODE_BANDS = [
   { minLevel: 10, minDist: 46, maxDist: 50, types: ['iridium','palladium','uranium','uranium','osmium','rhodium','hafnium'] },
 ];
 
+export const CRASHED_SHIP_NODE_TYPE = 'crashed_ship';
+const CRASHED_SHIP_SPRITES = [
+  'assets/images/crashed_ships/crashed_ship_1.png',
+  'assets/images/crashed_ships/crashed_ship_2.png',
+];
+const CRASHED_SHIP_SPAWNS = [
+  { minLevel: 1 },
+  { minLevel: 3 },
+  { minLevel: 6 },
+  { minLevel: 10 },
+];
+
 function mulberry32(seed) {
   let t = seed >>> 0;
   return function rand() {
@@ -86,6 +98,35 @@ export function generateNodes(baseCol, baseRow, seed) {
       const [c, r] = chosen[i];
       all.push({ id: id++, type: types[i], gr: [c, r], minLevel: band.minLevel });
     }
+  }
+
+  const occupied = new Set(all.map((node) => `${node.gr[0]},${node.gr[1]}`));
+  const specialCandidates = [];
+  for (let dc = -relMax; dc <= relMax; dc++) {
+    for (let dr = -relMax; dr <= relMax; dr++) {
+      const cheb = Math.max(Math.abs(dc), Math.abs(dr));
+      if (cheb < 8 || cheb > relMax) continue;
+      if (Math.abs(dc) < relMin || Math.abs(dr) < relMin) continue;
+      const col = baseCol + dc;
+      const row = baseRow + dr;
+      if (occupied.has(`${col},${row}`)) continue;
+      specialCandidates.push([col, row]);
+    }
+  }
+
+  shuffle(specialCandidates, rand);
+  for (const spawnDef of CRASHED_SHIP_SPAWNS) {
+    const crashedShipPos = specialCandidates.shift();
+    if (!crashedShipPos) break;
+    const [col, row] = crashedShipPos;
+    all.push({
+      id: id++,
+      type: CRASHED_SHIP_NODE_TYPE,
+      gr: [col, row],
+      minLevel: spawnDef.minLevel,
+      special: true,
+      sprite: CRASHED_SHIP_SPRITES[Math.floor(rand() * CRASHED_SHIP_SPRITES.length)],
+    });
   }
 
   return all;

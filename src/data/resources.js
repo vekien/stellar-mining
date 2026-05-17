@@ -2,6 +2,7 @@
 // RESOURCE & TIER DATA
 // ============================================================
 export const RESOURCE_DEFS = {
+  crashed_ship: { color: '#8fa0b7', label: 'Crashed Ship', sellPrice: 0, blurb: 'A derelict hull drifting in the belt. It can be investigated, but it does not produce mineable resources.', special: true },
   iron:     { color: '#b87040', label: 'Iron',     sellPrice: 2,  blurb: 'The backbone of early fleet operations. Abundant in the inner belt and essential for ship construction and base repairs.' },
   copper:   { color: '#c86020', label: 'Copper',   sellPrice: 3,  blurb: 'A conductive ore woven into ship wiring and onboard electronics. Every new hull needs copper in its bones.' },
   oxygen:   { color: '#40a0e0', label: 'Oxygen',   sellPrice: 4,  blurb: 'Pressurized gas siphoned from asteroid ice pockets. Stable under electromagnetic surges and critical for life support.' },

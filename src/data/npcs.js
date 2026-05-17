@@ -205,5 +205,15 @@ export const NPCS = {
     ship: 'Scientist / Cosmologist · Deep Field Observatory',
     portrait: 'assets/images/npcs/zoe.png',
     bio: 'Dr. Zoe Halden is a cosmologist assigned to the Deep Field Observatory network. She studies stellar drift, anomaly signatures, and long-range sector expansion models to predict where the richest deposits and highest-risk zones will emerge next.',
+    transmissionLines: {
+      crashed_ship_detected: (col, row) =>
+        `${C}, Dr. Zoe Halden here. I'm reading a <strong>derelict ship signature</strong> somewhere around <strong>${col},${row}</strong>.<br><br>` +
+        `The hull profile is inconsistent with the local mining fleet, and the debris plume suggests it has been drifting for quite some time.<br><br>` +
+        `I've added the contact to your tactical map as a <strong>Crashed Ship</strong>. Send a ship to investigate when you have a spare flight path.`,
+      black_hole_detected: (col, row, rangeTiles) =>
+        `${C}, Dr. Zoe Halden here. We've just detected a <strong>micro black hole</strong> forming somewhere around <strong>${col},${row}</strong>.<br><br>` +
+        `Its distortion envelope is spreading across roughly <strong>${rangeTiles} tiles</strong>. Anything crossing the field will experience severe drive drag.<br><br>` +
+        `Avoid plotting direct routes through it until the anomaly collapses.`,
+    },
   },
 };

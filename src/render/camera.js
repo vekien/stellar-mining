@@ -47,9 +47,13 @@ export function tickCamera() {
   return Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1; // true while still moving
 }
 
-export function focusOnBase(zoom) {
+export function focusOnBase(zoom, options = {}) {
   const base = gridToWorld(BASE_COL, BASE_ROW);
-  snapTo(base.x, base.y, zoom);
+  if (options.snap) {
+    snapTo(base.x, base.y, zoom);
+    return;
+  }
+  focusOn(base.x, base.y, zoom);
 }
 
 export function adjustZoom(d) {

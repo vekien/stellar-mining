@@ -6,11 +6,12 @@ import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS, tickCamera } from '
 import { BASE_RANGE } from '../data/base.js';
 import { toRoman, SHIP_DEFS } from '../data/ships.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
+import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 import { hexToRgb } from '../helpers.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
 import {
-  drawSolarFlare, drawComet, drawFloaties, drawRangePulses, drawNodeParticles,
+  drawSolarFlare, drawBlackHole, drawComet, drawFloaties, drawRangePulses, drawNodeParticles,
   getShakeOffset, setAnimCtx,
 } from './animations.js';
 import { drawStars } from './stars.js';
@@ -31,6 +32,10 @@ const baseImage = new Image();
 baseImage.src = 'assets/images/buildings/base.png';
 const baseHoverImage = new Image();
 baseHoverImage.src = 'assets/images/buildings/base_hover.png';
+const crashedShipImages = new Map([
+  ['assets/images/crashed_ships/crashed_ship_1.png', Object.assign(new Image(), { src: 'assets/images/crashed_ships/crashed_ship_1.png' })],
+  ['assets/images/crashed_ships/crashed_ship_2.png', Object.assign(new Image(), { src: 'assets/images/crashed_ships/crashed_ship_2.png' })],
+]);
 
 export function initRenderer(mainCtx, w, h) {
   ctx = mainCtx;
@@ -281,8 +286,9 @@ export function drawBase(col, row) {
   const towerFill = baseDown ? '#5a1118' : '#1a3a6e';
   const beaconColor = baseDown ? '#ff5555' : '#8ff';
   const textColor = baseDown ? '#ff7a7a' : '#4af';
+  const showEffects = state.settings?.showVisualEffects !== false;
 
-  if (baseHovered && !baseHoverImage.complete) {
+  if (showEffects && baseHovered && !baseHoverImage.complete) {
     const t = performance.now() / 600;
     const pulse = 0.3+0.15*Math.sin(t);
     const glowR = ctx.createRadialGradient(cx,cy,0,cx,cy,112);
@@ -329,7 +335,7 @@ export function drawBase(col, row) {
 
     ctx.save();
     ctx.shadowColor = baseDown ? 'rgba(255,70,70,0.35)' : 'rgba(80,200,255,0.16)';
-    ctx.shadowBlur = baseHovered ? 10 : 8;
+    ctx.shadowBlur = showEffects ? (baseHovered ? 10 : 8) : 0;
     ctx.drawImage(displayImage, imageX, imageY, imageW, imageH);
     ctx.restore();
 
@@ -343,13 +349,15 @@ export function drawBase(col, row) {
   const tw=18, th=36;
   ctx.fillStyle = towerFill; ctx.fillRect(cx-tw/2,cy-th,tw,th);
   ctx.strokeStyle = strokeColor; ctx.lineWidth=1; ctx.strokeRect(cx-tw/2,cy-th,tw,th);
-  const grd = ctx.createRadialGradient(cx,cy-th-4,1,cx,cy-th-4,14);
-  if (baseDown) {
-    grd.addColorStop(0,`rgba(255,90,90,${0.75 + flashPulse * 0.2})`); grd.addColorStop(1,'rgba(255,90,90,0)');
-  } else {
-    grd.addColorStop(0,'rgba(80,200,255,0.9)'); grd.addColorStop(1,'rgba(80,200,255,0)');
+  if (showEffects) {
+    const grd = ctx.createRadialGradient(cx,cy-th-4,1,cx,cy-th-4,14);
+    if (baseDown) {
+      grd.addColorStop(0,`rgba(255,90,90,${0.75 + flashPulse * 0.2})`); grd.addColorStop(1,'rgba(255,90,90,0)');
+    } else {
+      grd.addColorStop(0,'rgba(80,200,255,0.9)'); grd.addColorStop(1,'rgba(80,200,255,0)');
+    }
+    ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(cx,cy-th-4,14,0,Math.PI*2); ctx.fill();
   }
-  ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(cx,cy-th-4,14,0,Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.moveTo(cx,cy-th); ctx.lineTo(cx,cy-th-12);
   ctx.strokeStyle = textColor; ctx.lineWidth=1.5; ctx.stroke();
   ctx.beginPath(); ctx.arc(cx,cy-th-12,3,0,Math.PI*2); ctx.fillStyle = beaconColor; ctx.fill();
@@ -389,9 +397,12 @@ export function drawNode(node) {
   const {x,y} = gridToIso(col, row);
   const cx = x, cy = y+TILE_H/2;
   const def = RESOURCE_DEFS[node.type];
+  if (!def) return;
   const nodeTier = getResourceTier(node.type) || 1;
   const fleetTier = state.highestAvailableNodeTier || 1;
-  const lockedByFleetTier = nodeTier > fleetTier;
+  const isSpecialNode = node.type === CRASHED_SHIP_NODE_TYPE;
+  const lockedByFleetTier = !isSpecialNode && nodeTier > fleetTier;
+  const showEffects = state.settings?.showVisualEffects !== false;
   if (node.minLevel > state.base.level) return;
   const BASE_C2 = BASE_COL, BASE_R2 = BASE_ROW;
   const halfR2 = BASE_RANGE[state.base.level-1] || 6;
@@ -412,7 +423,7 @@ export function drawNode(node) {
       const accessible = [];
       for (let t = 1; t <= ship.mineTier; t++) accessible.push(...MINE_TIERS[t].resources);
       if (occupied) opacity = 0.2*fadeOpacity;
-      else if (accessible.includes(node.type)) { isHighlighted = true; opacity = fadeOpacity; }
+      else if (isSpecialNode || accessible.includes(node.type)) { isHighlighted = true; opacity = fadeOpacity; }
       else opacity = 0.25*fadeOpacity;
     }
   }
@@ -425,11 +436,11 @@ export function drawNode(node) {
   ctx.globalAlpha = opacity;
   ctx.beginPath(); ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy); ctx.closePath();
   const nodeStrokeColor = lockedByFleetTier ? '#5d6675' : def.color;
-  const nodeFill = lockedByFleetTier ? 'rgba(90,100,120,0.12)' : `rgba(${hexToRgb(def.color)},0.15)`;
+  const nodeFill = isSpecialNode ? 'rgba(120,140,170,0.08)' : lockedByFleetTier ? 'rgba(90,100,120,0.12)' : `rgba(${hexToRgb(def.color)},0.15)`;
   ctx.fillStyle = nodeFill; ctx.fill();
   ctx.strokeStyle = nodeStrokeColor; ctx.lineWidth = isHighlighted ? 1.5 : 0.8; ctx.stroke();
 
-  if (isHighlighted) {
+  if (showEffects && isHighlighted) {
     const pulse = 0.5+0.5*Math.sin(Date.now()/300);
     ctx.beginPath(); ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy); ctx.closePath();
     ctx.strokeStyle = def.color; ctx.lineWidth = 2+pulse*2;
@@ -437,23 +448,86 @@ export function drawNode(node) {
     ctx.globalAlpha = opacity;
   }
 
-  for (let i = 0; i < 3; i++) {
-    const hh=8+i*5, ww=10-i, ox=(i%2)*6-3;
-    ctx.beginPath();
-    ctx.moveTo(cx+ox,cy-hh); ctx.lineTo(cx+ox+ww,cy-hh/2); ctx.lineTo(cx+ox+ww/2,cy); ctx.lineTo(cx+ox-ww/2,cy); ctx.lineTo(cx+ox-ww,cy-hh/2); ctx.closePath();
-    const alpha = 0.55+i*.1;
-    const shardColor = lockedByFleetTier ? '#6a7488' : def.color+Math.floor(alpha*255).toString(16).padStart(2,'0');
-    ctx.fillStyle = shardColor; ctx.fill();
-    ctx.strokeStyle = '#fff3'; ctx.lineWidth=0.5; ctx.stroke();
+  if (showEffects && isSpecialNode) {
+    const pulseDurationMs = 900;
+    const burstCount = 3;
+    const burstStaggerMs = 300;
+    const burstWindowMs = pulseDurationMs + (burstStaggerMs * burstCount);
+    const quietMs = 8000 + (((node.id * 1373) % 4001));
+    const cycleMs = burstWindowMs + quietMs;
+    const pulseMs = (Date.now() + (node.id * 911)) % cycleMs;
+    if (pulseMs <= burstWindowMs) {
+      for (let i = 1; i <= burstCount; i++) {
+        const startMs = i * burstStaggerMs;
+        const localMs = pulseMs - startMs;
+        if (localMs < 0 || localMs > pulseDurationMs) continue;
+        const t = localMs / pulseDurationMs;
+        const scale = 1 + (t * 1.15);
+        const alpha = (1 - t) * 0.55 * opacity;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - (TILE_H / 2) * scale);
+        ctx.lineTo(cx + (TILE_W / 2) * scale, cy);
+        ctx.lineTo(cx, cy + (TILE_H / 2) * scale);
+        ctx.lineTo(cx - (TILE_W / 2) * scale, cy);
+        ctx.closePath();
+        ctx.strokeStyle = 'rgba(90,190,255,0.95)';
+        ctx.lineWidth = 2.2 - (t * 0.9);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  const crashedShipImage = isSpecialNode ? crashedShipImages.get(node.sprite) || crashedShipImages.get('assets/images/crashed_ships/crashed_ship_1.png') : null;
+  if (isSpecialNode && crashedShipImage?.complete && crashedShipImage.naturalWidth > 0) {
+    const width = 54;
+    const height = 54;
+    ctx.drawImage(crashedShipImage, cx - (width / 2), cy - height + 12, width, height);
+
+    if (showEffects) {
+      const smokeAge = Date.now() / 1000;
+      const smokePuffs = [
+        { phase: 0.0, x: -5 },
+        { phase: 0.95, x: 2 },
+        { phase: 1.7, x: 8 },
+      ];
+      for (const puff of smokePuffs) {
+        const t = ((smokeAge + puff.phase) % 2.4) / 2.4;
+        const puffY = cy - 18 - (t * 18);
+        const puffX = cx + puff.x + Math.sin((smokeAge + puff.phase) * 2.2) * 2;
+        const radius = 3 + (t * 5);
+        ctx.save();
+        ctx.globalAlpha = (1 - t) * 0.28 * opacity;
+        ctx.fillStyle = 'rgba(180,190,205,0.95)';
+        ctx.beginPath();
+        ctx.arc(puffX, puffY, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  } else {
+    for (let i = 0; i < 3; i++) {
+      const hh=8+i*5, ww=10-i, ox=(i%2)*6-3;
+      ctx.beginPath();
+      ctx.moveTo(cx+ox,cy-hh); ctx.lineTo(cx+ox+ww,cy-hh/2); ctx.lineTo(cx+ox+ww/2,cy); ctx.lineTo(cx+ox-ww/2,cy); ctx.lineTo(cx+ox-ww,cy-hh/2); ctx.closePath();
+      const alpha = 0.55+i*.1;
+      const shardColor = lockedByFleetTier ? '#6a7488' : def.color+Math.floor(alpha*255).toString(16).padStart(2,'0');
+      ctx.fillStyle = shardColor; ctx.fill();
+      ctx.strokeStyle = '#fff3'; ctx.lineWidth=0.5; ctx.stroke();
+    }
   }
   const nodeLabelY = cy + 5;
   ctx.font = '8px Share Tech Mono,monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,0,0,0.9)';
-  ctx.shadowBlur = 2;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 1;
+  if (showEffects) {
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1;
+  }
   ctx.fillStyle = lockedByFleetTier ? '#7f8da3' : def.color;
   ctx.fillText(def.label.toUpperCase(), cx, nodeLabelY);
   ctx.restore();
@@ -466,6 +540,7 @@ export function drawShipWorld(ship) {
   const baseCol = render.color || '#60d090';
   const col  = ship.status === 'holding' ? '#9aa3ae' : baseCol;
   const isSelected = state.selectedShip === ship.id;
+  const showEffects = state.settings?.showVisualEffects !== false;
 
   // ── Curved trail (world space, drawn before ship body) ──────
   const trail = ship.trail;
@@ -506,13 +581,13 @@ export function drawShipWorld(ship) {
   ctx.save();
   ctx.translate(ship.x, ship.y);
 
-  const isHovered = !isSelected && state.hoveredShip === ship.id;
+  const isHovered = showEffects && !isSelected && state.hoveredShip === ship.id;
   if (isHovered) {
     ctx.beginPath(); ctx.arc(0,0,size+7,0,Math.PI*2);
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8;
     ctx.globalAlpha = 0.85; ctx.stroke(); ctx.globalAlpha = 1;
   }
-  if (isSelected) {
+  if (showEffects && isSelected) {
     const pulse = 0.5+0.5*Math.sin(Date.now()/350);
     ctx.beginPath(); ctx.arc(0,0,size+8+pulse*4,0,Math.PI*2);
     ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 1.5;
@@ -520,13 +595,15 @@ export function drawShipWorld(ship) {
   }
 
   ctx.rotate(ship.heading || 0);
-  const glowRadius = size + (render.glowRadiusExtra ?? 6);
-  const glowOpacity = render.glowOpacity ?? 0.33;
-  const glowRgb = hexToRgb(col) || '255,255,255';
-  const grd = ctx.createRadialGradient(0,0,1,0,0,glowRadius);
-  grd.addColorStop(0, `rgba(${glowRgb},${glowOpacity})`);
-  grd.addColorStop(1, `rgba(${glowRgb},0)`);
-  ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(0,0,glowRadius,0,Math.PI*2); ctx.fill();
+  if (showEffects) {
+    const glowRadius = size + (render.glowRadiusExtra ?? 6);
+    const glowOpacity = render.glowOpacity ?? 0.33;
+    const glowRgb = hexToRgb(col) || '255,255,255';
+    const grd = ctx.createRadialGradient(0,0,1,0,0,glowRadius);
+    grd.addColorStop(0, `rgba(${glowRgb},${glowOpacity})`);
+    grd.addColorStop(1, `rgba(${glowRgb},0)`);
+    ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(0,0,glowRadius,0,Math.PI*2); ctx.fill();
+  }
   ctx.beginPath(); ctx.moveTo(0,-size); ctx.lineTo(size*.6,0); ctx.lineTo(0,size*.5); ctx.lineTo(-size*.6,0); ctx.closePath();
   ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle='#fff6'; ctx.lineWidth=0.7; ctx.stroke();
 
@@ -535,6 +612,7 @@ export function drawShipWorld(ship) {
 
   if (ship.status==='mining') {
     ctx.restore();
+    if (!showEffects) return;
     ctx.save();
     ctx.translate(ship.x, ship.y);
     const node = state.nodes.find(n => n.id === ship.targetNode);
@@ -614,6 +692,7 @@ export function drawShipWorld(ship) {
 
 function drawSelectedShipLine() {
   if (!state.selectedShip) return;
+  if (state.settings?.showVisualEffects === false) return;
   const ship = state.ships.find(s => s.id === state.selectedShip);
   if (!ship || !ship.targetNode) return;
   const node = state.nodes.find(n => n.id === ship.targetNode);
@@ -688,6 +767,7 @@ export function render(ts) {
   drawTurretPlacementHover();
   drawStoragePlacementHover();
   drawSolarFlare();
+  drawBlackHole();
   drawComet();
   drawFloaties();
   drawNodeParticles();
