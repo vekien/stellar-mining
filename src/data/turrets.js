@@ -19,8 +19,8 @@ export const TURRET_UPGRADE_DELTA = {
 // Hard cap on turret range regardless of upgrade level
 export const TURRET_MAX_RANGE = 5;
 
-// Hard cap on turret level
-export const TURRET_MAX_LEVEL = 100;
+// Hard cap on turret rank
+export const TURRET_MAX_LEVEL = 10;
 
 // Scrap refund on first build (base refund, coins)
 export const TURRET_SCRAP_BASE_COINS   = 500;
@@ -54,16 +54,20 @@ export const TURRET_BUILD_COST = {
 export const TURRET_TYPE_DEFS = {
   turret: {
     name: 'Automatic Turret',
+    basePowerUsage: 2,
+    maxPowerUsage: 15,
+    basePowerCapacity: 1000,
+    maxPowerCapacity: 3000,
     baseHealth: 5000,
-    healthPerLevel: 0,
+    maxHealthAtRank10: 10000,
     baseDamage: 100,
     damagePerLevel: 25,
-    baseFireRate: 2,
+    baseFireRate: 1,
     minFireRate: 0.2,
-    fireRateCapLevel: 50,
+    fireRateCapLevel: 10,
     baseStunDuration: 0,
     maxStunDuration: 0,
-    stunCapLevel: 50,
+    stunCapLevel: 10,
     baseRange: 2,
     rangeUpgrade: 1,
     rangeMax: 5,
@@ -79,16 +83,20 @@ export const TURRET_TYPE_DEFS = {
   },
   laser_turret: {
     name: 'Laser Turret',
+    basePowerUsage: 2,
+    maxPowerUsage: 15,
+    basePowerCapacity: 1000,
+    maxPowerCapacity: 3000,
     baseHealth: 8000,
-    healthPerLevel: 350,
+    maxHealthAtRank10: 16000,
     baseDamage: 500,
     damagePerLevel: 40,
     baseFireRate: 15,
     minFireRate: 5,
-    fireRateCapLevel: 50,
+    fireRateCapLevel: 10,
     baseStunDuration: 0,
     maxStunDuration: 0,
-    stunCapLevel: 50,
+    stunCapLevel: 10,
     baseRange: 4,
     rangeUpgrade: 2,
     rangeMax: 12,
@@ -104,16 +112,22 @@ export const TURRET_TYPE_DEFS = {
   },
   emp_turret: {
     name: 'EMP Turret',
+    basePowerUsage: 5,
+    maxPowerUsage: 15,
+    basePowerCapacity: 3000,
+    maxPowerCapacity: 10000,
     baseHealth: 15000,
-    healthPerLevel: 200,
+    maxHealthAtRank10: 30000,
     baseDamage: 0,
     damagePerLevel: 0,
     baseFireRate: 60,
     minFireRate: 45,
-    fireRateCapLevel: 50,
+    fireRateCapLevel: 10,
     baseStunDuration: 2,
     maxStunDuration: 8,
-    stunCapLevel: 50,
+    stunCapLevel: 10,
+    basePowerDrive: 200,
+    maxPowerDrive: 800,
     baseRange: 3,
     rangeUpgrade: 1,
     rangeMax: 15,
@@ -133,7 +147,7 @@ export function getTurretTypeDef(type) {
   return TURRET_TYPE_DEFS[type] || TURRET_TYPE_DEFS.turret;
 }
 
-function scaleToward(level, start, end, capLevel = 50) {
+function scaleToward(level, start, end, capLevel = 10) {
   if (!Number.isFinite(start) || !Number.isFinite(end)) return start;
   const lvl = Math.max(1, level || 1);
   if (lvl <= 1) return start;
@@ -144,19 +158,42 @@ function scaleToward(level, start, end, capLevel = 50) {
 export function getTurretStats(type, level = 1) {
   const def = getTurretTypeDef(type);
   const lvl = Math.max(1, Math.floor(level || 1));
-  const maxHealth = (def.baseHealth || 0) + ((lvl - 1) * (def.healthPerLevel || 0));
+  const maxHealth = Math.round(
+    Number.isFinite(def.maxHealthAtRank10)
+      ? scaleToward(lvl, def.baseHealth || 0, def.maxHealthAtRank10, 10)
+      : (def.baseHealth || 0) + ((lvl - 1) * (def.healthPerLevel || 0))
+  );
   const damage = (def.baseDamage || 0) + ((lvl - 1) * (def.damagePerLevel || 0));
   const range = Math.min(
     (def.baseRange || TURRET_BASE_STATS.range || 2) + ((lvl - 1) * (def.rangeUpgrade || 0)),
     def.rangeMax || TURRET_MAX_RANGE
   );
   const fireRate = (def.baseFireRate || 0) > 0
-    ? parseFloat(scaleToward(lvl, def.baseFireRate, def.minFireRate || def.baseFireRate, def.fireRateCapLevel || 50).toFixed(2))
+    ? parseFloat(scaleToward(lvl, def.baseFireRate, def.minFireRate || def.baseFireRate, def.fireRateCapLevel || 10).toFixed(2))
     : 0;
   const stunDuration = (def.baseStunDuration || 0) > 0 || (def.maxStunDuration || 0) > 0
-    ? parseFloat(scaleToward(lvl, def.baseStunDuration || 0, def.maxStunDuration || def.baseStunDuration || 0, def.stunCapLevel || 50).toFixed(2))
+    ? parseFloat(scaleToward(lvl, def.baseStunDuration || 0, def.maxStunDuration || def.baseStunDuration || 0, def.stunCapLevel || 10).toFixed(2))
     : 0;
-  return { maxHealth, damage, range, fireRate, stunDuration };
+  const powerDrive = Number.isFinite(def.basePowerDrive)
+    ? Math.round(scaleToward(lvl, def.basePowerDrive || 0, def.maxPowerDrive || def.basePowerDrive || 0, 10))
+    : 0;
+  return { maxHealth, damage, range, fireRate, stunDuration, powerDrive };
+}
+
+export function getTurretPowerUsage(turretOrType, level = null) {
+  const type = typeof turretOrType === 'string' ? turretOrType : turretOrType?.type;
+  const def = getTurretTypeDef(type);
+  const lvl = Math.max(1, Math.floor(level ?? (typeof turretOrType === 'object' ? (turretOrType?.level || 1) : 1)));
+  return parseFloat(scaleToward(lvl, def.basePowerUsage || 0, def.maxPowerUsage || def.basePowerUsage || 0, 10).toFixed(1));
+}
+
+export function getTurretPowerCapacity(turretOrLevel = 1) {
+  const type = typeof turretOrLevel === 'object' ? turretOrLevel?.type : 'turret';
+  const def = getTurretTypeDef(type);
+  const level = typeof turretOrLevel === 'number'
+    ? Math.max(1, Math.floor(turretOrLevel || 1))
+    : Math.max(1, Math.floor(turretOrLevel?.level || 1));
+  return Math.round(scaleToward(level, def.basePowerCapacity || 1000, def.maxPowerCapacity || def.basePowerCapacity || 1000, 10));
 }
 
 // ── Future turret types go here ──────────────────────────────

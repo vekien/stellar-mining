@@ -10,6 +10,8 @@ import { moduleContainsCell } from '../data/modules.js';
 
 let ctx = null;
 export function setTurretCtx(c) { ctx = c; }
+const noPowerImage = new Image();
+noPowerImage.src = 'assets/images/buildings/no-power.png';
 
 function rgbFromHex(hex, fallback = '80,220,80') {
   return typeof hex === 'string' && hex.startsWith('#')
@@ -24,6 +26,7 @@ export function drawTurrets() {
 
   for (const turret of state.turrets) {
     const isMoveSourceGhost = state.placingTurret && state.movingTurret === turret.id;
+    const noPower = !isMoveSourceGhost && ((turret.power || 0) <= 0 || (turret.health || 0) <= 0);
     const {x, y} = gridToIso(turret.col, turret.row);
     const cx = x, cy = y+TILE_H/2;
     const typeDef = getTurretTypeDef(turret.type);
@@ -37,6 +40,12 @@ export function drawTurrets() {
     const barrelStroke = isMoveSourceGhost ? '#8a8a8a' : typeDef.barrelStroke;
 
     // Base platform
+    ctx.save();
+    if (noPower) {
+      ctx.filter = 'grayscale(1) brightness(0.72)';
+      ctx.globalAlpha = 0.82;
+    }
+
     ctx.beginPath();
     ctx.moveTo(cx,cy-TILE_H/2); ctx.lineTo(cx+TILE_W/2,cy); ctx.lineTo(cx,cy+TILE_H/2); ctx.lineTo(cx-TILE_W/2,cy);
     ctx.closePath();
@@ -124,11 +133,21 @@ export function drawTurrets() {
     }
     ctx.restore();
 
+    ctx.restore();
+
     // Health bar
     const hpPct = turret.health / turret.maxHealth;
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(cx-12,cy+6,24,3);
     ctx.fillStyle = hpPct > 0.5 ? '#4d8' : hpPct > 0.25 ? '#fa4' : '#f44';
     ctx.fillRect(cx-12,cy+6,24*hpPct,3);
+
+    if (noPower && noPowerImage.complete && noPowerImage.naturalWidth > 0) {
+      const overlaySize = 32;
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      ctx.drawImage(noPowerImage, cx - (overlaySize / 2), cy - 42, overlaySize, overlaySize);
+      ctx.restore();
+    }
 
     function traceDiamondForRange(col, row, r) {
       const minC = Math.max(0, col - r);
