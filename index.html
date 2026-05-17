@@ -73,17 +73,17 @@
     <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
       <div id="ship-upgrade-content"></div>
     </div>
-    <div id="turret-modal-overlay" style="display:none;position:fixed;top:44px;left:0;right:350px;bottom:0;background:transparent;z-index:200;align-items:flex-start;justify-content:flex-start;padding-top:0;pointer-events:none;">
-      <div id="turret-modal" onclick="event.stopPropagation()" style="position:absolute;width:600px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;left:24px;top:24px;">
+    <div id="turret-modal-overlay">
+      <div id="turret-modal" onclick="event.stopPropagation()">
         <div class="panel-shell-head turret-modal-drag-handle">
           <div id="turret-modal-title" class="panel-shell-title">TURRET</div>
           <button class="panel-shell-close" onclick="closeTurretModal(null)">✕</button>
         </div>
-        <div id="turret-modal-body" style="padding:14px;"></div>
+        <div id="turret-modal-body"></div>
       </div>
     </div>
-    <div id="storage-modal-overlay" style="display:none;position:fixed;top:44px;left:0;right:350px;bottom:0;background:transparent;z-index:200;align-items:flex-start;justify-content:flex-start;padding-top:0;pointer-events:none;">
-      <div id="storage-modal-host" style="position:relative;width:100%;height:100%;pointer-events:none;"></div>
+    <div id="storage-modal-overlay">
+      <div id="storage-modal-host"></div>
     </div>
 
 <div id="base-panel-overlay" onclick="handleBasePanelOverlayClick(event)">
@@ -99,10 +99,10 @@
           <div class="adm-ship" id="admiral-ship"></div>
         </div>
       </div>
-      <div class="adm-divider" style="margin-bottom:10px;"></div>
+      <div class="adm-divider adm-divider-gap"></div>
       <div class="adm-body" id="admiral-body"></div>
       <div class="adm-progress-bar"><div class="adm-progress-fill" id="admiral-progress"></div></div>
-      <div style="padding:0 14px 10px;"><button class="adm-close-btn" onclick="dismissAdmiral()">Close</button></div>
+      <div class="admiral-close-wrap"><button class="adm-close-btn" onclick="dismissAdmiral()">Close</button></div>
     </div>
     <div id="tutorial-banner" onclick="dismissTutorial()">
       <div class="tut-card" onclick="event.stopPropagation()">
@@ -118,7 +118,7 @@
         <div class="tut-hint">Good luck out there, Commander.</div>
       </div>
     </div>
-    <div id="log" style="display:none" onclick="openLogHistory()" title="Open full log history">
+    <div id="log" class="is-hidden" onclick="openLogHistory()" title="Open full log history">
       <div class="log-entry" id="log0"></div>
       <div class="log-entry" id="log1"></div>
       <div class="log-entry" id="log2"></div>
@@ -135,16 +135,16 @@
       </div>
     </div>
     <div class="panel">
-      <div class="panel-title" style="display:flex;align-items:center;">
-        <span style="flex:1;">◈ FLEET</span>
-        <button id="fleet-filter-toggle" onclick="toggleFleetFilters()" style="font-size:10px;padding:2px 7px;letter-spacing:1px;background:rgba(10,20,50,0.6);border:1px solid #2a4a7a;color:#4a8ab0;border-radius:3px;cursor:pointer;font-family:inherit;">FILTERS</button>
+      <div class="panel-title panel-title-flex">
+        <span class="panel-title-main">◈ FLEET</span>
+        <button id="fleet-filter-toggle" class="fleet-filter-toggle" onclick="toggleFleetFilters()">FILTERS</button>
       </div>
-      <div id="fleet-filters" style="display:none;"></div>
+      <div id="fleet-filters" class="is-hidden"></div>
       <div id="ships-list"></div>
     </div>
     <div id="action-panel">
       <div class="panel-title" id="action-panel-title">◉ COMMAND</div>
-      <div id="action-content"><div style="color:#456;font-size:13px;">Select a ship to view its data.</div></div>
+      <div id="action-content"><div class="action-empty">Select a ship to view its data.</div></div>
     </div>
   </div>
 </div>
@@ -166,7 +166,7 @@
     <h2 class="about-title">COMMAND LOG</h2>
     <div class="about-divider"></div>
     <div id="log-history-list"></div>
-    <button class="btn" style="margin-top:14px;width:100%" onclick="closeLogHistory()">CLOSE</button>
+    <button class="btn btn-full btn-top-14" onclick="closeLogHistory()">CLOSE</button>
   </div>
 </div>
 
@@ -189,7 +189,7 @@
         <p class="about-tag">One base. One fleet. Infinite expansion.</p>
       </div>
     </div>
-    <button class="btn" style="margin-top:18px;width:100%" onclick="closeAbout()">CLOSE</button>
+    <button class="btn btn-full btn-top-18" onclick="closeAbout()">CLOSE</button>
   </div>
 </div>
 
@@ -198,40 +198,40 @@
     <button class="about-close" onclick="closeSettings()">✕</button>
     <h2 class="about-title">SETTINGS</h2>
     <div class="about-divider"></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;">
-      <div style="font-size:17px;color:#8ab;">Show Tile Grid</div>
-      <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
+    <div class="settings-row">
+      <div class="settings-row-label">Show Tile Grid</div>
+      <label class="settings-row-toggle">
         <input id="setting-show-grid" type="checkbox" onchange="toggleShowGrid(this.checked)">
         On
       </label>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;">
-      <div style="font-size:17px;color:#8ab;">Show Background Stars</div>
-      <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
+    <div class="settings-row">
+      <div class="settings-row-label">Show Background Stars</div>
+      <label class="settings-row-toggle">
         <input id="setting-bg-stars" type="checkbox" onchange="toggleBackgroundStars(this.checked)">
         On
       </label>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;">
-      <div style="font-size:17px;color:#8ab;">Visual Effects</div>
-      <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
+    <div class="settings-row">
+      <div class="settings-row-label">Visual Effects</div>
+      <label class="settings-row-toggle">
         <input id="setting-visual-effects" type="checkbox" onchange="toggleVisualEffects(this.checked)">
         On
       </label>
     </div>
-    <button class="btn" style="margin-top:14px;width:100%" onclick="closeSettings()">CLOSE</button>
+    <button class="btn btn-full btn-top-14" onclick="closeSettings()">CLOSE</button>
   </div>
 </div>
 
 <div id="sell-overlay">
   <div id="sell-box">
     <div id="sell-overlay-title" class="rename-title">♻ Salvage Ship</div>
-    <div id="sell-ship-name" style="font-size:15px;color:#cde;margin-bottom:8px;"></div>
-    <div id="sell-ship-value" style="font-size:17px;color:#6fff9a;margin-bottom:10px;"></div>
-    <div id="sell-overlay-hint" class="rename-hint" style="margin-bottom:14px;">This cannot be undone.</div>
-    <div style="display:flex;gap:8px;">
-      <button id="sell-overlay-confirm" class="btn danger" style="flex:1;" onclick="confirmSellOverlay()">CONFIRM SALVAGE</button>
-      <button class="btn" style="flex:1;" onclick="closeSellOverlay()">CANCEL</button>
+    <div id="sell-ship-name" class="sell-overlay-name"></div>
+    <div id="sell-ship-value" class="sell-overlay-value"></div>
+    <div id="sell-overlay-hint" class="rename-hint sell-overlay-hint">This cannot be undone.</div>
+    <div class="sell-overlay-actions">
+      <button id="sell-overlay-confirm" class="btn danger" onclick="confirmSellOverlay()">CONFIRM SALVAGE</button>
+      <button class="btn" onclick="closeSellOverlay()">CANCEL</button>
     </div>
   </div>
 </div>
@@ -242,7 +242,7 @@
   <div id="currency-max-popup" onclick="event.stopPropagation()">
     <div class="currency-max-popup-title">SALE BLOCKED</div>
     <div class="currency-max-popup-body">Cannot sell! Currency is maxed out.<br>Consider alternate means of liquidation.</div>
-    <button class="btn" style="width:100%;margin-top:12px;" onclick="closeCurrencyMaxPopup()">CLOSE</button>
+    <button class="btn btn-full btn-top-12" onclick="closeCurrencyMaxPopup()">CLOSE</button>
   </div>
 </div>
 
