@@ -7,7 +7,7 @@ import { gridToWorld } from './render/camera.js';
 import { RESOURCE_DEFS } from './data/resources.js';
 import { SHIP_DEFS, normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel, loadSpeedFromLevel } from './data/ships.js';
 import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
-import { getTurretTypeDef, getTurretStats } from './data/turrets.js';
+import { TURRET_MAX_LEVEL, getTurretTypeDef, getTurretStats, getTurretPowerCapacity, getTurretPowerUsage } from './data/turrets.js';
 import { normalizeModule, STORAGE_FACILITY_ID } from './data/modules.js';
 import { clampCoins } from './helpers.js';
 
@@ -37,6 +37,7 @@ export let state = {
   renamingShip: null,
   renamingBase: false,
   renamingStorage: null,
+  renamingTurret: null,
   pendingAssign: null,
   basePanelOpen: false,
   bpTab: 'overview',
@@ -56,6 +57,7 @@ export let state = {
   settings: {
     showGrid: true,
     showBackgroundStars: true,
+    showVisualEffects: true,
   },
 
   highestAvailableNodeTier: 1,
@@ -104,6 +106,7 @@ export let state = {
 
   // Runtime visual effects
   baseRangeAnim: null,
+  blackHole: null,
 
   // Base
   base: {
@@ -153,6 +156,7 @@ export function saveGame() {
       firstNodeSwitch: state.firstNodeSwitch, seenMsgs: state.seenMsgs,
       shownAboutWindow: state.shownAboutWindow,
       nextEventTimer: state.nextEventTimer, nextEventSol: state.nextEventSol, eventCounts: state.eventCounts,
+      blackHole: state.blackHole,
       researchUnlocks: state.researchUnlocks,
       hpBoostCount: state.hpBoostCount, shieldBoostCount: state.shieldBoostCount,
       antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
@@ -203,6 +207,7 @@ export function loadGame() {
     state.settings = {
       showGrid: d.settings?.showGrid ?? true,
       showBackgroundStars: d.settings?.showBackgroundStars ?? true,
+      showVisualEffects: d.settings?.showVisualEffects ?? true,
     };
     state.solStarted = d.solStarted ?? false;
     state.tutStep = d.tutStep ?? 0;
@@ -214,6 +219,7 @@ export function loadGame() {
     state.nextEventTimer = d.nextEventTimer ?? null;
     state.nextEventSol = d.nextEventSol ?? null;
     state.eventCounts = d.eventCounts ?? {};
+    state.blackHole = d.blackHole ?? null;
     state.researchUnlocks = d.researchUnlocks ?? {};
     // ── Migrations ──────────────────────────────────────────────
     // hp_boost → health_increase
@@ -236,7 +242,8 @@ export function loadGame() {
     // Migrate old turrets
     state.turrets.forEach(t => {
       if (!t.type) t.type = 'turret';
-      const level = Math.max(1, t.level || 1);
+      const level = Math.min(TURRET_MAX_LEVEL, Math.max(1, t.level || 1));
+      t.level = level;
       const stats = getTurretStats(t.type, level);
       const priorHealth = Number.isFinite(t.health) ? t.health : stats.maxHealth;
       t.maxHealth = stats.maxHealth;
@@ -245,6 +252,9 @@ export function loadGame() {
       t.range = stats.range;
       t.fireRate = stats.fireRate;
       t.stunDuration = stats.stunDuration;
+      t.powerUsage = getTurretPowerUsage(t.type, level);
+      t.powerCapacity = Math.max(t.powerCapacity || 0, getTurretPowerCapacity({ type: t.type, level }));
+      t.power = Math.max(0, Math.min(Number.isFinite(t.power) ? t.power : t.powerCapacity, t.powerCapacity));
     });
     state.unplacedTurretQueue = Array.isArray(d.unplacedTurretQueue)
       ? d.unplacedTurretQueue.slice()

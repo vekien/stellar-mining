@@ -43,6 +43,7 @@
           <button id="dev-btn-flood-nodes">World: Iron Flood</button>
           <button id="dev-btn-solar-flare">Event: Solar Flare</button>
           <button id="dev-btn-comet">Event: Comet</button>
+          <button id="dev-btn-black-hole">Event: Black Hole</button>
           <button id="dev-btn-transmission">UI: Test Transmission</button>
         </div>
       </div>
@@ -69,18 +70,18 @@
       <div id="fps-readout">FPS 60</div>
     </div>
     <div id="ship-upgrade-drawer">
-      <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
+    <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
       <div id="ship-upgrade-content"></div>
     </div>
-    <div id="turret-modal-overlay" onclick="closeTurretModal(event)" style="display:none;position:fixed;top:44px;left:0;right:350px;bottom:0;background:rgba(0,0,0,0.55);z-index:200;align-items:flex-start;justify-content:center;padding-top:24px;">
-  <div id="turret-modal" onclick="event.stopPropagation()" style="width:340px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a6a2a;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #1a4a1a;background:rgba(20,50,20,0.4);">
-      <div id="turret-modal-title" style="font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:2px;color:#5acc5a;">TURRET</div>
-      <button onclick="closeTurretModal(null)" style="background:none;border:none;color:#4a6a4a;font-size:14px;cursor:pointer;" onmouseover="this.style.color='#cde'" onmouseout="this.style.color='#4a6a4a'">✕</button>
+    <div id="turret-modal-overlay" style="display:none;position:fixed;top:44px;left:0;right:350px;bottom:0;background:transparent;z-index:200;align-items:flex-start;justify-content:flex-start;padding-top:0;pointer-events:none;">
+      <div id="turret-modal" onclick="event.stopPropagation()" style="position:absolute;width:600px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;left:24px;top:24px;">
+        <div class="panel-shell-head turret-modal-drag-handle">
+          <div id="turret-modal-title" class="panel-shell-title">TURRET</div>
+          <button class="panel-shell-close" onclick="closeTurretModal(null)">✕</button>
+        </div>
+        <div id="turret-modal-body" style="padding:14px;"></div>
+      </div>
     </div>
-    <div id="turret-modal-body" style="padding:14px;"></div>
-  </div>
-</div>
     <div id="storage-modal-overlay" style="display:none;position:fixed;top:44px;left:0;right:350px;bottom:0;background:transparent;z-index:200;align-items:flex-start;justify-content:flex-start;padding-top:0;pointer-events:none;">
       <div id="storage-modal-host" style="position:relative;width:100%;height:100%;pointer-events:none;"></div>
     </div>
@@ -208,6 +209,13 @@
       <div style="font-size:17px;color:#8ab;">Show Background Stars</div>
       <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
         <input id="setting-bg-stars" type="checkbox" onchange="toggleBackgroundStars(this.checked)">
+        On
+      </label>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;">
+      <div style="font-size:17px;color:#8ab;">Visual Effects</div>
+      <label style="display:flex;align-items:center;gap:8px;color:#cde;font-size:17px;cursor:pointer;">
+        <input id="setting-visual-effects" type="checkbox" onchange="toggleVisualEffects(this.checked)">
         On
       </label>
     </div>

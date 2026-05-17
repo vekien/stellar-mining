@@ -10,6 +10,8 @@ export function openRenameOverlay(shipId) {
   if (!ship) return;
   state.renamingShip = shipId;
   state.renamingBase = false;
+  state.renamingStorage = null;
+  state.renamingTurret = null;
   const overlay = document.getElementById('rename-overlay');
   const input   = document.getElementById('rename-input-field');
   const titleEl = document.querySelector('#rename-box .rename-title');
@@ -32,6 +34,8 @@ export function openBaseRenameOverlay() {
   renderBasePanel();
   state.renamingShip = null;
   state.renamingBase = true;
+  state.renamingStorage = null;
+  state.renamingTurret = null;
   const overlay = document.getElementById('rename-overlay');
   const input   = document.getElementById('rename-input-field');
   const titleEl = document.querySelector('#rename-box .rename-title');
@@ -56,6 +60,7 @@ export function openStorageRenameOverlay(storageId) {
   state.renamingShip = null;
   state.renamingBase = false;
   state.renamingStorage = storageId;
+  state.renamingTurret = null;
   const overlay = document.getElementById('rename-overlay');
   const input   = document.getElementById('rename-input-field');
   const titleEl = document.querySelector('#rename-box .rename-title');
@@ -73,10 +78,36 @@ export function openStorageRenameOverlay(storageId) {
   overlay.onclick = e => { if (e.target === overlay) commitRename(input.value); };
 }
 
+export function openTurretRenameOverlay(turretId) {
+  const turret = state.turrets.find(entry => entry.id === turretId);
+  if (!turret) return;
+  state.selectedTurret = turretId;
+  state.renamingShip = null;
+  state.renamingBase = false;
+  state.renamingStorage = null;
+  state.renamingTurret = turretId;
+  const overlay = document.getElementById('rename-overlay');
+  const input   = document.getElementById('rename-input-field');
+  const titleEl = document.querySelector('#rename-box .rename-title');
+  input.value = turret.name || 'Turret';
+  input.placeholder = 'Enter turret name...';
+  if (titleEl) titleEl.textContent = '✎ Name Your Turret';
+  overlay.classList.add('show');
+  setTimeout(() => { input.focus(); input.select(); }, 30);
+
+  input.onkeydown = e => {
+    if (e.key === 'Enter')  { e.preventDefault(); commitRename(input.value); }
+    if (e.key === 'Escape') { closeRenameOverlay(); }
+    e.stopPropagation();
+  };
+  overlay.onclick = e => { if (e.target === overlay) commitRename(input.value); };
+}
+
 export function closeRenameOverlay() {
   state.renamingShip = null;
   state.renamingBase = false;
   state.renamingStorage = null;
+  state.renamingTurret = null;
   document.getElementById('rename-overlay').classList.remove('show');
 }
 
@@ -88,6 +119,9 @@ export function commitRename(newName) {
   } else if (state.renamingStorage) {
     const storage = state.modules.find(s => s.id === state.renamingStorage);
     if (storage) storage.name = cleanName || storage.name;
+  } else if (state.renamingTurret) {
+    const turret = state.turrets.find(entry => entry.id === state.renamingTurret);
+    if (turret) turret.name = cleanName || turret.name;
   } else {
     const ship = state.ships.find(s => s.id === state.renamingShip);
     if (ship) ship.name = cleanName || ship.name;
@@ -98,11 +132,13 @@ export function commitRename(newName) {
     renderBasePanel();
   }
   if (window.patchStorageModal) window.patchStorageModal();
+  if (window.patchTurretModal && state.selectedTurret) window.patchTurretModal();
   if (refresh.ui) refresh.ui();
 }
 
 window.openRenameOverlay = openRenameOverlay;
 window.openBaseRenameOverlay = openBaseRenameOverlay;
 window.openStorageRenameOverlay = openStorageRenameOverlay;
+window.openTurretRenameOverlay = openTurretRenameOverlay;
 window.closeRenameOverlay = closeRenameOverlay;
 window.commitRename = commitRename;

@@ -17,7 +17,7 @@ import {
 import { SHIP_TIER_REQS } from '../data/base.js';
 import { BASE_POS, cam, ZOOM_MAX_V, focusOn, gridToWorld } from '../render/camera.js';
 import { TILE_H } from '../constants.js';
-import { fmt, addLog } from '../helpers.js';
+import { fmt, addLog, getResourceIconPath, resourceIconHtml } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { getSellPrice } from '../systems/market.js';
 import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial, renderTutPointers } from './tutorial.js';
@@ -103,7 +103,7 @@ export function getShipTransportStatusHtml(ship) {
       const def = RESOURCE_DEFS[resourceType];
       return `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid rgba(26,58,110,0.35);">
         <span style="display:flex;align-items:center;gap:7px;color:${def?.color || '#cde'};min-width:0;">
-          <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${def?.color || '#cde'};flex:0 0 auto;"></span>
+          ${resourceIconHtml(resourceType, 14)}
           <span>${def?.label || resourceType}</span>
         </span>
         <span style="color:#ffe066;flex:0 0 auto;">${fmt(amount)}</span>
@@ -429,8 +429,11 @@ export function renderShipsList() {
     row2.appendChild(statusBadge);
 
     if (resDef) {
-      const dot = document.createElement('span');
-      dot.style.cssText = `display:inline-block;width:7px;height:7px;border-radius:50%;background:${resDef.color};flex-shrink:0;`;
+      const dot = document.createElement('img');
+      dot.src = getResourceIconPath(targetNode?.type);
+      dot.alt = resDef.label;
+      dot.className = 'resource-icon';
+      dot.style.cssText = 'width:14px;height:14px;flex-shrink:0;';
       const resLabel = document.createElement('span');
       resLabel.style.cssText = `font-size:15px;color:${resDef.color};`;
       resLabel.textContent = resDef.label;
@@ -1144,7 +1147,7 @@ export function renderTab() {
         ? `<span style="color:#6fff9a;font-size:12px;flex-shrink:0">$${price} <span title="Market boosted this SOL — ${boostMult}× sell price!" style="cursor:help;">✦</span></span>`
         : `<span style="color:#6fff9a;font-size:12px;flex-shrink:0">$${price}</span>`;
       html += `<div class="sell-row">
-        <span style="width:9px;height:9px;border-radius:50%;background:${def.color};display:inline-block;flex-shrink:0"></span>
+        ${resourceIconHtml(type, 14)}
         ${priceHtml}
         <span class="res-name-s">${def.label}</span>
         <span class="res-qty">${fmt(amt)}</span>

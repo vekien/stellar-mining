@@ -210,6 +210,18 @@
     align-items: center;
     gap: 8px;
   }
+  .power-station-info-badge {
+    margin-left: 0;
+    padding: 1px 3px;
+    border: 1px solid #2f6ea8;
+    border-radius: 3px;
+    background: rgba(55,120,190,0.16);
+    color: #8bd6ff;
+    font-size: 11px;
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.08em;
+    cursor: help;
+  }
   .power-station-value-label {
     font-size: 16px;
     color: #d9c3ff;
@@ -399,10 +411,10 @@
   }
   .power-station-fuel-table tbody td {
     color: #ffe066;
-    font-weight: bold;
+    font-weight: 400;
     text-align: center;
     vertical-align: top;
-    font-size: 15px;
+    font-size: 17px;
   }
   .power-station-fuel-sub {
     margin-top: 2px;
@@ -425,6 +437,13 @@
   .resources-stock-card { border: 1px solid #1a3a6e; border-left: 5px solid #1a3a6e; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; background: rgba(10,20,50,0.6); }
   .resources-stock-card.no-ships { background: rgba(60,10,10,0.45); border-color: #803020; border-left-color: #f44; }
   .resources-stock-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .resource-icon {
+    display: inline-block;
+    object-fit: contain;
+    vertical-align: middle;
+    flex-shrink: 0;
+    image-rendering: auto;
+  }
   .resources-stock-name { font-family: 'Orbitron',sans-serif; font-size: 12px; color: #cde; letter-spacing: 1px; flex: 1; }
   .resources-stock-alert { color: #f44; font-size: 14px; margin-left: 4px; cursor: help; }
   .resources-stock-value { font-size: 15px; font-weight: bold; font-family: 'Share Tech Mono',monospace; }
@@ -501,11 +520,15 @@
 
   /* codex > resources */
   .codex-resources-card { background: rgba(10,20,50,0.5); border: 1px solid #1e3a6e; border-left: 5px solid #1e3a6e; border-radius: 5px; padding: 12px 14px; margin-bottom: 8px; }
-  .codex-resources-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .codex-resources-header { display: flex; align-items: flex-start; gap: 15px; margin-bottom: 10px; }
+  .codex-resources-icon-wrap { width: 64px; height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: center; }
+  .codex-resources-icon-wrap .resource-icon { width: 64px !important; height: 64px !important; }
+  .codex-resources-copy { flex: 1; min-width: 0; }
+  .codex-resources-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 0; }
   .codex-resources-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
-  .codex-resources-name { font-family: 'Orbitron',sans-serif; font-size: 13px; font-weight: 700; color: #e8eef8; letter-spacing: 1px; flex: 1; }
+  .codex-resources-name { font-family: 'Orbitron',sans-serif; font-size: 16px; font-weight: 700; color: #e8eef8; letter-spacing: 1px; flex: 1; }
   .codex-resources-tier-pill { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-family: 'Orbitron',sans-serif; letter-spacing: 1px; }
-  .codex-resources-blurb { font-size: 14px; color: #6a8aaa; line-height: 1.25; margin-bottom: 10px; }
+  .codex-resources-blurb { font-size: 14px; color: #6a8aaa; line-height: 1.35; margin-bottom: 0; max-width: 650px; }
   .codex-resources-stats { display: flex; align-items: stretch; font-size: 11px; border-top: 1px solid #1a3a5a; padding-top: 10px; }
   .codex-resources-stat { flex: 1; }
   .codex-resources-stat:nth-child(1) { padding-right: 16px; }
@@ -1489,6 +1512,7 @@
     background:#000000;
     border-radius:3px;
     overflow:hidden;
+    margin-bottom:3px;
   }
   .module-health-bar,
   .module-meter-bar {
@@ -2431,12 +2455,13 @@
     border-color: #1f2f4f;
     box-shadow: 0 10px 24px rgba(0,0,0,0.45);
     padding: 6px 9px;
-    line-height: 1.3;
+    line-height: 1.5;
   }
   #tooltip.tt-compact .tt-name {
     margin-bottom: 0;
     color: #d6e6ff;
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: 400;
     letter-spacing: 0.3px;
   }
 

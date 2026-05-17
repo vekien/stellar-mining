@@ -6,7 +6,7 @@ import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { BASE_MAX_SHIPS } from '../data/base.js';
 import { getResearchPointCap } from '../data/research.js';
 import { SOL_DURATION } from '../constants.js';
-import { fmt, showTooltip, hideTooltip, setHeaderCoinCb } from '../helpers.js';
+import { fmt, resourceIconHtml, showTooltip, hideTooltip, setHeaderCoinCb } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { renderShipsList, renderFleetFilters, renderActionPanel } from './fleet.js';
 import { renderBasePanel } from './basePanel.js';
@@ -63,7 +63,7 @@ export function renderResources() {
     const pill = document.createElement('div');
     pill.className = 'res-pill';
     pill.innerHTML = `
-      <div class="res-pill-dot" style="background:${def.color};box-shadow:0 0 5px ${def.color}88"></div>
+      ${resourceIconHtml(type, 14)}
       <span class="res-pill-qty" id="res-qty-${type}">${fmt(state.resources[type] || 0)}</span>
     `;
     pill.addEventListener('mousemove', e => showTooltip(e, type));

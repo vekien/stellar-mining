@@ -222,6 +222,10 @@ function devSpawnComet() {
   fireEventById('comet');
 }
 
+function devSpawnBlackHole() {
+  fireEventById('black_hole');
+}
+
 export function initDevPanel() {
   const panel = document.getElementById('dev-panel');
   const menu  = document.getElementById('dev-menu');
@@ -248,4 +252,5 @@ export function initDevPanel() {
   document.getElementById('dev-btn-flood-nodes').addEventListener('click',    e => { e.stopPropagation(); devFloodIronNodes(); });
   document.getElementById('dev-btn-solar-flare').addEventListener('click',    e => { e.stopPropagation(); devSpawnSolarFlare(); });
   document.getElementById('dev-btn-comet').addEventListener('click',          e => { e.stopPropagation(); devSpawnComet(); });
+  document.getElementById('dev-btn-black-hole').addEventListener('click',     e => { e.stopPropagation(); devSpawnBlackHole(); });
 }

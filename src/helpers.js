@@ -143,17 +143,37 @@ export function addLog(msg) {
 // ── Tooltip ──
 export const tooltipEl = () => document.getElementById('tooltip');
 
+export function getResourceIconPath(resourceType) {
+  return `assets/images/resources/${resourceType}.png`;
+}
+
+export function resourceIconHtml(resourceType, size = 14, extraStyle = '') {
+  const def = RESOURCE_DEFS[resourceType];
+  if (!def) return '';
+  return `<img class="resource-icon" src="${getResourceIconPath(resourceType)}" alt="${def.label}" style="width:${size}px;height:${size}px;${extraStyle}">`;
+}
+
 export function showTooltip(e, resourceType, options = {}) {
   const def = RESOURCE_DEFS[resourceType];
   if (!def) return;
   const state = _stateRef;
+  if (def.special) {
+    const tt = tooltipEl();
+    tt.innerHTML = `
+      <div class="tt-name">${resourceIconHtml(resourceType, 14, 'margin-right:6px;position:relative;top:2px;')}${def.label}</div>
+      <div style="color:#cde;max-width:260px;white-space:normal;line-height:1.4;">${def.blurb}</div>
+    `;
+    tt.style.display = 'block';
+    moveTooltip(e);
+    return;
+  }
   const tierEntry = Object.entries(MINE_TIERS).find(([,v]) => v.resources.includes(resourceType));
   const tierLabel = tierEntry ? MINE_TIERS[tierEntry[0]].label : '';
   const tierColor = tierEntry ? (TIER_COLORS[parseInt(tierEntry[0])] || '#e8eaf0') : '#8ab';
   const stock = state ? (state.resources[resourceType] || 0) : 0;
   const tt = tooltipEl();
   tt.innerHTML = `
-    <div class="tt-name"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${def.color};margin-right:5px;vertical-align:middle"></span>${def.label}</div>
+    <div class="tt-name">${resourceIconHtml(resourceType, 14, 'margin-right:6px;position:relative;top:2px;')}${def.label}</div>
     <div>Sell price: <span class="tt-price" style="color:#6fff9a;">$${def.sellPrice} per unit</span></div>
     ${stock > 0 ? `<div>In depot: <span style="color:#cde">${fmt(stock)}</span> <span style="color:#6fff9a;">($${fmt(stock * def.sellPrice)})</span></div>` : ''}
     <div class="tt-tier" style="color:${tierColor}">⬡ ${tierLabel}</div>
