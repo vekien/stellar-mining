@@ -22,4 +22,4 @@ export {
   getRepeatableCount,
   getRepeatableMax,
   getResearchPointCap,
-} from './researchTree.js';
+} from '../systems/research/definitions.js';
