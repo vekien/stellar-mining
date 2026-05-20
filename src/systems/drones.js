@@ -4,43 +4,65 @@
 import { state } from '../state.js';
 import { nodeWorldPos, gridToWorld } from '../render/camera.js';
 import { isDroneLabModule } from '../data/modules.js';
-import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 
-const DRONE_FLY_SPEED      = 100;
-const DRONE_ARRIVAL_RADIUS = 8;
+const DRONE_FLY_SPEED        = 100;
+const DRONE_ARRIVAL_RADIUS   = 8;
 const DRONE_LAUNCH_DELAY_MIN = 1.5;
 const DRONE_LAUNCH_DELAY_MAX = 3.5;
 
+// ── Task type definitions (extend here for anomalies, relics, ruins…) ──
+export const DRONE_TASK_DEFS = {
+  crashed_ship: {
+    flyLabel:  'Flying to Crashed Ship',
+    scanLabel: 'Scanning and Salvaging: Crashed Ship',
+  },
+  // anomaly:  { flyLabel: 'Flying to Anomaly',  scanLabel: 'Investigating Anomaly' },
+  // relic:    { flyLabel: 'Flying to Relic',    scanLabel: 'Examining Relic'       },
+  // ruin:     { flyLabel: 'Flying to Ruins',    scanLabel: 'Surveying Ruins'       },
+};
+
+// Active drone count for a lab — derived from live state, never a stored field
+export function getActiveLabDroneCount(labId) {
+  return (state.drones || []).filter(d => d.labId === labId).length;
+}
+
 function getFirstAvailableDroneLab() {
-  return state.modules.find(m => isDroneLabModule(m) && (m.health || 0) > 0) || null;
+  return state.modules.find(m =>
+    isDroneLabModule(m) &&
+    (m.health || 0) > 0 &&
+    getActiveLabDroneCount(m.id) < (m.droneCapacity || 2),
+  ) || null;
 }
 
 // ── Spawn ──────────────────────────────────────────────────────
-export function spawnDrone(targetNode) {
+// taskType must be a key of DRONE_TASK_DEFS (defaults to 'crashed_ship')
+export function spawnDrone(targetNode, taskType = 'crashed_ship') {
   const lab = getFirstAvailableDroneLab();
   if (!lab) return null;
 
-  // One drone per crashed ship node at most
+  // One drone per node at most
   const alreadyAssigned = (state.drones || []).some(d => d.taskNodeId === targetNode.id);
   if (alreadyAssigned) return null;
 
   if (!state.drones) state.drones = [];
   if (!Number.isFinite(state.droneIdCounter) || state.droneIdCounter < 1) state.droneIdCounter = 1;
 
-  const id  = state.droneIdCounter++;
+  const id      = state.droneIdCounter++;
   const labPos  = gridToWorld(lab.col, lab.row);
   const nodePos = nodeWorldPos(targetNode);
   const destX   = nodePos.x;
   const destY   = nodePos.y - 20;
+  const taskDef = DRONE_TASK_DEFS[taskType] || DRONE_TASK_DEFS.crashed_ship;
 
   const drone = {
     id,
     labId:           lab.id,
     name:            `Drone #${id}`,
     status:          'idle',    // 'idle' | 'flying' | 'scanning'
+    taskType,
+    taskLabel:       taskDef.scanLabel,
     launchDelay:     DRONE_LAUNCH_DELAY_MIN + Math.random() * (DRONE_LAUNCH_DELAY_MAX - DRONE_LAUNCH_DELAY_MIN),
     taskNodeId:      targetNode.id,
-    taskLabel:       'Scanning and Salvaging a: Crashed Ship',
     x:               labPos.x,
     y:               labPos.y,
     destX,
@@ -52,7 +74,6 @@ export function spawnDrone(targetNode) {
   };
 
   state.drones.push(drone);
-  lab.droneCount = (lab.droneCount || 0) + 1;
   return drone;
 }
 
@@ -87,8 +108,8 @@ export function tickDrone(drone, dt) {
     while (da < -Math.PI) da += Math.PI * 2;
     drone.heading += Math.sign(da) * Math.min(Math.abs(da), 6 * dt);
 
-    const moveAngle  = drone.heading - Math.PI / 2;
-    const step       = Math.min(drone.flySpeed * dt, dist);
+    const moveAngle   = drone.heading - Math.PI / 2;
+    const step        = Math.min(drone.flySpeed * dt, dist);
     const directBlend = Math.max(0, Math.min(1, 1 - dist / 60));
     const hx = Math.cos(moveAngle), hy = Math.sin(moveAngle);
     const tx = dx / dist,           ty = dy / dist;
@@ -104,7 +125,7 @@ export function tickDrone(drone, dt) {
       return;
     }
 
-    // Count down to next reposition around the ship
+    // Count down to next reposition around the target
     drone.scanMoveTimer = (drone.scanMoveTimer ?? 0) - dt;
     if (drone.scanMoveTimer <= 0) {
       const nodePos = nodeWorldPos(node);
@@ -143,8 +164,9 @@ export function getDronesForLab(labId) {
 }
 
 export function getDroneStatusText(drone) {
-  if (drone.status === 'scanning') return 'Scanning and Salvaging a: Crashed Ship';
-  if (drone.status === 'flying')   return 'Flying to Crashed Ship';
+  const taskDef = DRONE_TASK_DEFS[drone.taskType] || DRONE_TASK_DEFS.crashed_ship;
+  if (drone.status === 'scanning') return taskDef.scanLabel;
+  if (drone.status === 'flying')   return taskDef.flyLabel;
   if (drone.status === 'idle' && drone.taskNodeId !== null) return 'Launching…';
   return 'Idle';
 }

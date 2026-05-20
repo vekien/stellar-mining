@@ -369,7 +369,7 @@ class DroneLabBuildingType extends BuildingType {
     module.powerCapacity = Math.max(module.powerCapacity || 0, stats.powerCapacity);
     module.power = Math.max(0, Math.min(Number.isFinite(module.power) ? module.power : module.powerCapacity, module.powerCapacity));
     module.droneCapacity = Math.max(module.droneCapacity || 0, stats.droneCapacity);
-    module.droneCount = Number.isFinite(module.droneCount) ? Math.min(Math.max(0, module.droneCount), module.droneCapacity) : 1;
+    module.droneCount = 0; // always derived from live state.drones — never persisted
   }
 }
 

@@ -975,7 +975,7 @@ export function openHdrPanel(type, options = {}) {
           ? Object.entries(droneDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')
           : '';
         const droneCanBuild = !!droneDef && droneCanCoins && Object.entries(droneDef?.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
-        const totalDroneCount = droneLabsBuilt.reduce((sum, m) => sum + (m.droneCount || 0), 0);
+        const totalDroneCount = (state.drones || []).length;
         const totalDroneCapacity = droneLabsBuilt.reduce((sum, m) => sum + (m.droneCapacity || 2), 0);
         const dronesFull = totalDroneCount >= totalDroneCapacity && droneLabsBuilt.length > 0;
 

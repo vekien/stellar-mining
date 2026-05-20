@@ -135,12 +135,14 @@ focusOnBase(2.0, { snap: true });
 updateHeader();
 showStartupInfrastructureWarnings();
 
-const crashedShipNode = state.nodes.find((node) => node.type === CRASHED_SHIP_NODE_TYPE);
-if (crashedShipNode) {
-  const [col, row] = crashedShipNode.gr;
+const crashedShipNodes = state.nodes.filter((node) => node.type === CRASHED_SHIP_NODE_TYPE);
+if (crashedShipNodes.length > 0) {
+  const [col, row] = crashedShipNodes[0].gr;
   setTimeout(() => showOnce('zoe_crashed_ship_detected', NPCS.zoe.transmissionLines.crashed_ship_detected(col, row), 20, 'zoe'), 1400);
-  // Spawn a drone from the first available Drone Lab (if one exists) after a short delay
-  setTimeout(() => spawnDrone(crashedShipNode), 2200);
+  // Spawn one drone per crashed ship, staggered so they don't all materialise at once
+  crashedShipNodes.forEach((node, i) => {
+    setTimeout(() => spawnDrone(node, 'crashed_ship'), 2200 + i * 600);
+  });
 }
 
 // Re-dispatch ships that had a target node when the game was saved.

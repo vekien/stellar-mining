@@ -10,6 +10,7 @@ import {
   getModuleFootprintCells,
   moduleContainsCell,
 } from './modules.js';
+import { getActiveLabDroneCount } from '../drones.js';
 
 export { STORAGE_FACILITY_ID } from './modules.js';
 
@@ -22,7 +23,7 @@ export function getStorageFacilityStats(level = 1) {
 
 export function getStoragePowerUsage(storage) {
   if (isResearchLabModule(storage)) return Math.max(0, storage?.powerUsage || 1);
-  if (isDroneLabModule(storage)) return Math.max(1, storage?.droneCount || 0);
+  if (isDroneLabModule(storage)) return Math.max(1, getActiveLabDroneCount(storage?.id));
   const used = Object.values(storage?.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
   const cap = Math.max(1, storage?.storageCapacity || 50000);
   const fillPct = Math.max(0, Math.min(1, used / cap));

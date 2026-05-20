@@ -652,8 +652,9 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
     const linkedStations = networkInfo.stations;
     const linkedTurrets = networkInfo.turrets;
     const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedTurrets.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
-    setTextIfChangedIn(modal, '#storage-used-value', isDroneLabModule(module) ? `${module.droneCount || 0} / ${module.droneCapacity || 2}` : isResearchLabModule(module) ? 'ACTIVE' : `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
-    qs('#storage-used-bar').style.width = `${isDroneLabModule(module) ? Math.max(0, Math.min(100, ((module.droneCount || 0) / Math.max(1, module.droneCapacity || 2)) * 100)) : isResearchLabModule(module) ? 100 : Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
+    const activeDroneCount = isDroneLabModule(module) ? (state.drones || []).filter(d => d.labId === module.id).length : 0;
+    setTextIfChangedIn(modal, '#storage-used-value', isDroneLabModule(module) ? `${activeDroneCount} / ${module.droneCapacity || 2}` : isResearchLabModule(module) ? 'ACTIVE' : `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
+    qs('#storage-used-bar').style.width = `${isDroneLabModule(module) ? Math.max(0, Math.min(100, (activeDroneCount / Math.max(1, module.droneCapacity || 2)) * 100)) : isResearchLabModule(module) ? 100 : Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
     setTextIfChangedIn(modal, '#storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
     setTextIfChangedIn(modal, '#storage-power-value', `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`);
     qs('#storage-power-bar').style.width = `${powerPct}%`;
