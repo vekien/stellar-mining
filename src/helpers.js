@@ -160,7 +160,7 @@ export function showTooltip(e, resourceType, options = {}) {
   if (def.special) {
     const tt = tooltipEl();
     tt.innerHTML = `
-      <div class="tt-name">${resourceIconHtml(resourceType, 14, 'margin-right:6px;position:relative;top:2px;')}${def.label}</div>
+      <div class="tt-name">${def.noIcon ? '' : resourceIconHtml(resourceType, 14, 'margin-right:6px;position:relative;top:2px;')}${def.label}</div>
       <div style="color:#cde;max-width:260px;white-space:normal;line-height:1.4;">${def.blurb}</div>
     `;
     tt.style.display = 'block';

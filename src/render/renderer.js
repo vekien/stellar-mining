@@ -16,7 +16,7 @@ import {
 } from './animations.js';
 import { drawStars } from './stars.js';
 import { drawTurrets, drawTurretPlacementHover, setTurretCtx } from './turrets.js';
-import { drawPowerLinks, drawLabLinks, drawStorageFacilities, drawStoragePlacementHover, setStorageCtx } from './storage.js';
+import { drawPowerLinks, drawLabLinks, drawStorageFootprints, drawStorageSprites, drawStoragePlacementHover, setStorageCtx } from './storage.js';
 
 let ctx = null;
 export let W = 0, H = 0;
@@ -690,6 +690,160 @@ export function drawShipWorld(ship) {
   ctx.restore();
 }
 
+// ── Drone rendering ──────────────────────────────────────────
+export function drawDroneWorld(drone) {
+  const size = 5;
+  const isScanning = drone.status === 'scanning';
+  const color = isScanning ? '#40ffcc' : '#4ab8ff';
+  const showEffects = state.settings?.showVisualEffects !== false;
+  const t = Date.now() / 1000;
+
+  // Spawn materialise — 0.8 s animation driven by drone.spawnAge
+  const SPAWN_DUR = 0.8;
+  const spawnAge  = drone.spawnAge ?? SPAWN_DUR;
+  const isSpawning = showEffects && spawnAge < SPAWN_DUR;
+  const spawnT    = isSpawning ? Math.min(1, spawnAge / SPAWN_DUR) : 1;
+
+  ctx.save();
+  ctx.translate(drone.x, drone.y);
+
+  // ── Spawn materialise effect (world-aligned) ─────────────────
+  if (isSpawning) {
+    // Three staggered expanding energy rings
+    for (let i = 0; i < 3; i++) {
+      const rt = Math.max(0, Math.min(1, (spawnT - i * 0.15) / 0.65));
+      if (rt <= 0) continue;
+      const ringR = rt * 28;
+      ctx.beginPath();
+      ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = '#4ab8ff';
+      ctx.lineWidth = Math.max(0.4, 1.5 - i * 0.4);
+      ctx.globalAlpha = (1 - rt) * (0.65 - i * 0.15);
+      ctx.stroke();
+    }
+
+    // Sparks radiating outward (fade out by ~t=0.4)
+    const sparkT = Math.min(1, spawnT * 2.3);
+    if (sparkT < 1) {
+      for (let i = 0; i < 8; i++) {
+        const angle   = (i / 8) * Math.PI * 2 + 0.4;
+        const maxDist = 14 + (i % 3) * 5;
+        const dist    = sparkT * maxDist;
+        const alpha   = (1 - sparkT) * 0.9;
+        ctx.beginPath();
+        ctx.arc(
+          Math.cos(angle) * dist,
+          Math.sin(angle) * dist,
+          Math.max(0.3, 1.5 - sparkT),
+          0, Math.PI * 2,
+        );
+        ctx.fillStyle = '#c8eeff';
+        ctx.globalAlpha = alpha;
+        ctx.fill();
+      }
+    }
+
+    // Bright centre energy flash (first 35 % of spawn)
+    const flashT = Math.max(0, 1 - spawnT / 0.35);
+    if (flashT > 0) {
+      const flashR = 12 * flashT;
+      const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, flashR);
+      grd.addColorStop(0, `rgba(180,235,255,${0.6 * flashT})`);
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(0, 0, flashR, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Normal body glow (only after spawn) ──────────────────────
+  if (!isSpawning && showEffects) {
+    const glowRadius = isScanning ? 22 : size + 9;
+    const grd = ctx.createRadialGradient(0, 0, 1, 0, 0, glowRadius);
+    grd.addColorStop(0, isScanning ? 'rgba(64,255,200,0.28)' : 'rgba(64,180,255,0.3)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(0, 0, glowRadius, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ── Scanning animation (world-aligned, not rotated with body) ─
+  if (!isSpawning && isScanning && showEffects) {
+    const scanRadius = 26;
+    const sweepSpeed = 2.2;                         // rad/s
+    const sweepAngle = (t * sweepSpeed) % (Math.PI * 2);
+    const trailArc   = Math.PI * 0.55;              // ~100° fading trail
+    const trailSteps = 10;
+
+    for (let i = trailSteps; i >= 1; i--) {
+      const startA = sweepAngle - trailArc * (i / trailSteps);
+      const endA   = sweepAngle - trailArc * ((i - 1) / trailSteps);
+      const alpha  = (1 - i / trailSteps) * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, scanRadius, startA, endA);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(64,255,200,${alpha})`;
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(sweepAngle) * scanRadius, Math.sin(sweepAngle) * scanRadius);
+    ctx.strokeStyle = '#40ffcc';
+    ctx.lineWidth = 1.3;
+    ctx.globalAlpha = 0.85;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, scanRadius, 0, Math.PI * 2);
+    ctx.setLineDash([3, 5]);
+    ctx.strokeStyle = 'rgba(64,255,200,0.25)';
+    ctx.lineWidth = 0.8;
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (let i = 0; i < 2; i++) {
+      const phase = ((t * 0.65 + i * 0.5) % 1);
+      const r     = 4 + phase * (scanRadius - 4);
+      const alpha = (1 - phase) * 0.55;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.strokeStyle = '#40ffcc';
+      ctx.lineWidth = 0.9;
+      ctx.globalAlpha = alpha;
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Drone body — scale + rotate in nested save so outer alpha/transform stays clean ──
+  ctx.save();
+  if (isSpawning) {
+    // Ease-out-back: scale 0→1 with slight overshoot bounce
+    const c1 = 1.70158, c3 = c1 + 1;
+    const bodyScale = Math.max(0.01, 1 + c3 * Math.pow(spawnT - 1, 3) + c1 * Math.pow(spawnT - 1, 2));
+    ctx.scale(bodyScale, bodyScale);
+    ctx.globalAlpha = Math.min(1, spawnT * 2.2);
+  }
+  ctx.rotate(drone.heading || 0);
+
+  ctx.beginPath();
+  ctx.rect(-size, -size, size * 2, size * 2);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.strokeStyle = '#ffffff66'; ctx.lineWidth = 0.8; ctx.stroke();
+
+  ctx.beginPath(); ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff'; ctx.fill();
+
+  ctx.restore(); // undo body scale / rotate / alpha
+
+  ctx.restore(); // undo translate
+}
+
 function drawSelectedShipLine() {
   if (!state.selectedShip) return;
   if (state.settings?.showVisualEffects === false) return;
@@ -756,14 +910,17 @@ export function render(ts) {
   drawRangePulses();
   drawPowerLinks();
   drawLabLinks();
+  drawStorageFootprints();
   const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
   for (const n of sn) drawNode(n);
-  drawStorageFacilities();
+  drawStorageSprites();
   drawBase(BASE_COL, BASE_ROW);
   drawSelectedShipLine();
   drawTurrets();
   const ss = [...state.ships].sort((a,b)=>a.y-b.y);
   for (const s of ss) drawShipWorld(s);
+  const ds = [...(state.drones || [])].sort((a,b)=>a.y-b.y);
+  for (const d of ds) drawDroneWorld(d);
   drawTurretPlacementHover();
   drawStoragePlacementHover();
   drawSolarFlare();

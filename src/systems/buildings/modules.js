@@ -100,55 +100,6 @@ export function getPowerStationResourceFreeCapacity(module, resourceType) {
   return Math.max(0, (module?.resourceCapacity || 0) - (module?.inventory?.[resourceType] || 0));
 }
 
-export function getPowerFuelOutput(resourceType) {
-  return POWER_RESOURCE_OUTPUT[resourceType] || 0;
-}
-
-export function hasPowerStationFuel(module) {
-  if (!isPowerStationModule(module)) return false;
-  const fuelType = module.fuelResource || 'iron';
-  return (module.inventory?.[fuelType] || 0) > 0;
-}
-
-export function getPowerResourceConsumption(moduleOrLevel = 1) {
-  const level = typeof moduleOrLevel === 'number'
-    ? moduleOrLevel
-    : Math.max(1, Math.floor(moduleOrLevel?.level || 1));
-  return Math.max(
-    POWER_RESOURCE_CONSUMPTION_MIN,
-    Math.round(POWER_RESOURCE_CONSUMPTION - (((level - 1) * (POWER_RESOURCE_CONSUMPTION - POWER_RESOURCE_CONSUMPTION_MIN)) / 9)),
-  );
-}
-
-export function getPowerFuelOptions() {
-  return Object.keys(RESOURCE_DEFS)
-    .filter((resourceType) => !POWER_DISABLED_RESOURCES.has(resourceType) && getPowerFuelOutput(resourceType) > 0)
-    .sort((a, b) => (getResourceTier(a) || 99) - (getResourceTier(b) || 99))
-    .map((resourceType) => ({
-      type: resourceType,
-      label: RESOURCE_DEFS[resourceType].label,
-      output: getPowerFuelOutput(resourceType),
-    }));
-}
-
-export function formatPowerFuelRate(resourceType, moduleOrLevel = 1) {
-  const label = RESOURCE_DEFS[resourceType]?.label || 'Fuel';
-  const output = getPowerFuelOutput(resourceType);
-  return `${getPowerResourceConsumption(moduleOrLevel)} ${label} = ${output}/s`;
-}
-
-export function getPowerStationEffectiveOutput(module, linkedStorageCount = 0) {
-  if (!isPowerStationModule(module) || (module.health || 0) <= 0) return 0;
-  const fuelType = module.fuelResource || 'iron';
-  const output = getPowerFuelOutput(fuelType);
-  if (output <= 0) return 0;
-  const fuelCost = getPowerResourceConsumption(module) * Math.max(0, linkedStorageCount);
-  if (fuelCost <= 0) return output;
-  const availableFuel = Math.max(0, module.inventory?.[fuelType] || 0);
-  const fuelScale = Math.max(0, Math.min(1, availableFuel / fuelCost));
-  return output * fuelScale;
-}
-
 function getPowerNodeRange(module) {
   if (isPowerStationModule(module)) return module.powerRange || 0;
   if (isPowerPoleModule(module)) return module.relayRange || 0;

@@ -81,10 +81,6 @@ export const NPCS = {
         `Hey! ${count > 1 ? `${count} ships are` : `${names} is`} sitting idle and doing absolutely nothing!<br><br>` +
         `${count > 1 ? `That includes: ${names}.<br><br>` : ''}` +
         `Either assign ${count > 1 ? 'them' : 'it'} to a node or sell ${count > 1 ? 'them' : 'it'} for parts — dead weight costs you every SOL!`,
-      sol_holding: ({ names, count }) =>
-        `Rigs here. ${count > 1 ? `${count} ships are` : `${names} is`} stuck in a holding pattern and not unloading cargo.<br><br>` +
-        `${count > 1 ? `That includes: ${names}.<br><br>` : ''}` +
-        `Check their assigned depot. Odds are you've got a storage unit offline, full, or the base itself needs attention.`,
     },
   },
   kade: {

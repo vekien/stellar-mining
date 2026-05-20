@@ -20,6 +20,7 @@ import { scheduleNextEvent, tickSOL, rollMarketDemands } from './systems/sol.js'
 import { fireRandomEvent } from './systems/events.js';
 import { tickAdmiral, showTransmissionMessage, showOnce } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
+import { tickDrone, spawnDrone } from './systems/drones.js';
 import './systems/research.js';
 import { getMaxShield } from './systems/research.js';
 import { SHIELD_REGEN_INTERVAL_S, SHIELD_REGEN_PER_PURCHASE_PER_TICK, AUTO_REGEN_HP_PER_PURCHASE } from './data/research.js';
@@ -137,7 +138,9 @@ showStartupInfrastructureWarnings();
 const crashedShipNode = state.nodes.find((node) => node.type === CRASHED_SHIP_NODE_TYPE);
 if (crashedShipNode) {
   const [col, row] = crashedShipNode.gr;
-  setTimeout(() => showTransmissionMessage(NPCS.zoe.transmissionLines.crashed_ship_detected(col, row), 20, 'zoe'), 1400);
+  setTimeout(() => showOnce('zoe_crashed_ship_detected', NPCS.zoe.transmissionLines.crashed_ship_detected(col, row), 20, 'zoe'), 1400);
+  // Spawn a drone from the first available Drone Lab (if one exists) after a short delay
+  setTimeout(() => spawnDrone(crashedShipNode), 2200);
 }
 
 // Re-dispatch ships that had a target node when the game was saved.
@@ -378,6 +381,7 @@ function gameLoop() {
   }
 
   for (const s of state.ships) tickShip(s, dt);
+  for (const d of (state.drones || [])) tickDrone(d, dt);
 
   state.highestAvailableNodeTier = Math.max(1, ...state.ships.map(s => s.mineTier || 1));
 

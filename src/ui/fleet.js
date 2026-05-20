@@ -31,7 +31,7 @@ window.toggleFleetFilters = function() {
   _fleetFiltersVisible = !_fleetFiltersVisible;
   const el = document.getElementById('fleet-filters');
   const btn = document.getElementById('fleet-filter-toggle');
-  if (el) el.style.display = _fleetFiltersVisible ? '' : 'none';
+  if (el) el.classList.toggle('is-hidden', !_fleetFiltersVisible);
   if (btn) btn.style.color = _fleetFiltersVisible ? '#9bd6ff' : '#4a8ab0';
 };
 

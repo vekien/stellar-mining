@@ -286,7 +286,7 @@ export function drawLabLinks() {
   ctx.restore();
 }
 
-function drawStorageModule(module, hovered) {
+function drawStorageModule(module, hovered, phase = 'all') {
   const noPower = (module.power || 0) <= 0 && (module.health || 0) > 0;
   const flash = 0.5 + 0.5 * Math.sin(performance.now() / 140);
   const isResearchLab = isResearchLabModule(module);
@@ -313,21 +313,25 @@ function drawStorageModule(module, hovered) {
   const right = { x: tr.x + TILE_W / 2, y: tr.y + TILE_H / 2 };
   const bottom = { x: br.x, y: br.y + TILE_H };
   const left = { x: bl.x - TILE_W / 2, y: bl.y + TILE_H / 2 };
-  const center = drawDiamond(module.col, module.row, 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 0);
-  const cx = center.cx;
-  const cy = center.cy;
+  const { x: _cx, y: _cy } = gridToIso(module.col, module.row);
+  const cx = _cx;
+  const cy = _cy + TILE_H / 2;
 
-  ctx.beginPath();
-  ctx.moveTo(top.x, top.y);
-  ctx.lineTo(right.x, right.y);
-  ctx.lineTo(bottom.x, bottom.y);
-  ctx.lineTo(left.x, left.y);
-  ctx.closePath();
-  ctx.fillStyle = baseFill;
-  ctx.fill();
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 1.8;
-  ctx.stroke();
+  if (phase !== 'sprite') {
+    ctx.beginPath();
+    ctx.moveTo(top.x, top.y);
+    ctx.lineTo(right.x, right.y);
+    ctx.lineTo(bottom.x, bottom.y);
+    ctx.lineTo(left.x, left.y);
+    ctx.closePath();
+    ctx.fillStyle = baseFill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+  }
+
+  if (phase === 'footprint') return;
 
   if (drawModuleSprite(module, hovered, {
     shadowColor: noPower ? 'rgba(255,214,64,0.18)' : 'rgba(80,200,255,0.14)',
@@ -399,7 +403,7 @@ function drawStorageModule(module, hovered) {
   ctx.restore();
 }
 
-function drawPowerStationModule(module, hovered) {
+function drawPowerStationModule(module, hovered, phase = 'all') {
   const noFuel = !hasPowerStationFuel(module) && (module.health || 0) > 0;
   const flash = 0.5 + 0.5 * Math.sin(performance.now() / 220);
   const half = getModuleFootprintHalf(module.type || POWER_STATION_ID);
@@ -420,21 +424,25 @@ function drawPowerStationModule(module, hovered) {
   const right = { x: tr.x + TILE_W / 2, y: tr.y + TILE_H / 2 };
   const bottom = { x: br.x, y: br.y + TILE_H };
   const left = { x: bl.x - TILE_W / 2, y: bl.y + TILE_H / 2 };
-  const center = drawDiamond(module.col, module.row, 'rgba(0,0,0,0)', 'rgba(0,0,0,0)', 0);
-  const cx = center.cx;
-  const cy = center.cy;
+  const { x: _cx2, y: _cy2 } = gridToIso(module.col, module.row);
+  const cx = _cx2;
+  const cy = _cy2 + TILE_H / 2;
 
-  ctx.beginPath();
-  ctx.moveTo(top.x, top.y);
-  ctx.lineTo(right.x, right.y);
-  ctx.lineTo(bottom.x, bottom.y);
-  ctx.lineTo(left.x, left.y);
-  ctx.closePath();
-  ctx.fillStyle = baseFill;
-  ctx.fill();
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 1.8;
-  ctx.stroke();
+  if (phase !== 'sprite') {
+    ctx.beginPath();
+    ctx.moveTo(top.x, top.y);
+    ctx.lineTo(right.x, right.y);
+    ctx.lineTo(bottom.x, bottom.y);
+    ctx.lineTo(left.x, left.y);
+    ctx.closePath();
+    ctx.fillStyle = baseFill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+  }
+
+  if (phase === 'footprint') return;
 
   if (drawModuleSprite(module, hovered, {
     shadowColor: noFuel ? 'rgba(255,166,72,0.18)' : 'rgba(255,220,90,0.14)',
@@ -478,7 +486,7 @@ function drawPowerStationModule(module, hovered) {
   ctx.restore();
 }
 
-function drawSingleTileModule(module, hovered) {
+function drawSingleTileModule(module, hovered, phase = 'all') {
   const isPole = module.type === 'power_pole';
   const isLabTower = module.type === LAB_TOWER_ID;
   const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
@@ -492,7 +500,16 @@ function drawSingleTileModule(module, hovered) {
     : isLabTower ? (hovered ? 'rgba(160,255,214,0.38)' : 'rgba(88,201,143,0.24)') : hovered ? 'rgba(255,236,160,0.4)' : 'rgba(255,214,90,0.26)';
   const stroke = alert ? (hovered ? '#ffe2e2' : '#ffb0b0') : isLabTower ? (hovered ? '#d8fff0' : '#8ff0c4') : hovered ? '#fff1b8' : '#ffd85a';
   const accent = alert ? (hovered ? '#fff4f4' : '#ffdede') : isLabTower ? (hovered ? '#effff8' : '#c7ffe7') : hovered ? '#fff8da' : '#fff0a8';
-  const { cx, cy } = drawDiamond(module.col, module.row, glow, stroke, 1.4);
+  let cx, cy;
+  if (phase !== 'sprite') {
+    const result = drawDiamond(module.col, module.row, glow, stroke, 1.4);
+    cx = result.cx; cy = result.cy;
+  } else {
+    const { x, y } = gridToIso(module.col, module.row);
+    cx = x; cy = y + TILE_H / 2;
+  }
+
+  if (phase === 'footprint') return;
 
   if (drawModuleSprite(module, hovered, {
     shadowColor: alert ? 'rgba(255,110,110,0.2)' : 'rgba(255,220,90,0.14)',
@@ -547,16 +564,34 @@ function drawSingleTileModule(module, hovered) {
   ctx.restore();
 }
 
-export function drawStorageFacilities() {
-  if (!ctx) return;
-  for (const module of state.modules) {
-    const hovered = canvasState.storageHoverId === module.id;
+function isoDepth(module) { return module.col + module.row; }
+
+function drawModuleForPhase(module, phase) {
+  const hovered = canvasState.storageHoverId === module.id;
+  if (phase === 'footprint') {
     const showRange = !state.placingModule && (module.type === POWER_POLE_ID || module.type === LAB_TOWER_ID) && (hovered || state.selectedModule === module.id);
     if (showRange) drawModuleRange(module);
-    if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) drawStorageModule(module, hovered);
-    else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) drawPowerStationModule(module, hovered);
-    else drawSingleTileModule(module, hovered);
   }
+  if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) drawStorageModule(module, hovered, phase);
+  else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) drawPowerStationModule(module, hovered, phase);
+  else drawSingleTileModule(module, hovered, phase);
+}
+
+export function drawStorageFootprints() {
+  if (!ctx) return;
+  const sorted = [...state.modules].sort((a, b) => isoDepth(a) - isoDepth(b));
+  for (const module of sorted) drawModuleForPhase(module, 'footprint');
+}
+
+export function drawStorageSprites() {
+  if (!ctx) return;
+  const sorted = [...state.modules].sort((a, b) => isoDepth(a) - isoDepth(b));
+  for (const module of sorted) drawModuleForPhase(module, 'sprite');
+}
+
+export function drawStorageFacilities() {
+  drawStorageFootprints();
+  drawStorageSprites();
 }
 
 function drawPowerPolePlacementPreview(col, row, moduleType) {

@@ -2,24 +2,4 @@
 // RESEARCH TREE DATA — compatibility facade over class layer
 // ============================================================
 
-export {
-  ANTI_COMET_CHANCE_PER_PURCHASE,
-  ANTI_COMET_MAX_PURCHASES,
-  AUTO_REGEN_HP_PER_PURCHASE,
-  AUTO_REGEN_MAX_PURCHASES,
-  DEFENSE_DAMAGE_REDUCTION,
-  HEALTH_INCREASE_HP_PER_PURCHASE,
-  HEALTH_INCREASE_MAX_PURCHASES,
-  HP_BOOST_HEALTH_PER_PURCHASE,
-  MARKET_INFLUENCE_BONUS,
-  RESEARCH_TREE,
-  SHIELD_MAX_PURCHASES,
-  SHIELD_PCT_PER_PURCHASE,
-  SHIELD_REGEN_INTERVAL_S,
-  SHIELD_REGEN_PER_PURCHASE_PER_TICK,
-  SOLAR_SHIELD_MAX_PURCHASES,
-  SOLAR_SHIELD_REDUCTION_PER_PURCHASE,
-  getRepeatableCount,
-  getRepeatableMax,
-  getResearchPointCap,
-} from '../systems/research/definitions.js';
+export * from '../systems/research/definitions.js';

@@ -516,6 +516,8 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
     </div>
     ` : ''}
     ${isDroneLabModule(module) ? `
+    <div class="module-section-label">◈ DRONE STATUS</div>
+    <div id="drone-bay-status-list" class="module-scroll-panel compact"></div>
     <div class="module-section-label">◈ LINKED NETWORK</div>
     <div class="power-station-network-panel">
       <div id="power-station-link-summary" class="power-station-link-summary"></div>
@@ -684,6 +686,25 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
     if (isResearchLabModule(module)) {
       const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
       setHtmlIfChangedIn(modal, '#lab-linked-resources', buildLabLinkedResourcesHtml(module, labInfo));
+    }
+    if (isDroneLabModule(module)) {
+      const labDrones = (state.drones || []).filter(d => d.labId === module.id);
+      const droneStatusHtml = labDrones.length
+        ? labDrones.map(d => {
+            const isScanning = d.status === 'scanning';
+            const isFlying   = d.status === 'flying';
+            const isLaunching = d.status === 'idle' && d.taskNodeId !== null;
+            const statusText = isScanning
+              ? `<span style="color:#40ffcc">Scanning and Salvaging a: Crashed Ship</span>`
+              : isFlying
+              ? `<span style="color:#4ab8ff">Flying to Crashed Ship</span>`
+              : isLaunching
+              ? `<span style="color:#ffe066">Launching…</span>`
+              : `<span style="color:#556">Idle</span>`;
+            return `<div class="module-inventory-row"><span style="color:#8af">${d.name}</span>${statusText}</div>`;
+          }).join('')
+        : '<div class="module-empty-note">No drones deployed.</div>';
+      setHtmlIfChangedIn(modal, '#drone-bay-status-list', droneStatusHtml);
     }
   } else if (isPowerStationModule(module) || isPowerPoleModule(module) || isLabTowerModule(module)) {
     const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);

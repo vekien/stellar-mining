@@ -23,6 +23,8 @@ export let state = {
 
   // World + entities
   ships: [],
+  drones: [],
+  droneIdCounter: 1,
   nodes: [],
   worldSeed: null,
 
@@ -184,6 +186,7 @@ export function saveGame() {
           pickupId: s.pickupId ?? null,
           loadBuffer: s.loadBuffer ?? 0,
         })),
+        // Drones are not persisted — they respawn fresh from the lab on each load
       }));
   } catch(e) {}
 }
@@ -293,6 +296,8 @@ export function loadGame() {
     // scheduleNextEvent() called by main.js after loadGame() if nextEventTimer === null
     state.activeWarning = null;
     shipIdCounter = d.shipIdCounter ?? 1;
+    state.drones = [];          // always reset — drones respawn fresh from the lab on load
+    state.droneIdCounter = 1;
     state.ships = (d.ships||[]).map(sd => {
       const base = gridToWorld(BASE_COL, BASE_ROW);
       const rawFlySpeed = sd.flySpeed ?? (saveVersion < 2 ? 1.0 : 100);
