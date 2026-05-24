@@ -10,7 +10,7 @@ import { CRASHED_SHIP_NODE_TYPE } from './data/nodes.js';
 import { SOL_DURATION } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI, fmt } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
-import { initRenderer, resizeRenderer, render, setOnCameraMove, W, H } from './render/renderer.js';
+import { initRenderer, resizeRenderer, render, setOnCameraMove, setRenderFps, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
 import {
   tickFloaties, tickSolarFlare, tickBlackHole, tickComet,
@@ -30,6 +30,7 @@ import { renderActionPanel, getShipHoldingReason, getShipRouteError, getShipStat
 import { renderBasePanel } from './ui/basePanel.js';
 import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen, patchStatsPanel } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
+import { toggleTrackCraft, refreshTrackButtons } from './ui/craftTracker.js';
 import { initInput } from './input.js';
 import { initDevPanel } from './ui/devPanel.js';
 import './ui/storageUI.js';
@@ -105,6 +106,7 @@ function initNodes() {
 resize();
 const loaded = loadGame();
 setStarsEnabled(state.settings?.showBackgroundStars !== false);
+setRenderFps(state.settings?.renderFps ?? 45);
 initNodes();
 if (window.syncShipCraftTimers) window.syncShipCraftTimers();
 if (!loaded) spawnShip('scout');
@@ -233,15 +235,18 @@ window.closeAbout     = () => {
   renderTutPointers();
 };
 window.openLogHistory = openLogHistory;
+window.toggleTrackCraft = (kind, id) => { toggleTrackCraft(kind, id); };
 window.closeLogHistory = closeLogHistory;
 window.openSettings   = () => {
   const overlay = document.getElementById('settings-overlay');
   const chkShowGrid = document.getElementById('setting-show-grid');
   const chkStars = document.getElementById('setting-bg-stars');
   const chkEffects = document.getElementById('setting-visual-effects');
+  const selFps = document.getElementById('setting-fps');
   if (chkShowGrid) chkShowGrid.checked = state.settings?.showGrid !== false;
   if (chkStars) chkStars.checked = state.settings?.showBackgroundStars !== false;
   if (chkEffects) chkEffects.checked = state.settings?.showVisualEffects !== false;
+  if (selFps) selFps.value = String(state.settings?.renderFps ?? 45);
   if (overlay) overlay.classList.add('show');
 };
 window.closeSettings  = () => {
@@ -260,6 +265,11 @@ window.toggleBackgroundStars = (enabled) => {
 window.toggleVisualEffects = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showVisualEffects = !!enabled;
+};
+window.setFpsSetting = (fps) => {
+  if (!state.settings) state.settings = {};
+  state.settings.renderFps = Number(fps);
+  setRenderFps(state.settings.renderFps);
 };
 window.switchTab      = function(tab) {
   dismissHdrModal();

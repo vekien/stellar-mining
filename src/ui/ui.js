@@ -9,6 +9,7 @@ import { SOL_DURATION } from '../constants.js';
 import { fmt, resourceIconHtml, showTooltip, hideTooltip, setHeaderCoinCb } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { renderShipsList, renderFleetFilters, renderActionPanel } from './fleet.js';
+import { renderCraftTracker } from './craftTracker.js';
 import { renderBasePanel } from './basePanel.js';
 import { renderTutPointers } from './tutorial.js';
 
@@ -76,7 +77,10 @@ export function renderResources() {
 export function patchResources() {
   for (const [type] of Object.entries(RESOURCE_DEFS)) {
     const el = document.getElementById(`res-qty-${type}`);
-    if (el) el.textContent = fmt(state.resources[type] || 0);
+    if (el) {
+      const text = fmt(state.resources[type] || 0);
+      if (el.textContent !== text) el.textContent = text;
+    }
   }
 }
 
@@ -90,6 +94,7 @@ export function renderUI() {
   renderActionPanel();
   renderBasePanel();
   renderTutPointers();
+  renderCraftTracker();
 }
 
 // Populate the refresh hub — called once at boot by main.js

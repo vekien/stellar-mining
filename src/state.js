@@ -60,6 +60,7 @@ export let state = {
     showGrid: true,
     showBackgroundStars: true,
     showVisualEffects: true,
+    renderFps: 45,
   },
 
   highestAvailableNodeTier: 1,
@@ -98,6 +99,8 @@ export let state = {
   solarShieldCount: 0,
   autoRegenCount: 0,
   extraDemands: [], // [{type, multiplier}] additional market demands when multi_demand unlocked
+
+  trackedCrafts: [],
 
   shownAboutWindow: false,
 
@@ -211,6 +214,7 @@ export function loadGame() {
       showGrid: d.settings?.showGrid ?? true,
       showBackgroundStars: d.settings?.showBackgroundStars ?? true,
       showVisualEffects: d.settings?.showVisualEffects ?? true,
+      renderFps: d.settings?.renderFps ?? 45,
     };
     state.solStarted = d.solStarted ?? false;
     state.tutStep = d.tutStep ?? 0;

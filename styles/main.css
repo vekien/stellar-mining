@@ -695,8 +695,8 @@
   .craft-item-title-wrap { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .craft-item-title { font-family: 'Orbitron',sans-serif; font-size: 15px; font-weight: 700; color: #e8eef8; letter-spacing: 1px; text-transform: uppercase; }
   .craft-item-desc { font-size: 13px; color: #5a7a9a; font-style: italic; }
-  .craft-item-tier-pill { font-size: 13px; padding: 2px 8px; border-radius: 3px; font-family: 'Cinzel',serif; font-weight: 600; flex-shrink: 0; }
-  .craft-item-role-pill { font-size: 13px; padding: 2px 8px; border-radius: 3px; font-family: 'Orbitron',sans-serif; letter-spacing: 1px; flex-shrink: 0; text-transform: uppercase; }
+  .craft-item-tier-pill { font-size: 12px; line-height: 1.5; padding: 2px 8px; border-radius: 3px; font-family: 'Cinzel',serif; font-weight: 600; flex-shrink: 0; }
+  .craft-item-role-pill { font-size: 12px; line-height: 1.5; padding: 2px 8px; border-radius: 3px; font-family: 'Orbitron',sans-serif; letter-spacing: 1px; flex-shrink: 0; text-transform: uppercase; }
   .craft-item-table { width: 100%; border-collapse: collapse; border: 1px solid #1a3a6e; border-radius: 4px; }
   .craft-item-th { padding: 6px 10px; color: #3a6a9a; font-size: 11px; letter-spacing: 1px; text-align: left; border-bottom: 1px solid #1a3a6e; font-family: 'Orbitron',sans-serif; font-weight: 600; background: rgba(6,14,38,0.6); }
   .craft-item-th-left { border-right: 1px solid #1a3a6e; }
@@ -795,6 +795,17 @@
     font-size: 17px;
     cursor: pointer;
   }
+  .settings-select {
+    background: #0a1628;
+    border: 1px solid #1a3a6e;
+    border-radius: 4px;
+    color: #cde;
+    font-size: 15px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .settings-select:focus { outline: none; border-color: #4a8fd4; }
 
   #game-area { display: flex; flex: 1; min-height: 0; overflow: hidden; flex-direction: row; }
 
@@ -1406,6 +1417,121 @@
     opacity: 1;
     pointer-events: all;
   }
+
+  /* ── Craft Tracker panel ────────────────────────────────────── */
+  #craft-tracker {
+    position: absolute;
+    top: 14px;
+    right: 12px;
+    width: 290px;
+    background: linear-gradient(180deg, rgba(6,14,40,0.96) 0%, rgba(8,20,55,0.96) 100%);
+    border: 1px solid #2a5090;
+    border-radius: 8px;
+    padding: 10px;
+    z-index: 20;
+    pointer-events: all;
+    max-height: calc(100% - 28px);
+    overflow-y: auto;
+  }
+  #craft-tracker.ct-hidden { display: none; }
+  .ct-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #4af;
+    margin-bottom: 8px;
+  }
+  .ct-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid #1a3060;
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 6px;
+  }
+  .ct-card:last-child { margin-bottom: 0; }
+  .ct-card-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .ct-card-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #cde;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ct-remove-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: #4a6a8a;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .ct-remove-btn:hover { color: #ff6060; }
+  .ct-card-kind {
+    font-size: 9px;
+    color: #4af;
+    border: 1px solid #2a5090;
+    border-radius: 3px;
+    padding: 1px 5px;
+    letter-spacing: 1px;
+    flex-shrink: 0;
+  }
+  .ct-card-reqs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ct-req {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .ct-met  { color: #6fff9a; background: rgba(111,255,154,0.08); border: 1px solid rgba(111,255,154,0.2); }
+  .ct-unmet{ color: #ff6060; background: rgba(255,96,96,0.08);   border: 1px solid rgba(255,96,96,0.2);   }
+  .ct-check { font-size: 9px; font-weight: bold; }
+
+  /* ── Track toggle button (inside craft cards) ───────────────── */
+  .craft-item-track-btn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid #2a5090;
+    background: transparent;
+    color: #4af;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .craft-item-track-btn:hover:not(:disabled) {
+    border-color: #4af;
+    background: rgba(68,170,255,0.1);
+  }
+  .craft-item-track-btn.ct-tracked {
+    border-color: #ffe066;
+    color: #ffe066;
+    background: rgba(255,224,102,0.08);
+  }
+  .craft-item-track-btn.ct-tracked:hover:not(:disabled) {
+    border-color: #ff8866;
+    color: #ff8866;
+    background: rgba(255,136,102,0.08);
+  }
+  .craft-item-track-btn:disabled { opacity: 0.7; cursor: not-allowed; color: #4a6a8a; border-color: #1a3050; }
   #ship-upgrade-title {
     font-family: 'Orbitron', sans-serif;
     font-size: 11px;

@@ -6,8 +6,13 @@ import { TIER_COLORS } from './data/ships.js';
 import { SOL_DURATION } from './constants.js';
 
 /** Convert a CSS hex colour to "r,g,b" string */
+const _hexToRgbCache = new Map();
 export function hexToRgb(hex) {
-  return `${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)}`;
+  let cached = _hexToRgbCache.get(hex);
+  if (cached) return cached;
+  cached = `${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)}`;
+  _hexToRgbCache.set(hex, cached);
+  return cached;
 }
 
 /** Returns true if a hex colour is perceptually light (use dark text on top) */
@@ -84,7 +89,7 @@ function renderLogPreview(state) {
     if (el) el.textContent = state.log[i] || '';
   });
   const logEl = document.getElementById('log');
-  if (logEl) logEl.style.display = state.log.some(l => l) ? '' : 'none';
+  if (logEl) logEl.classList.toggle('is-hidden', !state.log.some(l => l));
 }
 
 function renderLogHistoryPanel(state) {

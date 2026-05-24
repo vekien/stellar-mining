@@ -18,6 +18,7 @@ import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCa
 import { TURRET_BASE_STATS } from '../data/turrets.js';
 import { MODULE_DEFS, getModuleDef, getModuleStats, getPowerFuelOutput, POWER_DISABLED_RESOURCES, POWER_RESOURCE_CONSUMPTION, STORAGE_FACILITY_ID, DRONE_LAB_ID, isDroneLabModule } from '../data/modules.js';
 import { fmt, resourceIconHtml } from '../helpers.js';
+import { isTracked, refreshTrackButtons } from './craftTracker.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
 import { cancelStoragePlacement } from './storageUI.js';
@@ -777,11 +778,14 @@ export function openHdrPanel(type, options = {}) {
       if (groupRecipes.length) {
         items += `<div class="craft-role-header" style="color:${activeRoleMeta.color};border-bottom:1px solid ${activeRoleMeta.color}33;">${activeRoleMeta.label}</div>`;
 
+        const atMaxTracked = (state.trackedCrafts || []).length >= 3;
         for (const recipe of groupRecipes) {
           const stats     = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
           const sc        = activeRoleMeta.color;
           const tierColor = MINE_TIERS[stats.mineTier]?.color || '#fff';
           const reqsMet   = Object.entries(recipe.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
+          const shipTracked = isTracked('ship', recipe.id);
+          const shipTrackBtn = `<button class="craft-item-track-btn${shipTracked ? ' ct-tracked' : ''}" data-ct-kind="ship" data-ct-id="${recipe.id}" ${!shipTracked && atMaxTracked ? 'disabled' : ''} onclick="toggleTrackCraft('ship','${recipe.id}')">${shipTracked ? 'UNTRACK' : 'TRACK'}</button>`;
           const canCraft  = reqsMet && !atCap;
 
           let reqsHtml = '';
@@ -826,10 +830,10 @@ export function openHdrPanel(type, options = {}) {
               <span class="craft-item-role-icon" style="color:${sc};filter:drop-shadow(0 0 5px ${sc}66);">▲</span>
               <div class="craft-item-title-wrap">
                 <span class="craft-item-title">${recipe.name}</span>
-                <span class="craft-item-desc">${recipe.desc}</span>
               </div>
               <span class="craft-item-tier-pill" style="border:1px solid ${tierColor}44;background:${tierColor}18;color:${tierColor};">${toRoman(stats.mineTier)}</span>
               <span class="craft-item-role-pill" style="border:1px solid ${sc}33;background:${sc}12;color:${sc};">${stats.role||'mining'}</span>
+              ${shipTrackBtn}
             </div>
             <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">${statsHtml}</div>
             <div class="bp-craft-reqs" style="margin:0 0 8px 0;">${reqsHtml}</div>
@@ -873,6 +877,7 @@ export function openHdrPanel(type, options = {}) {
           { id: 'laser_turret', unlocked: !!state.researchUnlocks['laser_turrets'], desc: 'Fires a single heavy beam burst for big damage, then must recharge before firing again.', stats: ['8,000 -> 16,000 HP', '500', '15s -> 5s', '4 tiles (MAX 12)'] },
           { id: 'emp_turret', unlocked: !!state.researchUnlocks['emp_turrets'], desc: 'Stuns enemy ships so they cannot move or fire, while also dropping their defenses.', stats: ['15,000 -> 30,000 HP', 'STUN 2s', '60s -> 45s', '3 tiles (MAX 15)'] },
         ];
+        const atMaxTracked = (state.trackedCrafts || []).length >= 3;
         for (const card of turretCards) {
           if (!card.unlocked) continue;
           const craft = getCraft('turrets', card.id);
@@ -880,6 +885,8 @@ export function openHdrPanel(type, options = {}) {
           const canCoins = state.coins >= craft.cost;
           const reqsMet = Object.entries(craft.reqs).map(([r, n]) => [(state.resources[r] || 0) >= n, r, n]);
           const canBuild = canCoins && reqsMet.every(([met]) => met);
+          const tTracked = isTracked('turret', card.id);
+          const tTrackBtn = `<button class="craft-item-track-btn${tTracked ? ' ct-tracked' : ''}" data-ct-kind="turret" data-ct-id="${card.id}" ${!tTracked && atMaxTracked ? 'disabled' : ''} onclick="toggleTrackCraft('turret','${card.id}')">${tTracked ? 'UNTRACK' : 'TRACK'}</button>`;
           const resPills = reqsMet.map(([met, r, n]) => pill(met, `${r[0].toUpperCase() + r.slice(1)}: ${n}`)).join('');
           const queued = queuedCount(card.id);
           const craftTimer = state.turretCraftTimers?.[card.id];
@@ -892,8 +899,8 @@ export function openHdrPanel(type, options = {}) {
             <div class="craft-defense-head">
               <div class="craft-defense-title">${craft.name.toUpperCase()}</div>
               <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
+              ${tTrackBtn}
             </div>
-            <div class="craft-defense-desc">${card.desc}</div>
             <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
               <span class="craft-stat">HP <span style="color:#ffe066;">${card.stats[0]}</span></span>
               <span class="craft-stat">DAMAGE <span style="color:#ffe066;">${card.stats[1]}</span></span>
@@ -945,12 +952,15 @@ export function openHdrPanel(type, options = {}) {
           const statsHtml = moduleConfig.cardStats(1).map(([label, value]) => `<span class="craft-stat">${label} <span style="color:#ffe066;">${value}</span></span>`).join('');
           const buildLabel = moduleConfig.id === 'storage_facility' ? 'BUILD STORAGE' : `BUILD ${moduleDef?.name?.toUpperCase() || getModuleDef(moduleConfig.id).name.toUpperCase()}`;
           const placeLabel = moduleConfig.id === 'storage_facility' ? 'PLACE STORAGE' : `PLACE ${moduleDef?.name?.toUpperCase() || getModuleDef(moduleConfig.id).name.toUpperCase()}`;
+          const bldAtMax = (state.trackedCrafts || []).length >= 3;
+          const bldTracked = isTracked('building', moduleConfig.id);
+          const bldTrackBtn = `<button class="craft-item-track-btn${bldTracked ? ' ct-tracked' : ''}" data-ct-kind="building" data-ct-id="${moduleConfig.id}" ${!bldTracked && bldAtMax ? 'disabled' : ''} onclick="toggleTrackCraft('building','${moduleConfig.id}')">${bldTracked ? 'UNTRACK' : 'TRACK'}</button>`;
           return `<div class="craft-defense-card">
               <div class="craft-defense-head">
                 <div class="craft-defense-title">${moduleDef?.name?.toUpperCase() || moduleConfig.name.toUpperCase()}</div>
                 <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
+                ${bldTrackBtn}
               </div>
-              <div class="craft-defense-desc">${moduleDef?.desc || ''}</div>
               <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">${statsHtml}</div>
               <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${canCoins ? 'met' : 'unmet'}">$${fmt(moduleDef?.cost || 0)}</span>${reqPills}</div>
               ${queued > 0
@@ -982,12 +992,15 @@ export function openHdrPanel(type, options = {}) {
         const droneCraftingUnlocked = !!state.researchUnlocks['drone_crafting'];
         if (droneDef && droneLabsBuilt.length > 0) {
           const droneStatusHtml = `<div style="font-size:12px;color:#8ab;margin-bottom:8px;">Drone capacity across ${droneLabsBuilt.length} lab${droneLabsBuilt.length > 1 ? 's' : ''}: <span style="color:#ffe066;">${totalDroneCount} / ${totalDroneCapacity}</span></div>`;
+          const droneAtMax = (state.trackedCrafts || []).length >= 3;
+          const droneIsTracked = isTracked('drone', 'drone');
+          const droneTrackBtn = `<button class="craft-item-track-btn${droneIsTracked ? ' ct-tracked' : ''}" data-ct-kind="drone" data-ct-id="drone" ${!droneIsTracked && droneAtMax ? 'disabled' : ''} onclick="toggleTrackCraft('drone','drone')">${droneIsTracked ? 'UNTRACK' : 'TRACK'}</button>`;
           tabContent += `<div class="craft-defense-card" style="margin-top:12px;border-color:#2a5090;">
             <div class="craft-defense-head">
               <div class="craft-defense-title">◬ DRONE</div>
               <span class="craft-defense-meta" style="color:#ffe066;">${totalDroneCount} active</span>
+              ${droneTrackBtn}
             </div>
-            <div class="craft-defense-desc">${droneDef.desc}</div>
             ${droneStatusHtml}
             <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
               <span class="craft-stat">CRAFT TIME <span style="color:#ffe066;">1s</span></span>
@@ -1015,6 +1028,7 @@ export function openHdrPanel(type, options = {}) {
 
     body.innerHTML = `<div class="craft-layout">${navBar}<div class="craft-content">${tabContent}</div></div>`;
     if (activeCraftTab === 'ships' && state.tutStep === 6) { state.tutStep = 7; }
+    requestAnimationFrame(refreshTrackButtons);
   }
 
   // ── RESEARCH ───────────────────────────────────────────────

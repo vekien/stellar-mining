@@ -26,8 +26,11 @@ let gridCacheSig = '';
 let lastRenderTs = 0;
 let fpsAvg = 60;
 let lastFpsSampleTs = 0;
+let lastFpsDisplayTs = 0;
+let lastZoomDisplayed = -1;
 let _lastCamMoveSig = '';
-const RENDER_FRAME_MS = 1000 / 60;
+let RENDER_FRAME_MS = 1000 / 45;
+export function setRenderFps(fps) { RENDER_FRAME_MS = 1000 / fps; }
 const baseImage = new Image();
 baseImage.src = 'assets/images/buildings/base.png';
 const baseHoverImage = new Image();
@@ -930,10 +933,17 @@ export function render(ts) {
   drawNodeParticles();
   drawBaseHoverLabel(BASE_COL, BASE_ROW);
   ctx.restore();
-  const zoomPct = document.getElementById('zoom-pct');
-  if (zoomPct) zoomPct.textContent = `${Math.round(cam.zoom*100)}%`;
-  const fpsReadout = document.getElementById('fps-readout');
-  if (fpsReadout) fpsReadout.textContent = `FPS ${Math.round(fpsAvg)}`;
+  const roundedZoom = Math.round(cam.zoom * 100);
+  if (roundedZoom !== lastZoomDisplayed) {
+    const zoomPct = document.getElementById('zoom-pct');
+    if (zoomPct) zoomPct.textContent = `${roundedZoom}%`;
+    lastZoomDisplayed = roundedZoom;
+  }
+  if (ts - lastFpsDisplayTs >= 2000) {
+    const fpsReadout = document.getElementById('fps-readout');
+    if (fpsReadout) fpsReadout.textContent = `FPS ${Math.round(fpsAvg)}`;
+    lastFpsDisplayTs = ts;
+  }
   // Update SOL clock every frame for smooth ticking
   const _dp = state.solTimer / SOL_DURATION;
   const _sh = Math.floor(_dp*24);

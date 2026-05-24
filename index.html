@@ -73,6 +73,7 @@
     <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
       <div id="ship-upgrade-content"></div>
     </div>
+    <div id="craft-tracker" class="ct-hidden"></div>
     <div id="turret-modal-overlay">
       <div id="turret-modal" onclick="event.stopPropagation()">
         <div class="panel-shell-head turret-modal-drag-handle">
@@ -218,6 +219,16 @@
         <input id="setting-visual-effects" type="checkbox" onchange="toggleVisualEffects(this.checked)">
         On
       </label>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row-label">Frame Rate</div>
+      <select id="setting-fps" class="settings-select" onchange="setFpsSetting(this.value)">
+        <option value="30">30 FPS</option>
+        <option value="45">45 FPS</option>
+        <option value="60">60 FPS</option>
+        <option value="90">90 FPS</option>
+        <option value="120">120 FPS</option>
+      </select>
     </div>
     <button class="btn btn-full btn-top-14" onclick="closeSettings()">CLOSE</button>
   </div>
