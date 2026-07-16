@@ -2,10 +2,10 @@
 // MODULE RENDERING
 // ============================================================
 import { TILE_W, TILE_H } from '../constants.js';
-import { gridToIso } from './camera.js';
+import { gridToIso, isInView, isSegmentInView } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
-import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, DRONE_LAB_ID, getModuleDef, getModuleStats, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, isDroneLabModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, hasPowerStationFuel } from '../data/modules.js';
+import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, DRONE_LAB_ID, getModuleDef, getModuleStats, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, isDroneLabModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, hasPowerStationFuel, getNetworkVersion } from '../data/modules.js';
 import { canPlaceModuleAt } from '../ui/storageUI.js';
 
 let ctx = null;
@@ -192,14 +192,15 @@ function drawModuleRange(module) {
 }
 
 export function drawPowerLinks() {
-  const { activeEdges } = getPowerNetworkState(state.modules, state.turrets);
+  if (!state.modules.length && !state.turrets.length) return;
+  const { activeEdges, entityById, turretIds } = getPowerNetworkState(state.modules, state.turrets);
   if (!activeEdges.length) return;
-  const byId = new Map([...state.modules, ...state.turrets].map((module) => [module.id, module]));
-  const turretIds = new Set(state.turrets.map((turret) => turret.id));
+  const byId = entityById;
   const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
   const pulse = state.settings?.showVisualEffects !== false ? 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 220))) : 0.45;
   ctx.save();
-  for (const edge of activeEdges) {
+  for (let i = 0; i < activeEdges.length; i++) {
+    const edge = activeEdges[i];
     const from = byId.get(edge.fromId);
     const to = byId.get(edge.toId);
     if (!from || !to) continue;
@@ -209,6 +210,7 @@ export function drawPowerLinks() {
     const fromY = fromIso.y + TILE_H / 2;
     const toX = toIso.x;
     const toY = toIso.y + TILE_H / 2;
+    if (!isSegmentInView(fromX, fromY, toX, toY)) continue;
     const alert = noFuelIds.has(edge.fromId) && noFuelIds.has(edge.toId);
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
@@ -231,12 +233,15 @@ export function drawPowerLinks() {
 }
 
 export function drawLabLinks() {
+  if (!state.modules.length) return;
   const { activeEdges, nodeEdges } = getLabNetworkState(state.modules, state.nodes, state.base.level);
   if (!activeEdges.length && !nodeEdges.length) return;
-  const byId = new Map(state.modules.map((module) => [module.id, module]));
+  // Reuse cached power-net entity map (includes all modules)
+  const byId = getPowerNetworkState(state.modules, state.turrets).entityById;
   const pulse = state.settings?.showVisualEffects !== false ? 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 240))) : 0.45;
   ctx.save();
-  for (const edge of activeEdges) {
+  for (let i = 0; i < activeEdges.length; i++) {
+    const edge = activeEdges[i];
     const from = byId.get(edge.fromId);
     const to = byId.get(edge.toId);
     if (!from || !to) continue;
@@ -246,6 +251,7 @@ export function drawLabLinks() {
     const fromY = fromIso.y + TILE_H / 2;
     const toX = toIso.x;
     const toY = toIso.y + TILE_H / 2;
+    if (!isSegmentInView(fromX, fromY, toX, toY)) continue;
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
@@ -261,7 +267,8 @@ export function drawLabLinks() {
   }
   ctx.setLineDash([7, 5]);
   ctx.lineDashOffset = -performance.now() / 80;
-  for (const edge of nodeEdges) {
+  for (let i = 0; i < nodeEdges.length; i++) {
+    const edge = nodeEdges[i];
     const tower = byId.get(edge.towerId);
     if (!tower) continue;
     const fromIso = gridToIso(tower.col, tower.row);
@@ -270,6 +277,7 @@ export function drawLabLinks() {
     const fromY = fromIso.y + TILE_H / 2;
     const toX = toIso.x;
     const toY = toIso.y + TILE_H / 2;
+    if (!isSegmentInView(fromX, fromY, toX, toY)) continue;
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
@@ -486,11 +494,11 @@ function drawPowerStationModule(module, hovered, phase = 'all') {
   ctx.restore();
 }
 
-function drawSingleTileModule(module, hovered, phase = 'all') {
+function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null) {
   const isPole = module.type === 'power_pole';
   const isLabTower = module.type === LAB_TOWER_ID;
-  const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
-  const alert = (isPole && noFuelIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module));
+  const alertIds = noFuelIds || getNoFuelNetworkIds(state.modules, state.turrets);
+  const alert = (isPole && alertIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module));
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
   const fill = alert
     ? (hovered ? `rgba(220,90,110,${0.82 + (pulse * 0.12)})` : `rgba(178,52,78,${0.78 + (pulse * 0.1)})`)
@@ -566,7 +574,32 @@ function drawSingleTileModule(module, hovered, phase = 'all') {
 
 function isoDepth(module) { return module.col + module.row; }
 
-function drawModuleForPhase(module, phase) {
+const _sortedModules = [];
+let _sortedModulesVer = -1;
+let _sortedModulesLen = -1;
+
+function getSortedModules() {
+  const modules = state.modules;
+  const ver = getNetworkVersion();
+  if (ver === _sortedModulesVer && modules.length === _sortedModulesLen && _sortedModules.length === modules.length) {
+    return _sortedModules;
+  }
+  _sortedModules.length = 0;
+  for (let i = 0; i < modules.length; i++) _sortedModules.push(modules[i]);
+  _sortedModules.sort((a, b) => isoDepth(a) - isoDepth(b));
+  _sortedModulesVer = ver;
+  _sortedModulesLen = modules.length;
+  return _sortedModules;
+}
+
+function drawModuleForPhase(module, phase, noFuelIds) {
+  const { x, y } = gridToIso(module.col, module.row);
+  // Always draw selected / hovered / range-preview modules even if slightly offscreen
+  const forceDraw = canvasState.storageHoverId === module.id
+    || state.selectedModule === module.id
+    || state.movingModule === module.id;
+  if (!forceDraw && !isInView(x, y + TILE_H / 2)) return;
+
   const hovered = canvasState.storageHoverId === module.id;
   if (phase === 'footprint') {
     const showRange = !state.placingModule && (module.type === POWER_POLE_ID || module.type === LAB_TOWER_ID) && (hovered || state.selectedModule === module.id);
@@ -574,19 +607,25 @@ function drawModuleForPhase(module, phase) {
   }
   if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) drawStorageModule(module, hovered, phase);
   else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) drawPowerStationModule(module, hovered, phase);
-  else drawSingleTileModule(module, hovered, phase);
+  else drawSingleTileModule(module, hovered, phase, noFuelIds);
 }
 
 export function drawStorageFootprints() {
   if (!ctx) return;
-  const sorted = [...state.modules].sort((a, b) => isoDepth(a) - isoDepth(b));
-  for (const module of sorted) drawModuleForPhase(module, 'footprint');
+  const modules = state.modules;
+  if (!modules.length) return;
+  const noFuelIds = getNoFuelNetworkIds(modules, state.turrets);
+  const sorted = getSortedModules();
+  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'footprint', noFuelIds);
 }
 
 export function drawStorageSprites() {
   if (!ctx) return;
-  const sorted = [...state.modules].sort((a, b) => isoDepth(a) - isoDepth(b));
-  for (const module of sorted) drawModuleForPhase(module, 'sprite');
+  const modules = state.modules;
+  if (!modules.length) return;
+  const noFuelIds = getNoFuelNetworkIds(modules, state.turrets);
+  const sorted = getSortedModules();
+  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'sprite', noFuelIds);
 }
 
 export function drawStorageFacilities() {

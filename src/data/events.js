@@ -2,6 +2,29 @@
 // EVENT CONFIGURATION DATA
 // ============================================================
 
+// Material Symbols icon names (ligatures)
+export const EVENT_ICON_NAMES = {
+  solar_flare: 'flare',
+  black_hole: 'circle_circle',
+  comet: 'explosion',
+  comet_intercepted: 'shield',
+};
+
+export function eventIconHtml(eventTypeOrIcon, { size = 'sm', fill = null, className = '' } = {}) {
+  const name = EVENT_ICON_NAMES[eventTypeOrIcon] || eventTypeOrIcon || 'circle_circle';
+  const useFill = fill === null
+    ? (eventTypeOrIcon === 'black_hole' || name === 'circle_circle')
+    : !!fill;
+  const sizeClass = size === 'lg' ? 'ms-icon-lg' : size === 'md' ? 'ms-icon-md' : 'ms-icon-sm';
+  const fillClass = useFill ? ' ms-icon-fill' : '';
+  const extra = className ? ` ${className}` : '';
+  return `<span class="ms-icon ${sizeClass}${fillClass} event-ms-icon${extra}" aria-hidden="true">${name}</span>`;
+}
+
+export function eventTitleHtml(eventType, label, size = 'sm') {
+  return `${eventIconHtml(eventType, { size })}<span class="event-title-text">${label}</span>`;
+}
+
 // ── Solar Flare ───────────────────────────────────────────────
 // How many distinct resource types are affected per flare
 export const SOLAR_FLARE_MIN_TYPES = 3;

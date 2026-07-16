@@ -13,6 +13,7 @@ import {
 } from '../data/ships.js';
 import { NODE_BANDS, CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
+import { eventIconHtml } from '../data/events.js';
 import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
@@ -24,10 +25,31 @@ import { cancelTurretPlacement } from './turretUI.js';
 import { cancelStoragePlacement } from './storageUI.js';
 import { renderBasePanel } from './basePanel.js';
 import { removeReassignTooltip, renderTutPointers } from './tutorial.js';
+import {
+  applyFloatingPosition,
+  bringFloatingToFront,
+  centerFloatingWindow,
+  initFloatingDrag,
+  initFloatingResize,
+  placeFloatingWindow,
+} from './floatingWindow.js';
+
+const HDR_PANEL_TITLES = {
+  sol: 'SECTOR OVERVIEW',
+  command: 'COMMAND',
+  transmissions: 'TRANSMISSIONS',
+  resources: 'RESOURCES',
+  craft: 'CRAFT',
+  market: 'TRADE',
+  fleet: 'SHIPS',
+  research: 'RESEARCH',
+  codex: 'CODEX',
+  stats: 'STATS',
+};
 
 // Keep craft timer progress bars live while the CRAFT panel is open
 setInterval(() => {
-  if (window._hdrPanelOpen !== 'craft') return;
+  if (!isHdrPanelOpen('craft')) return;
   const overlay = document.getElementById('hdr-modal-overlay');
   if (!overlay?.classList.contains('open')) return;
   for (const [recipeId, timer] of Object.entries(state.shipCraftTimers || {})) {
@@ -68,7 +90,7 @@ setInterval(() => {
   }
 }, 100);
 
-let _hdrPanelOpen = null;
+let _focusedHdrPanel = null;
 let _codexTab = 'crew';
 let _craftTab = 'ships';
 let _craftShipRoleTab = 'mining';
@@ -77,6 +99,102 @@ let _fleetSortKey = 'name';
 let _fleetSortDir = 1;
 let _stockpileMineableKeys = null;
 let _selectedTransmissionIndex = 0;
+
+function getHdrModalHost() {
+  return document.getElementById('hdr-modal-host');
+}
+
+function getHdrModalWindow(type) {
+  const host = getHdrModalHost();
+  return host ? host.querySelector(`.hdr-modal-window[data-panel-type="${type}"]`) : null;
+}
+
+function getOpenHdrModalWindows() {
+  const host = getHdrModalHost();
+  return host ? [...host.querySelectorAll('.hdr-modal-window')] : [];
+}
+
+export function isHdrPanelOpen(type) {
+  return !!getHdrModalWindow(type);
+}
+
+function getFocusedHdrPanel() {
+  if (_focusedHdrPanel && isHdrPanelOpen(_focusedHdrPanel)) return _focusedHdrPanel;
+  const open = getOpenHdrModalWindows();
+  if (!open.length) return null;
+  open.sort((a, b) => Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0));
+  _focusedHdrPanel = open[0].dataset.panelType || null;
+  return _focusedHdrPanel;
+}
+
+// Back-compat: many call sites still read/write window._hdrPanelOpen
+let _hdrPanelOpen = null;
+function syncHdrPanelOpenCompat() {
+  _hdrPanelOpen = getFocusedHdrPanel();
+}
+
+function ensureHdrModalWindow(type) {
+  let modal = getHdrModalWindow(type);
+  if (modal) return modal;
+  const host = getHdrModalHost();
+  const overlay = document.getElementById('hdr-modal-overlay');
+  if (!host || !overlay) return null;
+
+  modal = document.createElement('div');
+  modal.className = 'hdr-modal-window';
+  modal.dataset.panelType = type;
+  if (type === 'fleet') modal.classList.add('hdr-modal-fleet');
+  if (type === 'codex') modal.classList.add('hdr-modal-codex');
+  modal.innerHTML = `
+    <div class="panel-shell-head hdr-modal-drag-handle">
+      <div class="panel-shell-title hdr-modal-heading">${HDR_PANEL_TITLES[type] || type.toUpperCase()}</div>
+      <button class="panel-shell-close" onclick="closeHdrPanelType('${type}')" title="Close">✕</button>
+    </div>
+    <div class="hdr-modal-body"></div>`;
+  host.appendChild(modal);
+
+  const layoutKey = `hdr:${type}`;
+  // Position is applied after overlay is shown + content filled (see openHdrPanel)
+  initFloatingDrag(modal, overlay, {
+    handleSelector: '.hdr-modal-drag-handle',
+    layoutKey,
+    onFocus: () => { _focusedHdrPanel = type; syncHdrPanelOpenCompat(); },
+    isActive: () => overlay.classList.contains('open') && !!getHdrModalWindow(type),
+  });
+  initFloatingResize(modal, overlay, {
+    minW: type === 'codex' ? 720 : 480,
+    minH: 280,
+    layoutKey,
+    isActive: () => overlay.classList.contains('open') && !!getHdrModalWindow(type),
+  });
+  return modal;
+}
+
+function getHdrPanelEls(type) {
+  const modal = getHdrModalWindow(type) || ensureHdrModalWindow(type);
+  if (!modal) return { modal: null, heading: null, body: null };
+  return {
+    modal,
+    heading: modal.querySelector('.hdr-modal-heading'),
+    body: modal.querySelector('.hdr-modal-body'),
+  };
+}
+
+function closeHdrPanelType(type) {
+  const modal = getHdrModalWindow(type);
+  if (modal) modal.remove();
+  if (_focusedHdrPanel === type) _focusedHdrPanel = null;
+  const remaining = getOpenHdrModalWindows();
+  const overlay = document.getElementById('hdr-modal-overlay');
+  if (!remaining.length) {
+    overlay?.classList.remove('open');
+  } else {
+    remaining.sort((a, b) => Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0));
+    _focusedHdrPanel = remaining[0].dataset.panelType || null;
+  }
+  syncHdrPanelOpenCompat();
+}
+window.closeHdrPanelType = closeHdrPanelType;
 
 function renderTransmissionsPanel(body) {
   body.innerHTML = `
@@ -91,11 +209,11 @@ function renderTransmissionsPanel(body) {
 }
 
 export function patchTransmissionsPanel() {
-  const overlay = document.getElementById('hdr-modal-overlay');
-  if (_hdrPanelOpen !== 'transmissions' || !overlay?.classList.contains('open')) return;
+  if (!isHdrPanelOpen('transmissions')) return;
+  const win = getHdrModalWindow('transmissions');
   const history = Array.isArray(state.transmissionHistory) ? state.transmissionHistory.slice(0, 20) : [];
-  const listEl = document.getElementById('tx-list');
-  const detailEl = document.getElementById('tx-detail');
+  const listEl = win?.querySelector('#tx-list') || document.getElementById('tx-list');
+  const detailEl = win?.querySelector('#tx-detail') || document.getElementById('tx-detail');
   if (!listEl || !detailEl) return;
   if (!history.length) {
     listEl.innerHTML = '<div class="tx-empty">No transmissions recorded yet.</div>';
@@ -104,18 +222,33 @@ export function patchTransmissionsPanel() {
   }
   _selectedTransmissionIndex = Math.max(0, Math.min(_selectedTransmissionIndex, history.length - 1));
   const selected = history[_selectedTransmissionIndex];
-  listEl.innerHTML = history.map((entry, idx) => `
-    <button onclick="selectTransmissionHistory(${idx})" class="tx-item${idx===_selectedTransmissionIndex?' active':''}">
+  listEl.innerHTML = history.map((entry, idx) => {
+    const name = entry.title || entry.npcName || 'Unknown';
+    const iconName = entry.eventType ? 'warning' : 'person';
+    const iconClass = entry.eventType ? 'tx-list-icon tx-list-icon-event' : 'tx-list-icon tx-list-icon-person';
+    const icon = `<span class="ms-icon ms-icon-sm ${iconClass}" aria-hidden="true">${iconName}</span>`;
+    return `
+    <button onclick="selectTransmissionHistory(${idx})" class="tx-item${idx===_selectedTransmissionIndex?' active':''}${entry.eventType ? ' tx-item-event' : ''}">
       <div class="tx-item-top">
-        <span class="tx-item-name">${entry.npcName || 'Unknown'}</span>
+        <span class="tx-item-name">${icon}${name}</span>
+        ${entry.eventType ? '<span class="tx-item-event-tag">EVENT</span>' : ''}
       </div>
-      <div class="tx-item-meta">SOL ${entry.sol} - ${entry.solTime || '--:--'} - ${entry.npcRole || ''}</div>
-    </button>`).join('');
+      <div class="tx-item-meta">SOL ${entry.sol} - ${entry.solTime || '--:--'} - ${entry.eventType ? (entry.npcName || 'Sector Ops') : (entry.npcRole || '')}</div>
+    </button>`;
+  }).join('');
+  const npc = NPCS[selected.npcId];
+  const portrait = npc?.portrait || '';
+  const detailTitle = selected.eventType
+    ? `${eventIconHtml(selected.eventType, { size: 'md', className: 'tx-event-icon' })}${selected.title || selected.npcName || 'Event'}`
+    : (selected.title || selected.npcName || 'Unknown');
   detailEl.innerHTML = `
     <div class="tx-detail-head">
-      <div>
-        <div class="tx-detail-name">${selected.npcName || 'Unknown'}</div>
-        <div class="tx-detail-role">${selected.npcRole || ''}</div>
+      <div class="tx-detail-identity">
+        ${portrait ? `<img class="tx-detail-avatar" src="${portrait}" alt="${selected.npcName || 'Unknown'}">` : ''}
+        <div>
+          <div class="tx-detail-name">${detailTitle}</div>
+          <div class="tx-detail-role">${selected.eventType ? `${selected.npcName || 'Sector Ops'} · Event Report` : (selected.npcRole || '')}</div>
+        </div>
       </div>
       <div class="tx-detail-time">SOL ${selected.sol} · ${selected.solTime || '--:--'}</div>
     </div>
@@ -139,50 +272,67 @@ function getResourceAbundanceHint(resourceKey) {
 window.openHdrPanel  = openHdrPanel;
 window.patchSolPanel = patchSolPanel;
 window.patchTransmissionsPanel = patchTransmissionsPanel;
-window._hdrPanelOpen = null;
+window.isHdrPanelOpen = isHdrPanelOpen;
 // Sync module-level var when research.js pokes the global
 Object.defineProperty(window, '_hdrPanelOpen', {
-  get: () => _hdrPanelOpen,
-  set: (v) => { _hdrPanelOpen = v; },
+  get: () => getFocusedHdrPanel(),
+  set: (v) => {
+    // Legacy: null means "allow re-open without toggle-close"
+    if (v === null) {
+      _focusedHdrPanel = null;
+      _hdrPanelOpen = null;
+      return;
+    }
+    _focusedHdrPanel = v;
+    _hdrPanelOpen = v;
+  },
 });
 
 export function closeHdrPanel(e) {
-  if (e && e.target !== document.getElementById('hdr-modal-overlay')) return;
-  document.getElementById('hdr-modal-overlay').classList.remove('open');
-  _hdrPanelOpen = null;
+  // Overlay is non-blocking; ignore overlay click. Use closeHdrPanelType / Escape.
+  if (e && e.target === document.getElementById('hdr-modal-overlay')) return;
+  if (typeof e === 'string') {
+    closeHdrPanelType(e);
+    return;
+  }
+  const focused = getFocusedHdrPanel();
+  if (focused) closeHdrPanelType(focused);
+  else dismissHdrModal();
 }
 
 export function dismissHdrModal() {
-  document.getElementById('hdr-modal-overlay').classList.remove('open');
-  _hdrPanelOpen = null;
+  for (const modal of getOpenHdrModalWindows()) modal.remove();
+  _focusedHdrPanel = null;
+  document.getElementById('hdr-modal-overlay')?.classList.remove('open');
+  syncHdrPanelOpenCompat();
 }
 
 export function refreshHdrPanelIfOpen() {
   const overlay = document.getElementById('hdr-modal-overlay');
-  if (!_hdrPanelOpen || !overlay?.classList.contains('open')) return;
+  if (!overlay?.classList.contains('open') || !getOpenHdrModalWindows().length) return;
+  const focused = getFocusedHdrPanel();
+  if (!focused) return;
 
   // Avoid re-rendering static or partially-refreshed panels on interval.
-  if (_hdrPanelOpen === 'codex') return;
-  if (_hdrPanelOpen === 'sol') return;
-  if (_hdrPanelOpen === 'command') return;
-  if (_hdrPanelOpen === 'craft') return;
-  if (_hdrPanelOpen === 'research') return;
-  if (_hdrPanelOpen === 'stats') return;
-  if (_hdrPanelOpen === 'resources') return;
-  if (_hdrPanelOpen === 'market') return;
-  if (_hdrPanelOpen === 'transmissions') return;
-  if (_hdrPanelOpen === 'fleet') {
+  if (focused === 'codex') return;
+  if (focused === 'sol') return;
+  if (focused === 'command') return;
+  if (focused === 'craft') return;
+  if (focused === 'research') return;
+  if (focused === 'stats') return;
+  if (focused === 'resources') return;
+  if (focused === 'market') return;
+  if (focused === 'transmissions') return;
+  if (focused === 'fleet' || isHdrPanelOpen('fleet')) {
     refreshFleetPanelPartial();
     return;
   }
 
-  const current = _hdrPanelOpen;
-  _hdrPanelOpen = null;
-  openHdrPanel(current);
+  openHdrPanel(focused, { refresh: true, preserveScroll: true });
 }
 
 export function patchSolPanel(what) {
-  if (_hdrPanelOpen !== 'sol') return;
+  if (!isHdrPanelOpen('sol')) return;
   if (what === 'sol') {
     const el = document.getElementById('sol-sector-label');
     if (el) el.textContent = `◈ KEPLER-7 SECTOR — SOL ${state.sol}`;
@@ -326,7 +476,7 @@ function buildFleetCompositionHtml(typeCounts, shipCount, maxShips) {
 }
 
 function refreshFleetPanelPartial() {
-  const body = document.getElementById('hdr-modal-body');
+  const body = getHdrModalWindow('fleet')?.querySelector('.hdr-modal-body');
   if (!body) return;
   const maxShips = BASE_MAX_SHIPS[(state.base.level - 1)] || 5;
   const countEl = body.querySelector('#fleet-count');
@@ -341,9 +491,7 @@ function refreshFleetPanelPartial() {
 
   const rows = body.querySelectorAll('tr[data-ship-id]');
   if (rows.length !== state.ships.length) {
-    const current = _hdrPanelOpen;
-    _hdrPanelOpen = null;
-    openHdrPanel(current);
+    openHdrPanel('fleet', { refresh: true, preserveScroll: true });
     return;
   }
   const sortedShips = getSortedFleetShips();
@@ -358,9 +506,7 @@ function refreshFleetPanelPartial() {
   for (const ship of sortedShips) {
     const row = body.querySelector(`tr[data-ship-id="${ship.id}"]`);
     if (!row) {
-      const current = _hdrPanelOpen;
-      _hdrPanelOpen = null;
-      openHdrPanel(current);
+      openHdrPanel('fleet', { refresh: true, preserveScroll: true });
       return;
     }
     const status = getShipStatusLabel(ship);
@@ -385,10 +531,8 @@ function refreshFleetPanelPartial() {
 window.sortFleetManifest = function(key) {
   if (_fleetSortKey === key) _fleetSortDir *= -1;
   else { _fleetSortKey = key; _fleetSortDir = 1; }
-  if (_hdrPanelOpen === 'fleet') {
-    const current = _hdrPanelOpen;
-    _hdrPanelOpen = null;
-    openHdrPanel(current);
+  if (isHdrPanelOpen('fleet')) {
+    openHdrPanel('fleet', { refresh: true, preserveScroll: true });
   }
 };
 
@@ -398,8 +542,7 @@ export function handleBasePanelOverlayClick(e) {
 
 function switchCodexTab(tab) {
   _codexTab = tab;
-  _hdrPanelOpen = null; // prevent toggle-off
-  openHdrPanel('codex');
+  openHdrPanel('codex', { refresh: true, preserveScroll: true });
 }
 window.switchCodexTab = switchCodexTab;
 
@@ -410,15 +553,13 @@ function normalizeCraftTab(tab) {
 
 function switchCraftTab(tab) {
   _craftTab = normalizeCraftTab(tab);
-  _hdrPanelOpen = null;
-  openHdrPanel('craft');
+  openHdrPanel('craft', { refresh: true, preserveScroll: true });
 }
 window.setCraftTab = switchCraftTab;
 
 function switchCraftShipRoleTab(tab) {
   _craftShipRoleTab = tab;
-  _hdrPanelOpen = null;
-  openHdrPanel('craft');
+  openHdrPanel('craft', { refresh: true, preserveScroll: true });
 }
 window.setCraftShipRoleTab = switchCraftShipRoleTab;
 
@@ -551,7 +692,7 @@ function patchStockpileCards(nodesByType) {
   const newKeys = Object.entries(nodesByType).filter(([,d]) => d.mineable).map(([k]) => k).sort().join(',');
   const curKeys = _stockpileMineableKeys ? [..._stockpileMineableKeys].sort().join(',') : null;
   if (curKeys !== newKeys) {
-    const body = document.getElementById('hdr-modal-body');
+    const body = getHdrModalWindow('resources')?.querySelector('.hdr-modal-body');
     if (body) body.innerHTML = buildStatsHtml();
     return;
   }
@@ -579,14 +720,13 @@ function patchStockpileCards(nodesByType) {
 }
 
 window.patchStockpileCards = function() {
-  const overlay = document.getElementById('hdr-modal-overlay');
-  if (_hdrPanelOpen !== 'resources' || !overlay?.classList.contains('open')) return;
+  if (!isHdrPanelOpen('resources')) return;
   patchStockpileCards(buildStatsData().nodesByType);
 };
 
 export function patchStatsPanel() {
   const overlay = document.getElementById('hdr-modal-overlay');
-  if (_hdrPanelOpen !== 'resources' || !overlay?.classList.contains('open')) return;
+  if (!isHdrPanelOpen('resources')) return;
   const { maxShips, assigned, idle, totalNodes, occupiedNodes, nodesByType } = buildStatsData();
 
   const set = (id, val) => { const el = document.getElementById(id); if (el && el.textContent !== String(val)) el.textContent = val; };
@@ -611,39 +751,44 @@ export function patchStatsPanel() {
 
 export function openHdrPanel(type, options = {}) {
   const overlay = document.getElementById('hdr-modal-overlay');
-  const modal = document.getElementById('hdr-modal');
-  const heading = document.getElementById('hdr-modal-heading');
-  const body    = document.getElementById('hdr-modal-body');
+  if (!overlay) return;
 
-  if (_hdrPanelOpen === type && overlay.classList.contains('open') && !options.refresh) {
-    overlay.classList.remove('open');
-    _hdrPanelOpen = null;
+  // Second click on same header button toggles that window closed (unless refresh).
+  if (isHdrPanelOpen(type) && !options.refresh) {
+    closeHdrPanelType(type);
     return;
   }
 
-  // Opening any header panel clears active ship selection.
-  state.selectedShip = null;
-  state.pendingAssign = null;
-  const canvas = document.getElementById('main-canvas');
-  if (canvas) canvas.style.cursor = '';
-  removeReassignTooltip();
+  // Opening a header panel clears active ship selection / placement modes.
+  if (!options.refresh) {
+    state.selectedShip = null;
+    state.pendingAssign = null;
+    const canvas = document.getElementById('main-canvas');
+    if (canvas) canvas.style.cursor = '';
+    removeReassignTooltip();
+    cancelTurretPlacement();
+    cancelStoragePlacement();
+  }
 
-  if (state.basePanelOpen) { state.basePanelOpen = false; if (window.renderBasePanel) window.renderBasePanel(); }
-  cancelTurretPlacement();
-  cancelStoragePlacement();
   if (type === 'market' && state.tutStep === 10) {
     state.tutStep = 11;
     document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   }
-  _hdrPanelOpen = type;
+
+  // Show overlay first so layout measurements are valid
   overlay.classList.add('open');
-  const _modalBody = document.getElementById('hdr-modal-body');
-  if (_modalBody && !options.preserveScroll) _modalBody.scrollTop = 0;
-  if (modal) {
-    modal.classList.remove('hdr-modal-fleet', 'hdr-modal-codex');
-    if (type === 'fleet') modal.classList.add('hdr-modal-fleet');
-    if (type === 'codex') modal.classList.add('hdr-modal-codex');
-  }
+
+  const { modal, heading, body } = getHdrPanelEls(type);
+  if (!modal || !heading || !body) return;
+
+  _focusedHdrPanel = type;
+  syncHdrPanelOpenCompat();
+  bringFloatingToFront(modal);
+
+  if (!options.preserveScroll) body.scrollTop = 0;
+  modal.classList.toggle('hdr-modal-fleet', type === 'fleet');
+  modal.classList.toggle('hdr-modal-codex', type === 'codex');
+  heading.textContent = HDR_PANEL_TITLES[type] || type.toUpperCase();
 
   if (type === 'research' && state.seenMsgs['dax_lv3_intro'] && state.seenMsgs['kai_lv3_intro']) {
     state.seenMsgs['lv3_research_pointer_done'] = true;
@@ -715,7 +860,7 @@ export function openHdrPanel(type, options = {}) {
         <div class="command-soon">— COMING SOON —</div>
       </div>`;
     body.dataset.cmdTab = activeCmd;
-    window.setCmdTab = (id) => { body.dataset.cmdTab = id; _hdrPanelOpen = null; openHdrPanel('command'); };
+    window.setCmdTab = (id) => { body.dataset.cmdTab = id; openHdrPanel('command', { refresh: true, preserveScroll: true }); };
   }
 
   // ── TRANSMISSIONS ──────────────────────────────────────────
@@ -851,7 +996,7 @@ export function openHdrPanel(type, options = {}) {
       // Tutorial scroll-to
       if (state.tutStep === 7) {
         requestAnimationFrame(() => {
-          const btn = document.querySelector('#hdr-modal-body .bp-craft-item .btn');
+          const btn = document.querySelector('.hdr-modal-window[data-panel-type="craft"] .bp-craft-item .btn');
           if (btn?.scrollIntoView) btn.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
       }
@@ -1406,7 +1551,7 @@ export function openHdrPanel(type, options = {}) {
           const cells     = group.row(shipId, stats);
           return `<tr>
             <td class="codex-ships-td">
-              <div class="codex-ships-name"><span class="codex-ships-name-arrow" style="color:${group.color};">➤</span>${shipName}</div>
+              <div class="codex-ships-name"><span class="ms-icon ms-icon-sm codex-ships-name-arrow" style="color:${group.color};" aria-hidden="true">rocket</span>${shipName}</div>
               ${shipDesc ? `<div class="codex-ships-desc">${shipDesc}</div>` : ''}
             </td>
             <td class="codex-ships-td">
@@ -1445,7 +1590,7 @@ export function openHdrPanel(type, options = {}) {
       const turretRows = turretDefs.map(t => {
         return `<tr>
           <td class="codex-ships-td">
-            <div class="codex-ships-name"><span class="codex-ships-name-arrow" style="color:${t.color};">➤</span>${t.name}</div>
+            <div class="codex-ships-name"><span class="ms-icon ms-icon-sm codex-ships-name-arrow" style="color:${t.color};" aria-hidden="true">shield</span>${t.name}</div>
             <div class="codex-ships-desc">${t.desc}</div>
           </td>
           <td class="codex-ships-td"><span class="codex-ships-tier-pill" style="border:1px solid ${t.color}44;background:${t.color}18;color:${t.color};">${t.tier.replace('Tier ', '')}</span></td>
@@ -1546,19 +1691,19 @@ export function openHdrPanel(type, options = {}) {
       // Events tab
       const eventDefs = [
         {
-          id: 'solar_flare', icon: '☀', label: 'Solar Flare',
+          id: 'solar_flare', label: 'Solar Flare',
           desc: 'An electromagnetic surge that destroys a percentage of exposed resource stockpiles. Oxygen is shielded.',
-          effect: '⚡ Destroys a portion of your resource stockpile — Oxygen is immune. The higher the SOL, the greater the loss.',
+          effect: 'Destroys a portion of your resource stockpile — Oxygen is immune. The higher the SOL, the greater the loss.',
         },
         {
-          id: 'comet', icon: '☄', label: 'Comet Impact',
+          id: 'comet', label: 'Comet Impact',
           desc: 'A comet strikes the base station, dealing structural damage that scales with SOL number. Repair via the Base Station.',
-          effect: '💥 Deals direct damage to your base HP. Damage scales with SOL progression — repair from the Tower panel.',
+          effect: 'Deals direct damage to your base HP. Damage scales with SOL progression — repair from the Tower panel.',
         },
         {
-          id: 'black_hole', icon: '●', label: 'Black Hole',
+          id: 'black_hole', label: 'Black Hole',
           desc: 'A temporary spatial anomaly forms somewhere in the sector, slowing ships that cross through its field until it collapses.',
-          effect: '🌀 Lasts about 60 seconds. Ships whose route crosses the anomaly are slowed to 20% speed while it is active.',
+          effect: 'Lasts about 60 seconds. Ships whose route crosses the anomaly are slowed to 20% speed while it is active.',
         },
       ];
       tabContent = eventDefs.map(ev => {
@@ -1567,7 +1712,7 @@ export function openHdrPanel(type, options = {}) {
         return `<div style="background:rgba(10,20,50,0.5);border:1px solid ${encountered?'#2a4a7a':'#1a2a4a'};border-radius:5px;padding:12px;margin-bottom:8px;${encountered?'':'opacity:0.5;'}">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
             <div style="display:flex;align-items:flex-start;gap:8px;">
-              <span style="font-size:40px;line-height:1;padding-top:2px;">${ev.icon}</span>
+              ${eventIconHtml(ev.id, { size: 'lg', className: 'codex-event-icon' })}
               <div>
                 <div style="font-family:'Orbitron',sans-serif;font-size:14px;color:${encountered?'#cde':'#4a6a8a'};letter-spacing:1px;">${ev.label}</div>
                 <div style="font-size:10px;color:#3a5a7a;margin-top:1px;">${encountered?'ENCOUNTERED':'UNDISCOVERED'}</div>
@@ -1717,6 +1862,15 @@ export function openHdrPanel(type, options = {}) {
 
     body.innerHTML = `<div class="codex-layout">${tabBar}<div class="codex-content">${tabContent}</div></div>`;
   }
+
+  // Center after content + layout (overlay must be open; skip if user moved this panel)
+  const layoutKey = `hdr:${type}`;
+  const place = () => centerFloatingWindow(overlay, modal, layoutKey);
+  place();
+  requestAnimationFrame(() => {
+    place();
+    requestAnimationFrame(place);
+  });
 }
 
 // Global onclick bindings used by HTML

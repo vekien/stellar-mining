@@ -2,6 +2,7 @@
 // RENAME OVERLAY — ship/base rename UI
 // ============================================================
 import { state } from '../state.js';
+import { invalidateEntityListCache } from '../data/modules.js';
 import { refresh } from './refresh.js';
 import { renderBasePanel } from './basePanel.js';
 
@@ -116,12 +117,15 @@ export function commitRename(newName) {
   const wasBase = state.renamingBase;
   if (state.renamingBase) {
     state.base.name = cleanName || state.base.name || 'Base Station';
+    invalidateEntityListCache();
   } else if (state.renamingStorage) {
     const storage = state.modules.find(s => s.id === state.renamingStorage);
     if (storage) storage.name = cleanName || storage.name;
+    invalidateEntityListCache();
   } else if (state.renamingTurret) {
     const turret = state.turrets.find(entry => entry.id === state.renamingTurret);
     if (turret) turret.name = cleanName || turret.name;
+    invalidateEntityListCache();
   } else {
     const ship = state.ships.find(s => s.id === state.renamingShip);
     if (ship) ship.name = cleanName || ship.name;

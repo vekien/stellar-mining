@@ -79,13 +79,15 @@ export function renderCraftTracker() {
     const kindLabel = KIND_LABELS[kind] || kind.toUpperCase();
     let reqs = '';
     if (data.cost > 0) {
-      const met = state.coins >= data.cost;
-      reqs += `<div class="ct-req ${met ? 'ct-met' : 'ct-unmet'}"><span class="ct-check">${met ? '✓' : '✗'}</span>$${fmt(data.cost)}</div>`;
+      const have = state.coins || 0;
+      const met = have >= data.cost;
+      reqs += `<div class="ct-req ${met ? 'ct-met' : 'ct-unmet'}"><span class="ct-check">${met ? '✓' : '✗'}</span>$${fmt(have)}/$${fmt(data.cost)}</div>`;
     }
     for (const [r, n] of Object.entries(data.reqs)) {
-      const met = (state.resources[r] || 0) >= n;
+      const have = state.resources[r] || 0;
+      const met = have >= n;
       const label = RESOURCE_DEFS[r]?.label || r;
-      reqs += `<div class="ct-req ${met ? 'ct-met' : 'ct-unmet'}"><span class="ct-check">${met ? '✓' : '✗'}</span>${label}: ${fmt(n)}</div>`;
+      reqs += `<div class="ct-req ${met ? 'ct-met' : 'ct-unmet'}"><span class="ct-check">${met ? '✓' : '✗'}</span>${label}: ${fmt(have)}/${fmt(n)}</div>`;
     }
     return `<div class="ct-card">
       <div class="ct-card-head">

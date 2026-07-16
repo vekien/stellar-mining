@@ -25,7 +25,7 @@ import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
-import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules } from '../data/modules.js';
 import { getBlackHoleRadiusScale } from '../render/animations.js';
 
 function getBlackHoleSpeedMult(ship) {
@@ -43,15 +43,15 @@ function getBlackHoleSpeedMult(ship) {
 import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 
 function getStorageModules() {
-  return state.modules.filter(isStorageModule);
+  return getDepotModules(state.modules).filter(isStorageModule);
 }
 
 function getResearchLabs() {
-  return state.modules.filter(isResearchLabModule);
+  return getDepotModules(state.modules).filter(isResearchLabModule);
 }
 
 function getPowerStations() {
-  return state.modules.filter(isPowerStationModule);
+  return getDepotModules(state.modules).filter(isPowerStationModule);
 }
 
 const craftTimeouts = {};
@@ -545,12 +545,12 @@ function completeCraftShip(recipeId) {
     if (state.shipCraftNotices?.[recipeId] && Date.now() >= state.shipCraftNotices[recipeId]) {
       delete state.shipCraftNotices[recipeId];
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-      if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+      if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
     }
   }, 3050);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 }
 
 function scheduleCraftCompletion(recipeId, endsAt) {
@@ -1037,7 +1037,7 @@ window.startCraftShip = function(recipeId) {
   scheduleCraftCompletion(recipeId, now + durationMs);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 };
 
 window.syncShipCraftTimers = function() {

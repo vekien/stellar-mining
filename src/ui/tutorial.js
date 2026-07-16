@@ -93,7 +93,7 @@ const TUTORIAL_DEFS = [
 
   {
     id: 'tut-ptr-ships-tab',
-    condition: s => s.tutStep === 6 && window._hdrPanelOpen === 'craft',
+    condition: s => s.tutStep === 6 && (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft'),
     text: 'SHIPS TAB',
     placement: 'below',
     getEl: () => document.getElementById('craft-tab-ships'),
@@ -101,10 +101,10 @@ const TUTORIAL_DEFS = [
 
   {
     id: 'tut-ptr-scout',
-    condition: s => s.tutStep === 7 && window._hdrPanelOpen === 'craft',
+    condition: s => s.tutStep === 7 && (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft'),
     text: '🚀 BUILD SCOUT SHIP',
     placement: 'below',
-    getEl: () => document.querySelector('#hdr-modal-body .bp-craft-item .btn'),
+    getEl: () => document.querySelector('.hdr-modal-window[data-panel-type="craft"] .bp-craft-item .btn, #hdr-modal-body .bp-craft-item .btn'),
   },
 
   {

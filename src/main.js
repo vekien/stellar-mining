@@ -10,7 +10,7 @@ import { CRASHED_SHIP_NODE_TYPE } from './data/nodes.js';
 import { SOL_DURATION } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI, fmt } from './helpers.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
-import { initRenderer, resizeRenderer, render, setOnCameraMove, setRenderFps, W, H } from './render/renderer.js';
+import { initRenderer, resizeRenderer, render, setOnCameraMove, setRenderFps, invalidateNodeSortCache, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
 import {
   tickFloaties, tickSolarFlare, tickBlackHole, tickComet,
@@ -25,26 +25,26 @@ import './systems/research.js';
 import { getMaxShield } from './systems/research.js';
 import { SHIELD_REGEN_INTERVAL_S, SHIELD_REGEN_PER_PURCHASE_PER_TICK, AUTO_REGEN_HP_PER_PURCHASE } from './data/research.js';
 import { refresh } from './ui/refresh.js';
-import { renderUI, updateHeader, initRefresh } from './ui/ui.js';
+import { renderUI, updateHeader, updateHeaderCraft, initRefresh } from './ui/ui.js';
 import { renderActionPanel, getShipHoldingReason, getShipRouteError, getShipStatusMeta, getShipTransportSummary, getShipTransportStatusHtml } from './ui/fleet.js';
 import { renderBasePanel } from './ui/basePanel.js';
 import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen, patchStatsPanel } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
-import { toggleTrackCraft, refreshTrackButtons } from './ui/craftTracker.js';
+import { toggleTrackCraft, refreshTrackButtons, renderCraftTracker } from './ui/craftTracker.js';
 import { initInput } from './input.js';
 import { initDevPanel } from './ui/devPanel.js';
 import './ui/storageUI.js';
 import { NPCS } from './data/npcs.js';
 import { getStoragePowerUsage } from './data/storage.js';
 import {
-  isStorageModule,
-  isResearchLabModule,
   isPoweredBuildingModule,
   isPowerStationModule,
   getLabNetworkState,
   getPowerNetworkState,
   getPowerResourceConsumption,
   getPowerStationEffectiveOutput,
+  getDepotModules,
+  getEntityListVersion,
 } from './data/modules.js';
 
 let _baseDestroyedNoticeShown = false;
@@ -100,6 +100,7 @@ function initNodes() {
     state.worldSeed = Math.floor(Math.random() * 2147483647);
   }
   state.nodes = generateNodes(BASE_COL, BASE_ROW, state.worldSeed);
+  invalidateNodeSortCache();
 }
 
 // ── Boot sequence ─────────────────────────────────────────────
@@ -197,8 +198,7 @@ document.getElementById('sidebar').addEventListener('mouseenter', () => sidebarH
 document.getElementById('sidebar').addEventListener('mouseleave', () => { sidebarHovered = false; hideTooltip(); });
 document.getElementById('base-panel-overlay').addEventListener('mouseenter', () => overlayHovered = true);
 document.getElementById('base-panel-overlay').addEventListener('mouseleave', () => overlayHovered = false);
-document.getElementById('hdr-modal-overlay').addEventListener('mouseenter', () => overlayHovered = true);
-document.getElementById('hdr-modal-overlay').addEventListener('mouseleave', () => overlayHovered = false);
+// hdr windows are pointer-events:all; overlay itself is non-blocking
 
 document.getElementById('sidebar').addEventListener('mousedown', e => {
   const interactive = e.target.closest('.ship-card, button, input, select, .tab, .sell-btn-s, .filter-btn, .upgrade-row, #tab-content, #action-panel, label');
@@ -338,11 +338,17 @@ function gameLoop() {
     if (_storageOfflineNoticeSol !== null && _storageOfflineNoticeSol !== state.sol) _storageOfflineNoticeSol = null;
     const storageChargeById = new Map();
     const networkState = getPowerNetworkState(state.modules, state.turrets);
-    for (const station of state.modules.filter(isPowerStationModule)) {
+    const stations = [];
+    const poweredBuildings = [];
+    for (const module of state.modules) {
+      if (isPowerStationModule(module)) stations.push(module);
+      if (isPoweredBuildingModule(module)) poweredBuildings.push(module);
+    }
+    for (const station of stations) {
       if ((station.health || 0) <= 0) continue;
       const linkedStorageIds = networkState.stationLinkedStorages.get(station.id) || [];
       const linkedTurretIds = networkState.stationLinkedTurrets.get(station.id) || [];
-      const linkedConsumerIds = [...linkedStorageIds, ...linkedTurretIds];
+      const linkedConsumerIds = linkedStorageIds.concat(linkedTurretIds);
       if (!linkedConsumerIds.length) continue;
       const fuelType = station.fuelResource || 'iron';
       const availableFuel = station.inventory?.[fuelType] || 0;
@@ -356,7 +362,7 @@ function gameLoop() {
     }
 
     let storageWentOffline = false;
-    for (const storage of state.modules.filter(isPoweredBuildingModule)) {
+    for (const storage of poweredBuildings) {
       const prevPower = storage.power || 0;
       const incomingPower = storageChargeById.get(storage.id) || 0;
       storage.power = Math.max(0, Math.min(storage.powerCapacity || 0, prevPower + incomingPower - getStoragePowerUsage(storage)));
@@ -405,6 +411,8 @@ function gameLoop() {
 let _lastPatchTs = 0;
 let _lastPatchSig = '';
 let _lastSelectedActionSig = '';
+let _depotOptionsSig = '';
+let _depotOptionsSigVer = -1;
 const PATCH_FRAME_MS = 1000 / 20;
 
 function getDistanceToBaseTiles(ship) {
@@ -413,27 +421,36 @@ function getDistanceToBaseTiles(ship) {
   return Math.max(0, Math.round(Math.hypot(ship.x - bp.x, ship.y - bp.y) / 36));
 }
 
+function getDepotOptionsSig() {
+  const ver = getEntityListVersion();
+  if (ver === _depotOptionsSigVer) return _depotOptionsSig;
+  const depots = getDepotModules(state.modules);
+  let sig = state.base.name || 'Base Station';
+  for (const module of depots) {
+    sig += `|${module.type}:${module.id}:${module.name}`;
+  }
+  _depotOptionsSig = sig;
+  _depotOptionsSigVer = ver;
+  return sig;
+}
+
 function getSelectedActionSig(ship) {
   if (!ship) return '';
-  const depotOptionsSig = `${state.base.name || 'Base Station'}|${state.modules
-    .filter(module => isStorageModule(module) || isResearchLabModule(module) || isPowerStationModule(module))
-    .map(module => `${module.type}:${module.id}:${module.name}`)
-    .join('|')}`;
-  return JSON.stringify({
-    id: ship.id,
-    name: ship.name,
-    type: ship.type,
-    status: ship.status,
-    unloadingDepot: !!ship.unloadingDepot,
-    capacity: ship.capacity,
-    mineTier: ship.mineTier,
-    targetNode: ship.targetNode,
-    pickupType: ship.pickupType ?? null,
-    pickupId: ship.pickupId ?? null,
-    depotType: ship.depotType ?? null,
-    depotId: ship.depotId ?? null,
-    depotOptionsSig,
-  });
+  return [
+    ship.id,
+    ship.name,
+    ship.type,
+    ship.status,
+    ship.unloadingDepot ? 1 : 0,
+    ship.capacity,
+    ship.mineTier,
+    ship.targetNode ?? '',
+    ship.pickupType ?? '',
+    ship.pickupId ?? '',
+    ship.depotType ?? '',
+    ship.depotId ?? '',
+    getDepotOptionsSig(),
+  ].join('\0');
 }
 
 function setTextIfChanged(el, text) {
@@ -549,6 +566,9 @@ document.addEventListener('visibilitychange', () => {
 setInterval(() => {
   refreshHdrPanelIfOpen();
   patchStatsPanel();
+  updateHeaderCraft(); // craft pulse on/off as timers start/finish
+  // Safety net: keep tracked craft reqs in sync if resources changed off-path
+  if ((state.trackedCrafts || []).length) renderCraftTracker();
 }, 800);
 
 // ── Autosave ─────────────────────────────────────────────────

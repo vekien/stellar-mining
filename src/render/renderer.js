@@ -2,7 +2,7 @@
 // MAIN RENDERER — canvas drawing
 // ============================================================
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW, BASE_FOOTPRINT_RADIUS } from '../constants.js';
-import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS, tickCamera } from './camera.js';
+import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS, tickCamera, updateViewBounds, isInView } from './camera.js';
 import { BASE_RANGE } from '../data/base.js';
 import { toRoman, SHIP_DEFS } from '../data/ships.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
@@ -30,7 +30,73 @@ let lastFpsDisplayTs = 0;
 let lastZoomDisplayed = -1;
 let _lastCamMoveSig = '';
 let RENDER_FRAME_MS = 1000 / 45;
-export function setRenderFps(fps) { RENDER_FRAME_MS = 1000 / fps; }
+let _userRenderFps = 45;
+export function setRenderFps(fps) {
+  _userRenderFps = Math.max(15, Math.min(60, Number(fps) || 45));
+  RENDER_FRAME_MS = 1000 / _userRenderFps;
+}
+
+/** Soft-cap FPS when the sector is dense (never exceeds the user setting). */
+function getEffectiveFrameMs() {
+  const load = state.ships.length
+    + state.nodes.length
+    + state.modules.length
+    + state.turrets.length
+    + (state.drones?.length || 0);
+  let cap = _userRenderFps;
+  if (load > 220) cap = Math.min(cap, 28);
+  else if (load > 140) cap = Math.min(cap, 34);
+  else if (load > 90) cap = Math.min(cap, 40);
+  return 1000 / cap;
+}
+
+// ── Sorted-entity caches (avoid per-frame alloc + node re-sort) ──
+let _sortedNodes = [];
+let _sortedNodesRef = null;
+let _sortedNodesLen = -1;
+const _sortedShips = [];
+const _sortedDrones = [];
+let _shipSortFrame = 0;
+let _droneSortFrame = 0;
+const ENTITY_SORT_EVERY = 2; // re-sort moving entities every N frames
+
+export function invalidateNodeSortCache() {
+  _sortedNodesRef = null;
+  _sortedNodesLen = -1;
+}
+
+function getSortedNodes() {
+  const nodes = state.nodes;
+  if (_sortedNodesRef === nodes && _sortedNodesLen === nodes.length) return _sortedNodes;
+  _sortedNodes = nodes.slice().sort((a, b) => (a.gr[0] + a.gr[1]) - (b.gr[0] + b.gr[1]));
+  _sortedNodesRef = nodes;
+  _sortedNodesLen = nodes.length;
+  return _sortedNodes;
+}
+
+function getSortedShips() {
+  const ships = state.ships;
+  _shipSortFrame++;
+  const needFull = _sortedShips.length !== ships.length || (_shipSortFrame % ENTITY_SORT_EVERY) === 0;
+  if (needFull) {
+    _sortedShips.length = 0;
+    for (let i = 0; i < ships.length; i++) _sortedShips.push(ships[i]);
+    _sortedShips.sort((a, b) => a.y - b.y);
+  }
+  return _sortedShips;
+}
+
+function getSortedDrones() {
+  const drones = state.drones || [];
+  _droneSortFrame++;
+  const needFull = _sortedDrones.length !== drones.length || (_droneSortFrame % ENTITY_SORT_EVERY) === 0;
+  if (needFull) {
+    _sortedDrones.length = 0;
+    for (let i = 0; i < drones.length; i++) _sortedDrones.push(drones[i]);
+    _sortedDrones.sort((a, b) => a.y - b.y);
+  }
+  return _sortedDrones;
+}
 const baseImage = new Image();
 baseImage.src = 'assets/images/buildings/base.png';
 const baseHoverImage = new Image();
@@ -876,7 +942,8 @@ function drawSelectedShipLine() {
 
 export function render(ts) {
   if (!ctx) return;
-  if (ts - lastRenderTs < RENDER_FRAME_MS) {
+  const frameMs = Math.max(RENDER_FRAME_MS, getEffectiveFrameMs());
+  if (ts - lastRenderTs < frameMs) {
     requestAnimationFrame(render);
     return;
   }
@@ -897,6 +964,9 @@ export function render(ts) {
   if (_onCameraMove && (cameraMoving || camSig !== _lastCamMoveSig)) _onCameraMove();
   _lastCamMoveSig = camSig;
 
+  // World-space frustum for culling (pad covers node/ship sprites)
+  updateViewBounds(W, H, 110);
+
   if (state.settings?.showBackgroundStars !== false) drawStars(ts);
   ctx.clearRect(0,0,W,H);
   const shake = getShakeOffset();
@@ -914,16 +984,30 @@ export function render(ts) {
   drawPowerLinks();
   drawLabLinks();
   drawStorageFootprints();
-  const sn = [...state.nodes].sort((a,b)=>(a.gr[0]+a.gr[1])-(b.gr[0]+b.gr[1]));
-  for (const n of sn) drawNode(n);
+  const sn = getSortedNodes();
+  for (let i = 0; i < sn.length; i++) {
+    const n = sn[i];
+    const [col, row] = n.gr;
+    const { x, y } = gridToIso(col, row);
+    if (!isInView(x, y + TILE_H / 2)) continue;
+    drawNode(n);
+  }
   drawStorageSprites();
   drawBase(BASE_COL, BASE_ROW);
   drawSelectedShipLine();
   drawTurrets();
-  const ss = [...state.ships].sort((a,b)=>a.y-b.y);
-  for (const s of ss) drawShipWorld(s);
-  const ds = [...(state.drones || [])].sort((a,b)=>a.y-b.y);
-  for (const d of ds) drawDroneWorld(d);
+  const ss = getSortedShips();
+  for (let i = 0; i < ss.length; i++) {
+    const s = ss[i];
+    if (!isInView(s.x, s.y)) continue;
+    drawShipWorld(s);
+  }
+  const ds = getSortedDrones();
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i];
+    if (!isInView(d.x, d.y)) continue;
+    drawDroneWorld(d);
+  }
   drawTurretPlacementHover();
   drawStoragePlacementHover();
   drawSolarFlare();

@@ -38,9 +38,12 @@ export const MINE_TIERS = {
   10: { label: 'Tier X',    resources: ['rhodium', 'hafnium'],   color: '#ffffff' },
 };
 
+const _resourceTierMap = new Map();
+for (const [tier, def] of Object.entries(MINE_TIERS)) {
+  for (const r of def.resources) _resourceTierMap.set(r, Number(tier));
+}
+
 export function getResourceTier(resourceType) {
-  for (const [tier, def] of Object.entries(MINE_TIERS)) {
-    if (def.resources.includes(resourceType)) return Number(tier);
-  }
-  return null;
+  const t = _resourceTierMap.get(resourceType);
+  return t !== undefined ? t : null;
 }

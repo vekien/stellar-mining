@@ -18,42 +18,30 @@ import {
   getResearchPointCap,
 } from '../data/research.js';
 import { getMaxShield } from '../systems/research.js';
+import {
+  applyFloatingPosition,
+  bringFloatingToFront,
+  centerFloatingWindow,
+  initFloatingDrag,
+  initFloatingResize,
+  placeFloatingWindow,
+} from './floatingWindow.js';
 
 
 let _bpWasOpen = false;
 let _basePanelDragInit = false;
-let _basePanelPos = null;
 let _basePanelBodySig = '';
-
-function clampBasePanelPosition(left, top) {
-  const overlay = document.getElementById('base-panel-overlay');
-  const panel = document.getElementById('base-panel');
-  if (!overlay || !panel) return { left, top };
-  const overlayRect = overlay.getBoundingClientRect();
-  const panelRect = panel.getBoundingClientRect();
-  const maxLeft = Math.max(0, overlayRect.width - panelRect.width);
-  const maxTop = Math.max(0, overlayRect.height - panelRect.height);
-  return {
-    left: Math.max(0, Math.min(maxLeft, left)),
-    top: Math.max(0, Math.min(maxTop, top)),
-  };
-}
+const BASE_LAYOUT_KEY = 'base';
 
 function applyBasePanelPosition() {
   const overlay = document.getElementById('base-panel-overlay');
   const panel = document.getElementById('base-panel');
   if (!overlay || !panel) return;
-  if (!_basePanelPos) {
-    const overlayRect = overlay.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    _basePanelPos = {
-      left: Math.round((overlayRect.width - panelRect.width) / 2),
-      top: 56,
-    };
+  if (Number.isFinite(Number(panel.dataset.left)) && Number.isFinite(Number(panel.dataset.top))) {
+    applyFloatingPosition(overlay, panel);
+  } else {
+    placeFloatingWindow(overlay, panel, BASE_LAYOUT_KEY);
   }
-  _basePanelPos = clampBasePanelPosition(_basePanelPos.left, _basePanelPos.top);
-  panel.style.left = `${_basePanelPos.left}px`;
-  panel.style.top = `${_basePanelPos.top}px`;
 }
 
 function initBasePanelDrag() {
@@ -61,39 +49,19 @@ function initBasePanelDrag() {
   _basePanelDragInit = true;
   const overlay = document.getElementById('base-panel-overlay');
   const panel = document.getElementById('base-panel');
-  const handle = document.getElementById('bp-header-bar');
-  if (!overlay || !panel || !handle) return;
+  if (!overlay || !panel) return;
 
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener('mousedown', (event) => {
-    if (event.button !== 0) return;
-    if (event.target.closest('.panel-shell-close')) return;
-    const panelRect = panel.getBoundingClientRect();
-    dragging = true;
-    offsetX = event.clientX - panelRect.left;
-    offsetY = event.clientY - panelRect.top;
-    document.body.style.userSelect = 'none';
-    event.preventDefault();
+  initFloatingDrag(panel, overlay, {
+    handleSelector: '#bp-header-bar',
+    layoutKey: BASE_LAYOUT_KEY,
+    isActive: () => overlay.classList.contains('open'),
+    onFocus: () => bringFloatingToFront(panel),
   });
-
-  window.addEventListener('mousemove', (event) => {
-    if (!dragging) return;
-    const overlayRect = overlay.getBoundingClientRect();
-    _basePanelPos = clampBasePanelPosition(event.clientX - overlayRect.left - offsetX, event.clientY - overlayRect.top - offsetY);
-    applyBasePanelPosition();
-    event.preventDefault();
-  });
-
-  window.addEventListener('mouseup', () => {
-    dragging = false;
-    document.body.style.userSelect = '';
-  });
-
-  window.addEventListener('resize', () => {
-    if (overlay.classList.contains('open')) applyBasePanelPosition();
+  initFloatingResize(panel, overlay, {
+    minW: 360,
+    minH: 320,
+    layoutKey: BASE_LAYOUT_KEY,
+    isActive: () => overlay.classList.contains('open'),
   });
 }
 
@@ -139,7 +107,6 @@ export function renderBasePanel() {
     panel.appendChild(bodyEl);
     initBasePanelDrag();
   }
-  applyBasePanelPosition();
 
   let body = '';
   const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
@@ -343,6 +310,13 @@ export function renderBasePanel() {
     _basePanelBodySig = bodySig;
     bpBodyEl.innerHTML = body;
   }
+
+  const place = () => centerFloatingWindow(overlay, panel, BASE_LAYOUT_KEY);
+  place();
+  requestAnimationFrame(() => {
+    place();
+    requestAnimationFrame(place);
+  });
 }
 
 window.setBpTab = function(tab) {

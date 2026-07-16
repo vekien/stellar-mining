@@ -6,7 +6,7 @@ import { RESOURCE_DEFS } from '../data/resources.js';
 import { addLog, fmt, resourceIconHtml } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { spawnSolarFlare, spawnComet } from '../render/animations.js';
-import { queueTransmissions } from '../ui/transmissions.js';
+import { queueTransmissions, logEventTransmission, makeEventId } from '../ui/transmissions.js';
 import { NPCS } from '../data/npcs.js';
 import { BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS, TILE_W, TILE_H } from '../constants.js';
 import {
@@ -19,6 +19,7 @@ import {
   BLACK_HOLE_DURATION_S, BLACK_HOLE_FADE_TIME_S, BLACK_HOLE_RANGE_MIN, BLACK_HOLE_RANGE_MAX, BLACK_HOLE_WARNING_DURATION_MS,
   EVENT_SCHEDULE_MIN_SOLS, EVENT_SCHEDULE_MAX_SOLS,
   SOLAR_FLARE_TRIGGER_DELAY_MS, COMET_TRIGGER_DELAY_MS, BLACK_HOLE_TRIGGER_DELAY_MS,
+  eventTitleHtml,
 } from '../data/events.js';
 import {
   ANTI_COMET_CHANCE_PER_PURCHASE,
@@ -111,7 +112,7 @@ window.closeEventWarning = closeEventWarning;
 export const RANDOM_EVENTS = [
   {
     id: 'solar_flare',
-    label: '☀ SOLAR FLARE',
+    label: 'SOLAR FLARE',
     trigger(sol) {
       // Dynamically pick 3–8 resource types the player currently has stock of
       const available = getSolarFlareAvailableTypes();
@@ -136,7 +137,7 @@ export const RANDOM_EVENTS = [
       }
       const summary = Object.entries(losses).map(([t,n]) => `${fmt(n)} ${RESOURCE_DEFS[t].label}`).join(' · ');
       const totalLost = Object.values(losses).reduce((sum, n) => sum + n, 0);
-      addLog(`☀ Solar Flare! Lost: ${summary || 'nothing'}`);
+      addLog(`Solar Flare! Lost: ${summary || 'nothing'}`);
       const sortedLosses = Object.entries(losses).sort((a, b) => b[1] - a[1]);
       const lossRows = sortedLosses.map(([t, n]) => {
         const def = RESOURCE_DEFS[t];
@@ -149,8 +150,20 @@ export const RANDOM_EVENTS = [
       const flareDetail = lossRows
         ? `<div class="event-flare-header-row"><span class="event-flare-eyebrow">RESOURCE LOSS REPORT</span><span class="event-flare-total">TOTAL −${fmt(totalLost)}</span></div>${lossRows}${solarReductionPct > 0 ? `<div class="event-shield-row">Solar Radiation Shielding: ${solarReductionPct}%</div>` : ''}`
         : `<div style="color:#8f8;">MINIMAL DAMAGE DETECTED</div>`;
-      showEventWarning('☀ SOLAR FLARE', flareDetail, SOLAR_FLARE_WARNING_DURATION_MS);
+      showEventWarning(eventTitleHtml('solar_flare', 'SOLAR FLARE', 'md'), flareDetail, SOLAR_FLARE_WARNING_DURATION_MS);
       spawnSolarFlare();
+      const eventId = makeEventId();
+      const lossLines = sortedLosses.length
+        ? sortedLosses.map(([t, n]) => `• <strong>${RESOURCE_DEFS[t].label}</strong>: <span style="color:#ff8080;">−${fmt(n)}</span>`).join('<br>')
+        : '• No material losses recorded.';
+      logEventTransmission(
+        `<strong>SOLAR FLARE</strong> — Class-M electromagnetic surge.<br><br>` +
+        `<strong>Effects</strong><br>${lossLines}<br>` +
+        `Total lost: <strong style="color:#ff8080;">−${fmt(totalLost)}</strong>` +
+        (solarReductionPct > 0 ? `<br>Solar Radiation Shielding reduced losses by <strong>${solarReductionPct}%</strong>.` : ''),
+        'vane',
+        { eventId, eventType: 'solar_flare', title: 'Solar Flare', showPopup: false, duration: 14 }
+      );
       queueTransmissions([{ key: 'vane_solar_explain', text: NPCS.vane.transmissionLines.vane_solar_explain, duration: 14, npc: 'vane', delay: SOLAR_FLARE_TRANSMISSION_DELAY_MS }]);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
       if (window.patchStorageModal) window.patchStorageModal();
@@ -159,7 +172,7 @@ export const RANDOM_EVENTS = [
   },
   {
     id: 'black_hole',
-    label: '● BLACK HOLE',
+    label: 'BLACK HOLE',
     trigger() {
       const currentRange = BASE_RANGE[(state.base.level - 1)] || 6;
       const candidates = [];
@@ -186,21 +199,41 @@ export const RANDOM_EVENTS = [
         duration,
       };
       focusOn(state.blackHole.wx, state.blackHole.wy);
-      addLog(`● Black Hole anomaly detected near (${pick.col},${pick.row})`);
-      showEventWarning('● BLACK HOLE', `<div style="color:#cde;">A spatial distortion has formed near <strong>${pick.col},${pick.row}</strong>.</div>`, BLACK_HOLE_WARNING_DURATION_MS);
+      addLog(`Black Hole anomaly detected near (${pick.col},${pick.row})`);
+      showEventWarning(eventTitleHtml('black_hole', 'BLACK HOLE', 'md'), `<div style="color:#cde;">A spatial distortion has formed near <strong>${pick.col},${pick.row}</strong>.</div>`, BLACK_HOLE_WARNING_DURATION_MS);
+      const eventId = makeEventId();
+      logEventTransmission(
+        `<strong>BLACK HOLE ANOMALY</strong><br><br>` +
+        `A micro black hole has formed near <strong>${pick.col},${pick.row}</strong>.<br><br>` +
+        `<strong>Effects</strong><br>` +
+        `• Distortion range: <strong>${rangeTiles} tiles</strong><br>` +
+        `• Estimated duration: <strong>${duration}s</strong><br>` +
+        `• Ships crossing the field suffer severe drive drag.`,
+        'zoe',
+        { eventId, eventType: 'black_hole', title: 'Black Hole', showPopup: false, duration: 16 }
+      );
       queueTransmissions([{ text: NPCS.zoe.transmissionLines.black_hole_detected(pick.col, pick.row, rangeTiles), duration: 18, npc: 'zoe', delay: 1200 }]);
       if (refresh.ui) refresh.ui();
     }
   },
   {
     id: 'comet',
-    label: '☄ COMET IMPACT',
+    label: 'COMET IMPACT',
     trigger(sol) {
       // ── Anti-comet intercept roll ───────────────────────────
       const interceptChance = Math.min(0.50, (state.antiCometCount || 0) * ANTI_COMET_CHANCE_PER_PURCHASE);
       if (interceptChance > 0 && Math.random() < interceptChance) {
-        addLog(`◇ Anti-comet defenses intercepted the incoming comet! No damage taken.`);
-        showEventWarning('◇ COMET INTERCEPTED', `<div style="color:#4d8;font-size:14px;letter-spacing:1px;">Point-defense systems destroyed the comet before impact.</div><div style="margin-top:6px;font-size:12px;color:#6a8aaa;">Intercept chance: ${Math.round(interceptChance * 100)}%</div>`, COMET_WARNING_DURATION_MS);
+        addLog(`Anti-comet defenses intercepted the incoming comet! No damage taken.`);
+        showEventWarning(eventTitleHtml('comet_intercepted', 'COMET INTERCEPTED', 'md'), `<div style="color:#4d8;font-size:14px;letter-spacing:1px;">Point-defense systems destroyed the comet before impact.</div><div style="margin-top:6px;font-size:12px;color:#6a8aaa;">Intercept chance: ${Math.round(interceptChance * 100)}%</div>`, COMET_WARNING_DURATION_MS);
+        logEventTransmission(
+          `<strong>COMET INTERCEPTED</strong><br><br>` +
+          `Point-defense systems destroyed the incoming comet before impact.<br><br>` +
+          `<strong>Effects</strong><br>` +
+          `• Base damage: <strong style="color:#6fff9a;">none</strong><br>` +
+          `• Intercept chance: <strong>${Math.round(interceptChance * 100)}%</strong>`,
+          'vane',
+          { eventId: makeEventId(), eventType: 'comet_intercepted', title: 'Comet Intercepted', showPopup: false, duration: 12 }
+        );
         if (refresh.ui) refresh.ui();
         return;
       }
@@ -231,9 +264,9 @@ export const RANDOM_EVENTS = [
           </div>` : '';
 
       if (shieldAbsorbed > 0 && hpDmg === 0) {
-        addLog(`☄ Comet impact! Shield absorbed all ${fmt(shieldAbsorbed)} damage. HP intact.`);
+        addLog(`Comet impact! Shield absorbed all ${fmt(shieldAbsorbed)} damage. HP intact.`);
       } else {
-        addLog(`☄ Comet impact! Base took ${fmt(hpDmg)} HP damage${shieldAbsorbed > 0 ? ` (${fmt(shieldAbsorbed)} absorbed by shield)` : ''}. HP: ${fmt(state.base.health)}/${fmt(state.base.maxHealth)}`);
+        addLog(`Comet impact! Base took ${fmt(hpDmg)} HP damage${shieldAbsorbed > 0 ? ` (${fmt(shieldAbsorbed)} absorbed by shield)` : ''}. HP: ${fmt(state.base.health)}/${fmt(state.base.maxHealth)}`);
       }
 
       const hpColor = hpPct < 30 ? '#ff4040' : hpPct < 60 ? '#ffa040' : '#40d080';
@@ -251,7 +284,21 @@ export const RANDOM_EVENTS = [
         </div>
         ${critical ? '<div class="event-critical-alert">⚠ CRITICAL — REPAIR IMMEDIATELY</div>' : ''}
       `;
-      showEventWarning('☄ COMET IMPACT', cometDetail, COMET_WARNING_DURATION_MS);
+      showEventWarning(eventTitleHtml('comet', 'COMET IMPACT', 'md'), cometDetail, COMET_WARNING_DURATION_MS);
+      const eventId = makeEventId();
+      logEventTransmission(
+        `<strong>COMET IMPACT</strong><br><br>` +
+        `A debris-field fragment struck the Base Station.<br><br>` +
+        `<strong>Effects</strong><br>` +
+        (shieldAbsorbed > 0 ? `• Shield absorbed: <strong style="color:#48f;">−${fmt(shieldAbsorbed)}</strong><br>` : '') +
+        `• Hull damage: <strong style="color:#ff8080;">−${fmt(hpDmg)} HP</strong><br>` +
+        `• Incoming strike: <strong>${fmt(dmg)}</strong><br>` +
+        `• Base integrity: <strong style="color:${hpColor};">${hpPct}%</strong> ` +
+        `(${fmt(state.base.health)}/${fmt(state.base.maxHealth)} HP)` +
+        (critical ? `<br><br><span style="color:#f88">⚠ CRITICAL — repair immediately.</span>` : ''),
+        'vane',
+        { eventId, eventType: 'comet', title: 'Comet Impact', showPopup: false, duration: 14 }
+      );
       queueTransmissions([{ key: 'vane_comet_explain', text: NPCS.vane.transmissionLines.vane_comet_explain(hpPct), duration: 15, npc: 'vane', delay: COMET_TRANSMISSION_DELAY_MS }]);
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
       if (refresh.ui) refresh.ui();

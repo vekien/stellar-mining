@@ -15,14 +15,47 @@ function getTransmissionSig(text, npcId) {
   return `${npcId}::${text}`;
 }
 
+export function makeEventId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const n = Math.random() * 16 | 0;
+    const v = ch === 'x' ? n : (n & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 export function showOnce(id, text, duration = 10, npcId) {
   if (state.seenMsgs[id]) return;
   state.seenMsgs[id] = true;
   showTransmissionMessage(text, duration, npcId);
 }
 
-export function showTransmissionMessage(text, duration = 10, npcId = 'juno') {
+/**
+ * Log a sector event into transmission history (deduped by eventId).
+ * opts: { eventId, eventType, title, showPopup, duration }
+ */
+export function logEventTransmission(text, npcId = 'vane', opts = {}) {
+  const eventId = opts.eventId || makeEventId();
+  if ((state.transmissionHistory || []).some((entry) => entry.eventId === eventId)) {
+    return eventId;
+  }
+  showTransmissionMessage(text, opts.duration ?? 12, npcId, {
+    eventId,
+    eventType: opts.eventType || null,
+    title: opts.title || null,
+    showPopup: opts.showPopup !== false,
+  });
+  return eventId;
+}
+
+export function showTransmissionMessage(text, duration = 10, npcId = 'juno', opts = {}) {
   const npc = NPCS[npcId] || NPCS.juno;
+  const eventId = opts.eventId || null;
+  if (eventId && (state.transmissionHistory || []).some((entry) => entry.eventId === eventId)) {
+    return;
+  }
   const sig = getTransmissionSig(text, npcId);
   const dayProgress = (state.solTimer || 0) / SOL_DURATION;
   const solHours = Math.floor(dayProgress * 24);
@@ -35,18 +68,24 @@ export function showTransmissionMessage(text, duration = 10, npcId = 'juno') {
     npcName: npc.name,
     npcRole: npc.role || npc.ship,
     text,
+    eventId,
+    eventType: opts.eventType || null,
+    title: opts.title || null,
   };
   const last = state.transmissionHistory[0];
-  const isDuplicate = !!last
-    && last.sol === historyEntry.sol
-    && last.solTime === historyEntry.solTime
-    && last.npcId === historyEntry.npcId
-    && last.text === historyEntry.text;
+  const isDuplicate = eventId
+    ? false
+    : !!last
+      && last.sol === historyEntry.sol
+      && last.solTime === historyEntry.solTime
+      && last.npcId === historyEntry.npcId
+      && last.text === historyEntry.text;
   if (!isDuplicate) {
     state.transmissionHistory.unshift(historyEntry);
     if (state.transmissionHistory.length > 20) state.transmissionHistory = state.transmissionHistory.slice(0, 20);
     window.patchTransmissionsPanel?.();
   }
+  if (opts.showPopup === false) return;
   if (activeTransmissionSig === sig) return;
   if (admiralQueue.some(msg => getTransmissionSig(msg.text, msg.npcId) === sig)) return;
   admiralQueue.push({ text, duration, npcId });

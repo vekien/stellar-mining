@@ -2,7 +2,7 @@
 // FLEET UI — ship list, filters, action panel, trade tab
 // ============================================================
 import { state } from '../state.js';
-import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity, getDepotModules } from '../data/modules.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
@@ -136,11 +136,8 @@ export function getShipRouteError(ship) {
 }
 
 export function getShipHoldingReason(ship) {
-  const storageModules = state.modules.filter(isStorageModule);
-  const researchLabs = state.modules.filter(isResearchLabModule);
-  const powerStations = state.modules.filter(isPowerStationModule);
   const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'research_lab' || ship.depotType === 'power_station')
-    ? [...storageModules, ...researchLabs, ...powerStations].find(s => s.id === ship.depotId) || null
+    ? getDepotModules(state.modules).find(s => s.id === ship.depotId) || null
     : null;
   return ship.status === 'holding'
     ? assignedDepot
@@ -709,9 +706,10 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const role = SHIP_DEFS[ship.type]?.role || 'mining';
   const roleLabel = ROLE_LABELS[role] || role;
   const isUnique = SHIP_DEFS[ship.type]?.unique === true;
-  const storageModules = state.modules.filter(isStorageModule);
-  const researchLabs = state.modules.filter(isResearchLabModule);
-  const powerStations = state.modules.filter(isPowerStationModule);
+  const depotModules = getDepotModules(state.modules);
+  const storageModules = depotModules.filter(isStorageModule);
+  const researchLabs = depotModules.filter(isResearchLabModule);
+  const powerStations = depotModules.filter(isPowerStationModule);
   const holdingReason = getShipHoldingReason(ship);
   const routeError = getShipRouteError(ship);
   const transportSummary = getShipTransportSummary(ship);

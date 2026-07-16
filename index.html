@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>STELLAR MINING CO.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Cinzel:wght@600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap">
 <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
@@ -22,7 +24,7 @@
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('command')"><span class="label">COMMAND</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('transmissions')"><span class="label">TRANSMISSIONS</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('resources')"><span class="label">RESOURCES</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('craft')"><span class="label">CRAFT</span><span class="value" id="hdr-craft"></span></button>
+    <button id="hdr-btn-craft" class="stat-chip hdr-btn" onclick="openHdrPanel('craft')"><span class="label">CRAFT</span><span class="value" id="hdr-craft"></span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('market')"><span class="label">TRADE</span><span class="value" id="hdr-coins">0¢</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('fleet')"><span class="label">SHIPS</span><span class="value" id="hdr-ships">0/5</span></button>
     <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
@@ -259,14 +261,8 @@
 
 <div id="event-warning"><div id="event-warning-inner"></div></div>
 
-<div id="hdr-modal-overlay" onclick="closeHdrPanel(event)">
-  <div id="hdr-modal" onclick="event.stopPropagation()">
-    <div id="hdr-modal-title">
-      <span id="hdr-modal-heading">PANEL</span>
-      <button onclick="closeHdrPanel(null);_hdrPanelOpen=null;">✕</button>
-    </div>
-    <div id="hdr-modal-body"></div>
-  </div>
+<div id="hdr-modal-overlay">
+  <div id="hdr-modal-host"></div>
 </div>
 
 

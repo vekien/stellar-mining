@@ -4,6 +4,14 @@
 import { state } from '../state.js';
 import { addLog, fmt, resourceIconHtml, spendCoins, addCoins, isLightColor, showHintTooltip, hideTooltip } from '../helpers.js';
 import { refresh } from './refresh.js';
+import {
+  applyFloatingPosition,
+  bringFloatingToFront,
+  centerFloatingWindow,
+  initFloatingDrag,
+  initFloatingResize,
+  placeFloatingWindow,
+} from './floatingWindow.js';
 import { getCraft } from '../data/crafts.js';
 import {
   STORAGE_FACILITY_ID,
@@ -31,6 +39,7 @@ import {
   getPowerStationEffectiveOutput,
   hasPowerStationFuel,
   getNoFuelNetworkIds,
+  invalidateNetworkCache,
 } from '../data/modules.js';
 import { getStoragePowerUsage, isStorageOperational } from '../data/storage.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
@@ -136,7 +145,7 @@ function completeCraftBuilding(moduleType) {
   addLog(`✅ ${moduleDef?.name || 'Building'} ready to place.`);
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 }
 
 function scheduleBuildingCraftCompletion(moduleType, endsAt) {
@@ -148,8 +157,6 @@ function scheduleBuildingCraftCompletion(moduleType, endsAt) {
     else scheduleBuildingCraftCompletion(moduleType, timer.endsAt);
   }, wait + 5);
 }
-
-let _storageModalTopZ = 0;
 
 function getStorageModalHost() {
   return document.getElementById('storage-modal-host');
@@ -165,23 +172,8 @@ function getStorageModalWindow(moduleId) {
   return host ? host.querySelector(`.storage-modal-window[data-module-id="${moduleId}"]`) : null;
 }
 
-function clampStorageModalPosition(left, top, modal) {
-  const overlay = document.getElementById('storage-modal-overlay');
-  if (!overlay || !modal) return { left, top };
-  const overlayRect = overlay.getBoundingClientRect();
-  const modalRect = modal.getBoundingClientRect();
-  const maxLeft = Math.max(0, overlayRect.width - modalRect.width);
-  const maxTop = Math.max(0, overlayRect.height - modalRect.height);
-  return {
-    left: Math.max(0, Math.min(maxLeft, left)),
-    top: Math.max(0, Math.min(maxTop, top)),
-  };
-}
-
 function bringStorageModalToFront(modal) {
-  if (!modal) return;
-  _storageModalTopZ += 1;
-  modal.style.zIndex = String(_storageModalTopZ);
+  bringFloatingToFront(modal);
 }
 
 function buildPowerStationInfoTooltip({ fuelCost, fuelName, powerOutputText, totalLoadText, netDeltaText, statusLabel, noFuel }) {
@@ -200,63 +192,27 @@ function buildPowerStationInfoTooltip({ fuelCost, fuelName, powerOutputText, tot
 
 function applyStorageModalPosition(modal, left = null, top = null) {
   const overlay = document.getElementById('storage-modal-overlay');
-  if (!overlay || !modal) return;
-  if (left === null || top === null) {
-    const overlayRect = overlay.getBoundingClientRect();
-    const modalRect = modal.getBoundingClientRect();
-    left = Number.isFinite(Number(modal.dataset.left)) ? Number(modal.dataset.left) : Math.max(24, Math.round((overlayRect.width - modalRect.width) / 2));
-    top = Number.isFinite(Number(modal.dataset.top)) ? Number(modal.dataset.top) : 24;
-  }
-  const nextPos = clampStorageModalPosition(left, top, modal);
-  modal.dataset.left = String(nextPos.left);
-  modal.dataset.top = String(nextPos.top);
-  modal.style.left = `${nextPos.left}px`;
-  modal.style.top = `${nextPos.top}px`;
+  applyFloatingPosition(overlay, modal, left, top);
 }
 
 function initStorageModalDrag(modal) {
   const overlay = document.getElementById('storage-modal-overlay');
-  const handle = modal?.querySelector('.storage-modal-drag-handle');
-  if (!overlay || !modal || !handle || modal.dataset.dragReady === '1') return;
-  modal.dataset.dragReady = '1';
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener('mousedown', (event) => {
-    if (event.button !== 0) return;
-    if (event.target.closest('.panel-shell-close')) return;
-    const modalRect = modal.getBoundingClientRect();
-    dragging = true;
-    offsetX = event.clientX - modalRect.left;
-    offsetY = event.clientY - modalRect.top;
-    bringStorageModalToFront(modal);
-    document.body.style.userSelect = 'none';
-    event.preventDefault();
+  if (!overlay || !modal) return;
+  const layoutKey = `module:${modal.dataset.moduleId}`;
+  initFloatingDrag(modal, overlay, {
+    handleSelector: '.storage-modal-drag-handle',
+    layoutKey,
+    onFocus: () => {
+      const moduleId = Number(modal.dataset.moduleId);
+      if (Number.isFinite(moduleId)) state.selectedModule = moduleId;
+    },
+    isActive: () => overlay.style.display === 'flex',
   });
-
-  modal.addEventListener('mousedown', () => {
-    bringStorageModalToFront(modal);
-    const moduleId = Number(modal.dataset.moduleId);
-    if (Number.isFinite(moduleId)) state.selectedModule = moduleId;
-  });
-
-  window.addEventListener('mousemove', (event) => {
-    if (!dragging) return;
-    const overlayRect = overlay.getBoundingClientRect();
-    const nextLeft = event.clientX - overlayRect.left - offsetX;
-    const nextTop = event.clientY - overlayRect.top - offsetY;
-    applyStorageModalPosition(modal, nextLeft, nextTop);
-    event.preventDefault();
-  });
-
-  window.addEventListener('mouseup', () => {
-    dragging = false;
-    document.body.style.userSelect = '';
-  });
-
-  window.addEventListener('resize', () => {
-    if (overlay.style.display === 'flex') applyStorageModalPosition(modal);
+  initFloatingResize(modal, overlay, {
+    minW: 420,
+    minH: 300,
+    layoutKey,
+    isActive: () => overlay.style.display === 'flex',
   });
 }
 
@@ -272,12 +228,7 @@ function ensureStorageModalWindow(moduleId) {
   modal.innerHTML = `<div class="panel-shell-head storage-modal-drag-handle"><div class="panel-shell-title storage-modal-title">BUILDING</div><button class="panel-shell-close" onclick="closeStorageModal(${moduleId})">✕</button></div><div class="storage-modal-body" style="padding:14px;"></div>`;
   host.appendChild(modal);
   const overlay = document.getElementById('storage-modal-overlay');
-  const overlayRect = overlay?.getBoundingClientRect();
-  const modalRect = modal.getBoundingClientRect();
-  const offset = getOpenStorageModalWindows().length - 1;
-  const baseLeft = overlayRect ? Math.round((overlayRect.width - modalRect.width) / 2) : 96;
-  const baseTop = 56;
-  applyStorageModalPosition(modal, baseLeft + (offset * 20), baseTop + (offset * 20));
+  placeFloatingWindow(overlay, modal, `module:${moduleId}`);
   initStorageModalDrag(modal);
   return modal;
 }
@@ -289,7 +240,13 @@ export function openModuleModal(moduleId) {
   const modal = ensureStorageModalWindow(moduleId);
   if (modal) {
     renderModuleModal(moduleId, modal);
-    applyStorageModalPosition(modal);
+    const layoutKey = `module:${moduleId}`;
+    const place = () => centerFloatingWindow(overlay, modal, layoutKey);
+    place();
+    requestAnimationFrame(() => {
+      place();
+      requestAnimationFrame(place);
+    });
     bringStorageModalToFront(modal);
   }
 }
@@ -892,6 +849,7 @@ window.upgradeStorageFacility = function(moduleId) {
   module.health = Math.min(module.health + (module.maxHealth - prevMaxHealth), module.maxHealth);
   Object.assign(module, nextStats);
   if (isPoweredBuildingModule(module)) module.power = Math.min(module.power, module.powerCapacity);
+  invalidateNetworkCache();
   addLog(`${module.name} upgraded to Tier ${module.level}.`);
   if (refresh.ui) refresh.ui();
   patchModuleModal(moduleId);
@@ -961,6 +919,7 @@ window.sellStorageFacility = function(moduleId, refundCoins) {
     }
   }
   state.modules = state.modules.filter(entry => entry.id !== moduleId);
+  invalidateNetworkCache();
   closeStorageModal(moduleId);
   addLog(`${module.name} sold — recovered ${fmt(refundCoins)}¢.`);
   if (refresh.ui) refresh.ui();
@@ -990,7 +949,7 @@ window.startCraftBuilding = function(moduleType = STORAGE_FACILITY_ID) {
   addLog(`🛠 Crafting started: ${moduleDef.name} (${Math.ceil(durationMs / 1000)}s)`);
   scheduleBuildingCraftCompletion(moduleType, now + durationMs);
   if (refresh.ui) refresh.ui();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 };
 
 window.beginPlacingBuilding = function(moduleType = STORAGE_FACILITY_ID) {
@@ -1026,7 +985,7 @@ function completeCraftDrone() {
   }
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 }
 
 function scheduleDroneCraftCompletion(endsAt) {
@@ -1055,7 +1014,7 @@ window.startCraftDrone = function() {
   addLog(`🛠 Crafting started: Drone (${Math.ceil(durationMs / 1000)}s)`);
   scheduleDroneCraftCompletion(now + durationMs);
   if (refresh.ui) refresh.ui();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 };
 
 window.syncDroneCraftTimers = function() {

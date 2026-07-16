@@ -9,6 +9,37 @@ export const ZOOM_MAX_V = 3.0;
 
 export const cam = { x:0, y:0, zoom:2.0, targetX:0, targetY:0 };
 
+/** World-space AABB of the current camera frustum (updated each frame). */
+const _view = { minX: -1e9, maxX: 1e9, minY: -1e9, maxY: 1e9 };
+
+export function updateViewBounds(screenW, screenH, padWorld = 96) {
+  const halfW = (screenW * 0.5) / Math.max(0.01, cam.zoom) + padWorld;
+  const halfH = (screenH * 0.5) / Math.max(0.01, cam.zoom) + padWorld;
+  _view.minX = cam.x - halfW;
+  _view.maxX = cam.x + halfW;
+  _view.minY = cam.y - halfH;
+  _view.maxY = cam.y + halfH;
+  return _view;
+}
+
+export function getViewBounds() {
+  return _view;
+}
+
+export function isInView(wx, wy) {
+  return wx >= _view.minX && wx <= _view.maxX && wy >= _view.minY && wy <= _view.maxY;
+}
+
+/** True if either endpoint is visible or the segment's bbox intersects the view. */
+export function isSegmentInView(x1, y1, x2, y2) {
+  if (isInView(x1, y1) || isInView(x2, y2)) return true;
+  const minX = x1 < x2 ? x1 : x2;
+  const maxX = x1 > x2 ? x1 : x2;
+  const minY = y1 < y2 ? y1 : y2;
+  const maxY = y1 > y2 ? y1 : y2;
+  return !(maxX < _view.minX || minX > _view.maxX || maxY < _view.minY || minY > _view.maxY);
+}
+
 export function gridToWorld(col, row) {
   return { x:(col-row)*(TILE_W/2), y:(col+row)*(TILE_H/2) };
 }

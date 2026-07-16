@@ -8,7 +8,7 @@ import { RESOURCE_DEFS } from './data/resources.js';
 import { SHIP_DEFS, normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel, loadSpeedFromLevel } from './data/ships.js';
 import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
 import { TURRET_MAX_LEVEL, getTurretTypeDef, getTurretStats, getTurretPowerCapacity, getTurretPowerUsage } from './data/turrets.js';
-import { normalizeModule, STORAGE_FACILITY_ID } from './data/modules.js';
+import { normalizeModule, STORAGE_FACILITY_ID, invalidateNetworkCache } from './data/modules.js';
 import { clampCoins } from './helpers.js';
 
 export function makeEmptyResources() {
@@ -342,6 +342,7 @@ export function loadGame() {
         x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0, pauseTimer:0,
       };
     });
+    invalidateNetworkCache();
     return true;
   } catch(e) { return false; }
 }

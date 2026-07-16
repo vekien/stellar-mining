@@ -2,7 +2,7 @@
 // TURRET RENDERING
 // ============================================================
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, isBaseFootprintCell } from '../constants.js';
-import { gridToIso } from './camera.js';
+import { gridToIso, isInView } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
 import { TURRET_BASE_STATS, getTurretTypeDef } from '../data/turrets.js';
@@ -29,6 +29,7 @@ export function drawTurrets() {
     const noPower = !isMoveSourceGhost && ((turret.power || 0) <= 0 || (turret.health || 0) <= 0);
     const {x, y} = gridToIso(turret.col, turret.row);
     const cx = x, cy = y+TILE_H/2;
+    if (!isMoveSourceGhost && state.selectedTurret !== turret.id && !isInView(cx, cy)) continue;
     const typeDef = getTurretTypeDef(turret.type);
     const platformFill = isMoveSourceGhost ? 'rgba(70,70,70,0.55)' : typeDef.platformFill;
     const platformStroke = isMoveSourceGhost ? '#8a8a8a' : typeDef.platformStroke;

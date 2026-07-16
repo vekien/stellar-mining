@@ -21,6 +21,8 @@ function setIfChanged(id, val) {
 }
 export function updateHeaderCoins() {
   setIfChanged('hdr-coins', '$' + fmt(state.coins));
+  // Coin-gated craft tracks need a live refresh
+  if ((state.trackedCrafts || []).length) renderCraftTracker();
 }
 export function updateHeaderShips() {
   const maxShips = BASE_MAX_SHIPS[(state.base.level - 1)] || 20;
@@ -30,21 +32,48 @@ export function updateHeaderRP() {
   const rpCap = getResearchPointCap(state.base.level);
   setIfChanged('hdr-rp', `${state.rp}/${rpCap}`);
 }
+function hasActiveCraftTimers() {
+  const now = Date.now();
+  const tables = [
+    state.shipCraftTimers,
+    state.turretCraftTimers,
+    state.buildingCraftTimers,
+    state.droneCraftTimers,
+  ];
+  for (const table of tables) {
+    if (!table) continue;
+    for (const timer of Object.values(table)) {
+      if (timer && now < timer.endsAt) return true;
+    }
+  }
+  return false;
+}
+
 export function updateHeaderCraft() {
   const queuedTurrets = Array.isArray(state.unplacedTurretQueue) ? state.unplacedTurretQueue.length : (state.unplacedTurrets || 0);
   const queuedModules = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue.length : (state.unplacedModules || 0);
   const total = queuedTurrets + queuedModules;
   const el = document.getElementById('hdr-craft');
-  if (!el) return;
-  const text = total > 0 ? String(total) : '';
-  if (_hdrCache.hdrCraftText !== text) {
-    _hdrCache.hdrCraftText = text;
-    el.textContent = text;
+  if (el) {
+    const text = total > 0 ? String(total) : '';
+    if (_hdrCache.hdrCraftText !== text) {
+      _hdrCache.hdrCraftText = text;
+      el.textContent = text;
+    }
+    const display = total > 0 ? '' : 'none';
+    if (_hdrCache.hdrCraftDisplay !== display) {
+      _hdrCache.hdrCraftDisplay = display;
+      el.style.display = display;
+    }
   }
-  const display = total > 0 ? '' : 'none';
-  if (_hdrCache.hdrCraftDisplay !== display) {
-    _hdrCache.hdrCraftDisplay = display;
-    el.style.display = display;
+
+  const btn = document.getElementById('hdr-btn-craft');
+  if (btn) {
+    const crafting = hasActiveCraftTimers();
+    if (_hdrCache.hdrCraftActive !== crafting) {
+      _hdrCache.hdrCraftActive = crafting;
+      btn.classList.toggle('hdr-btn-crafting', crafting);
+    }
   }
 }
 export function updateHeader() {
@@ -82,6 +111,8 @@ export function patchResources() {
       if (el.textContent !== text) el.textContent = text;
     }
   }
+  // Craft tracker requirements depend on live resource totals
+  renderCraftTracker();
 }
 
 let _resourceBarBuilt = false;
@@ -95,6 +126,7 @@ export function renderUI() {
   renderBasePanel();
   renderTutPointers();
   renderCraftTracker();
+  updateHeaderCraft();
 }
 
 // Populate the refresh hub — called once at boot by main.js

@@ -11,8 +11,18 @@ import {
   TURRET_SCRAP_BASE_COINS,
   TURRET_SCRAP_IRON, TURRET_SCRAP_COPPER, getTurretPowerCapacity, getTurretPowerUsage, getTurretTypeDef, getTurretStats,
 } from '../data/turrets.js';
-import { getPowerModuleNetworkInfo, isPowerPoleModule } from '../data/modules.js';
+import { getPowerModuleNetworkInfo, invalidateNetworkCache } from '../data/modules.js';
 import { toRoman } from '../data/ships.js';
+import {
+  applyFloatingPosition,
+  bringFloatingToFront,
+  centerFloatingWindow,
+  initFloatingDrag,
+  initFloatingResize,
+  placeFloatingWindow,
+} from './floatingWindow.js';
+
+const TURRET_LAYOUT_KEY = 'turret';
 
 function getTurretById(id = state.selectedTurret) {
   return state.turrets.find((turret) => turret.id === id) || null;
@@ -35,73 +45,27 @@ function formatTurretFireRate(turret) {
   return `${(turret?.fireRate || 0).toFixed(2).replace(/\.00$/, '')}s`;
 }
 
-function clampTurretModalPosition(left, top, modal) {
-  const overlay = document.getElementById('turret-modal-overlay');
-  if (!overlay || !modal) return { left, top };
-  const overlayRect = overlay.getBoundingClientRect();
-  const modalRect = modal.getBoundingClientRect();
-  const maxLeft = Math.max(0, overlayRect.width - modalRect.width);
-  const maxTop = Math.max(0, overlayRect.height - modalRect.height);
-  return {
-    left: Math.max(0, Math.min(maxLeft, left)),
-    top: Math.max(0, Math.min(maxTop, top)),
-  };
-}
-
 function applyTurretModalPosition(modal, left = null, top = null) {
   const overlay = document.getElementById('turret-modal-overlay');
-  if (!overlay || !modal) return;
-  if (left === null || top === null) {
-    const overlayRect = overlay.getBoundingClientRect();
-    const modalRect = modal.getBoundingClientRect();
-    left = Number.isFinite(Number(modal.dataset.left)) ? Number(modal.dataset.left) : Math.max(24, Math.round((overlayRect.width - modalRect.width) / 2));
-    top = Number.isFinite(Number(modal.dataset.top)) ? Number(modal.dataset.top) : 24;
-  }
-  const nextPos = clampTurretModalPosition(left, top, modal);
-  modal.dataset.left = String(nextPos.left);
-  modal.dataset.top = String(nextPos.top);
-  modal.style.left = `${nextPos.left}px`;
-  modal.style.top = `${nextPos.top}px`;
+  applyFloatingPosition(overlay, modal, left, top);
 }
 
 function initTurretModalDrag() {
   const overlay = document.getElementById('turret-modal-overlay');
   const modal = document.getElementById('turret-modal');
-  const handle = modal?.querySelector('.turret-modal-drag-handle');
-  if (!overlay || !modal || !handle || modal.dataset.dragReady === '1') return;
-  modal.dataset.dragReady = '1';
-  let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  handle.addEventListener('mousedown', (event) => {
-    if (event.button !== 0) return;
-    if (event.target.closest('.panel-shell-close')) return;
-    const modalRect = modal.getBoundingClientRect();
-    dragging = true;
-    offsetX = event.clientX - modalRect.left;
-    offsetY = event.clientY - modalRect.top;
-    document.body.style.userSelect = 'none';
-    event.preventDefault();
+  if (!overlay || !modal) return;
+  initFloatingDrag(modal, overlay, {
+    handleSelector: '.turret-modal-drag-handle',
+    layoutKey: TURRET_LAYOUT_KEY,
+    isActive: () => overlay.style.display === 'flex',
   });
-
-  window.addEventListener('mousemove', (event) => {
-    if (!dragging) return;
-    const overlayRect = overlay.getBoundingClientRect();
-    const nextLeft = event.clientX - overlayRect.left - offsetX;
-    const nextTop = event.clientY - overlayRect.top - offsetY;
-    applyTurretModalPosition(modal, nextLeft, nextTop);
-    event.preventDefault();
+  initFloatingResize(modal, overlay, {
+    minW: 420,
+    minH: 300,
+    layoutKey: TURRET_LAYOUT_KEY,
+    isActive: () => overlay.style.display === 'flex',
   });
-
-  window.addEventListener('mouseup', () => {
-    dragging = false;
-    document.body.style.userSelect = '';
-  });
-
-  window.addEventListener('resize', () => {
-    if (overlay.style.display === 'flex') applyTurretModalPosition(modal);
-  });
+  bringFloatingToFront(modal);
 }
 
 function getTurretUpgradeCost(turret) {
@@ -152,7 +116,7 @@ function completeCraftTurret(turretType) {
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft'); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 }
 
 function scheduleTurretCraftCompletion(turretType, endsAt) {
@@ -168,9 +132,17 @@ function scheduleTurretCraftCompletion(turretType, endsAt) {
 export function openTurretModal(turretId) {
   state.selectedTurret = turretId;
   initTurretModalDrag();
-  document.getElementById('turret-modal-overlay').style.display = 'flex';
-  applyTurretModalPosition(document.getElementById('turret-modal'));
+  const overlay = document.getElementById('turret-modal-overlay');
+  const modal = document.getElementById('turret-modal');
+  if (overlay) overlay.style.display = 'flex';
   renderTurretModal();
+  const place = () => centerFloatingWindow(overlay, modal, TURRET_LAYOUT_KEY);
+  place();
+  requestAnimationFrame(() => {
+    place();
+    requestAnimationFrame(place);
+  });
+  bringFloatingToFront(modal);
 }
 
 export function closeTurretModal(e) {
@@ -254,7 +226,6 @@ export function renderTurretModal() {
     `;
   }
   const turretDef = getTurretTypeDef(turret.type);
-  const networkInfo = getPowerModuleNetworkInfo(turret.id, state.modules, state.turrets);
   if (title) title.textContent = turretDef.name.toUpperCase();
   const turretMaxRange = turretDef.rangeMax ?? TURRET_MAX_RANGE;
   const hpPct = Math.round(turret.health / turret.maxHealth * 100);
@@ -270,11 +241,8 @@ export function renderTurretModal() {
   const rangeLabel = turret.range >= turretMaxRange ? `${turret.range} tiles (MAX)` : `${turret.range} tiles`;
   const canUpgrade = !atMaxLevel && state.coins >= upgCost.coins
     && Object.entries(upgCost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-  const connectedPoleNames = state.modules
-    .filter((module) => isPowerPoleModule(module))
-    .filter((pole) => Math.max(Math.abs((pole.col || 0) - (turret.col || 0)), Math.abs((pole.row || 0) - (turret.row || 0))) <= (pole.relayRange || 0))
-    .map((pole) => pole.name)
-    .filter(Boolean);
+  const networkInfo = getPowerModuleNetworkInfo(turret.id, state.modules, state.turrets);
+  const connectedPoleNames = networkInfo.poles.map((pole) => pole.name).filter(Boolean);
   const setTextIfChanged = (selector, value) => {
     const el = body.querySelector(selector);
     if (el && el.textContent !== value) el.textContent = value;
@@ -374,6 +342,7 @@ window.upgradeTurret = function(id) {
   turret.powerUsage = getTurretPowerUsage(turret);
   turret.powerCapacity = Math.max(turret.powerCapacity || 0, getTurretPowerCapacity(turret));
   turret.power = Math.min(turret.power || turret.powerCapacity, turret.powerCapacity);
+  invalidateNetworkCache();
   addLog(`${getTurretTypeDef(turret.type).name} upgraded to Rank ${turret.level}!`);
   if (window.patchSolPanel) window.patchSolPanel('power');
   if (refresh.ui) refresh.ui();
@@ -416,6 +385,7 @@ window.doScrapTurret = function(id, refundCoins, refundIron, refundCopper) {
   state.resources.iron   = (state.resources.iron   || 0) + refundIron;
   state.resources.copper = (state.resources.copper || 0) + refundCopper;
   state.turrets = state.turrets.filter(t => t.id !== id);
+  invalidateNetworkCache();
   document.getElementById('turret-modal-overlay').style.display = 'none';
   state.selectedTurret = null;
   addLog(`${soldTurretName} sold — recovered ${fmt(refundCoins)}¢ + ${refundIron} Iron + ${refundCopper} Copper.`);
@@ -449,7 +419,7 @@ window.startPlaceTurret = function() {
   scheduleTurretCraftCompletion(turretType, now + durationMs);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window._hdrPanelOpen === 'craft') { window._hdrPanelOpen = null; window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
 };
 
 export function cancelTurretPlacement() {

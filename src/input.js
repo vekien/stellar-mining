@@ -34,6 +34,7 @@ import {
   isPowerPoleModule,
   isLabTowerModule,
   STORAGE_FACILITY_ID,
+  invalidateNetworkCache,
 } from './data/modules.js';
 import { getCraft } from './data/crafts.js';
 import { CRASHED_SHIP_NODE_TYPE } from './data/nodes.js';
@@ -379,6 +380,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
       if (module) {
         module.col = col;
         module.row = row;
+        invalidateNetworkCache();
         addLog(`↔ ${module.name} moved to (${col},${row}).`);
       }
     } else {
@@ -389,6 +391,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
       state.unplacedModules = queue.length;
       const countOfType = state.modules.filter(entry => entry.type === placedType).length + 1;
       state.modules.push(createModuleInstance(placedType, { id: Date.now(), col, row, index: countOfType }));
+      invalidateNetworkCache();
       addLog(`${getModuleDef(placedType).name} placed.`);
       if (state.unplacedModules > 0) addLog(`${state.unplacedModules} module(s) remaining in inventory.`);
     }
@@ -416,7 +419,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
 
     if (state.movingTurret) {
       const turret = state.turrets.find(t => t.id === state.movingTurret);
-      if (turret) { turret.col = col; turret.row = row; addLog(`↔ Turret moved to (${col},${row}).`); }
+      if (turret) { turret.col = col; turret.row = row; invalidateNetworkCache(); addLog(`↔ Turret moved to (${col},${row}).`); }
       state.movingTurret = null;
       state.placingTurret = false;
       state.placingTurretType = null;
@@ -446,6 +449,7 @@ function handleCanvasClick(canvas, clientX, clientY) {
         powerCapacity: getTurretPowerCapacity({ type: turretType, level: 1 }),
         power: getTurretPowerCapacity({ type: turretType, level: 1 }),
       });
+      invalidateNetworkCache();
       addLog(`${turretName} placed at (${col},${row})!`);
       if (state.unplacedTurrets > 0) addLog(`${state.unplacedTurrets} turret(s) remaining in inventory.`);
       state.placingTurret = false;
