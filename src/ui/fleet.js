@@ -2,7 +2,7 @@
 // FLEET UI — ship list, filters, action panel, trade tab
 // ============================================================
 import { state } from '../state.js';
-import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity, getDepotModules } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getDepotModules } from '../data/modules.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
@@ -35,9 +35,7 @@ window.toggleFleetFilters = function() {
   if (btn) btn.style.color = _fleetFiltersVisible ? '#9bd6ff' : '#4a8ab0';
 };
 
-let _sellOverlayShipId = null;
-let _sellOverlayMode = 'sell';
-let _sellOverlayValue = 0;
+let _sellOverlayCtx = null;
 
 const ROLE_LABELS = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', unique: 'Unique' };
 
@@ -67,9 +65,6 @@ function getShipDepotFilterKey(ship) {
 function getShipDepotFilterLabel(ship) {
   if (ship.depotType === 'storage' && ship.depotId !== null) {
     return state.modules.find(module => module.id === ship.depotId && isStorageModule(module))?.name || 'Storage';
-  }
-  if (ship.depotType === 'research_lab' && ship.depotId !== null) {
-    return state.modules.find(module => module.id === ship.depotId && isResearchLabModule(module))?.name || 'Research Lab';
   }
   if (ship.depotType === 'power_station' && ship.depotId !== null) {
     return state.modules.find(module => module.id === ship.depotId && isPowerStationModule(module))?.name || 'Power Station';
@@ -136,14 +131,14 @@ export function getShipRouteError(ship) {
 }
 
 export function getShipHoldingReason(ship) {
-  const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'research_lab' || ship.depotType === 'power_station')
+  const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'power_station')
     ? getDepotModules(state.modules).find(s => s.id === ship.depotId) || null
     : null;
   return ship.status === 'holding'
     ? assignedDepot
-      ? (ship.depotType === 'storage' || ship.depotType === 'research_lab') && (assignedDepot.power || 0) <= 0
+      ? ship.depotType === 'storage' && (assignedDepot.power || 0) <= 0
         ? `Blocked: ${assignedDepot.name} has no power`
-        : ship.depotType !== 'research_lab' && getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
+        : getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
           ? `Blocked: ${assignedDepot.name} is full`
           : (assignedDepot.health || 0) <= 0
             ? `Blocked: ${assignedDepot.name} is fully damaged`
@@ -708,7 +703,6 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
   const isUnique = SHIP_DEFS[ship.type]?.unique === true;
   const depotModules = getDepotModules(state.modules);
   const storageModules = depotModules.filter(isStorageModule);
-  const researchLabs = depotModules.filter(isResearchLabModule);
   const powerStations = depotModules.filter(isPowerStationModule);
   const holdingReason = getShipHoldingReason(ship);
   const routeError = getShipRouteError(ship);
@@ -808,9 +802,8 @@ function buildShipDrawerContent({ ship, statusMsg, statusColor, nodeLabel, typeL
       ${(ship.mineSpeed || 0) > 0 ? `<div class="ship-data-row"><span class="ship-data-label">MINE SPD</span><span class="ship-data-value">${formatMineSpeedPercent(ship.mineSpeed)}</span></div>` : ''}`;
   }
 
-  const depotOptions = `<option value="base" ${ship.depotType === 'base' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
+  const depotOptions = `<option value="base" ${ship.depotType === 'base' || ship.depotType === 'research_lab' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
     + storageModules.map(storage => `<option value="storage:${storage.id}" ${ship.depotType === 'storage' && ship.depotId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('')
-    + researchLabs.map(lab => `<option value="research_lab:${lab.id}" ${ship.depotType === 'research_lab' && ship.depotId === lab.id ? 'selected' : ''}>${lab.name}</option>`).join('')
     + powerStations.map(station => `<option value="power_station:${station.id}" ${ship.depotType === 'power_station' && ship.depotId === station.id ? 'selected' : ''}>${station.name}</option>`).join('');
   const pickupOptions = `<option value="" ${(ship.pickupType === null || ship.pickupType === undefined || ship.pickupType === '') ? 'selected' : ''}></option>`
     + `<option value="base" ${ship.pickupType === 'base' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
@@ -883,62 +876,110 @@ function getShipDispositionWarning(ship) {
   return 'This cannot be undone.<br><span style="color:#ff9a9a;">Warning: loaded transport cargo will be lost.</span>';
 }
 
+function showSellOverlay({ kind, id, mode = 'sell', value = 0, title, name, valueHtml, hint, confirmLabel, refundIron = 0, refundCopper = 0 }) {
+  _sellOverlayCtx = { kind, id, mode, value, refundIron, refundCopper };
+  const titleEl = document.getElementById('sell-overlay-title');
+  const hintEl = document.getElementById('sell-overlay-hint');
+  const confirmEl = document.getElementById('sell-overlay-confirm');
+  const nameEl = document.getElementById('sell-ship-name');
+  const valueEl = document.getElementById('sell-ship-value');
+  if (titleEl) titleEl.textContent = title;
+  if (nameEl) nameEl.textContent = name;
+  if (valueEl) valueEl.innerHTML = valueHtml;
+  if (hintEl) hintEl.innerHTML = hint || 'This cannot be undone.';
+  if (confirmEl) confirmEl.textContent = confirmLabel || 'CONFIRM SELL';
+  const overlay = document.getElementById('sell-overlay');
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.onclick = e => { if (e.target === overlay) window.closeSellOverlay(); };
+  }
+}
+
 window.openSellOverlay = function(shipId) {
   if (state.ships.length <= 1) return;
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
   const sellVal = arguments[1] ?? 0;
-  _sellOverlayShipId = shipId;
-  _sellOverlayMode = 'sell';
-  _sellOverlayValue = sellVal;
-  const titleEl = document.getElementById('sell-overlay-title');
-  const hintEl = document.getElementById('sell-overlay-hint');
-  const confirmEl = document.getElementById('sell-overlay-confirm');
-  const nameEl  = document.getElementById('sell-ship-name');
-  const valueEl = document.getElementById('sell-ship-value');
-  if (titleEl) titleEl.textContent = '⊘ Sell Ship';
-  if (nameEl)  nameEl.textContent  = ship.name;
-  if (valueEl) valueEl.textContent = `$${fmt(sellVal)}`;
-  if (hintEl) hintEl.innerHTML = getShipDispositionWarning(ship);
-  if (confirmEl) confirmEl.textContent = 'CONFIRM SELL';
-  const overlay = document.getElementById('sell-overlay');
-  if (overlay) overlay.classList.add('show');
+  showSellOverlay({
+    kind: 'ship',
+    id: shipId,
+    mode: 'sell',
+    value: sellVal,
+    title: '⊘ Sell Ship',
+    name: ship.name,
+    valueHtml: `$${fmt(sellVal)}`,
+    hint: getShipDispositionWarning(ship),
+    confirmLabel: 'CONFIRM SELL',
+  });
 };
 
 window.openSalvageOverlay = function(shipId) {
   if (state.ships.length <= 1) return;
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
   const salvage = getShipSalvageRewards(ship);
-  _sellOverlayShipId = shipId;
-  _sellOverlayMode = 'salvage';
-  _sellOverlayValue = 0;
-  const titleEl = document.getElementById('sell-overlay-title');
-  const hintEl = document.getElementById('sell-overlay-hint');
-  const confirmEl = document.getElementById('sell-overlay-confirm');
-  const nameEl  = document.getElementById('sell-ship-name');
-  const valueEl = document.getElementById('sell-ship-value');
-  if (titleEl) titleEl.textContent = '♻ Salvage Ship';
-  if (nameEl)  nameEl.textContent  = ship.name;
-  if (valueEl) valueEl.innerHTML = salvage.map(({ type, amount }) => `<span style="color:${RESOURCE_DEFS[type]?.color || '#6fff9a'};">${fmt(amount)} ${RESOURCE_DEFS[type]?.label || type}</span>`).join(' + ');
-  if (hintEl) hintEl.innerHTML = getShipDispositionWarning(ship);
-  if (confirmEl) confirmEl.textContent = 'CONFIRM SALVAGE';
-  const overlay = document.getElementById('sell-overlay');
-  if (overlay) overlay.classList.add('show');
+  showSellOverlay({
+    kind: 'ship',
+    id: shipId,
+    mode: 'salvage',
+    value: 0,
+    title: '♻ Salvage Ship',
+    name: ship.name,
+    valueHtml: salvage.map(({ type, amount }) => `<span style="color:${RESOURCE_DEFS[type]?.color || '#6fff9a'};">${fmt(amount)} ${RESOURCE_DEFS[type]?.label || type}</span>`).join(' + '),
+    hint: getShipDispositionWarning(ship),
+    confirmLabel: 'CONFIRM SALVAGE',
+  });
+};
+
+window.openModuleSellOverlay = function(moduleId, name, label, refundCoins) {
+  showSellOverlay({
+    kind: 'module',
+    id: moduleId,
+    mode: 'sell',
+    value: refundCoins,
+    title: `⊘ Sell ${label}`,
+    name,
+    valueHtml: `$${fmt(refundCoins)}`,
+    hint: 'This cannot be undone.',
+    confirmLabel: 'CONFIRM SELL',
+  });
+};
+
+window.openTurretSellOverlay = function(turretId, name, refundCoins, refundIron, refundCopper) {
+  showSellOverlay({
+    kind: 'turret',
+    id: turretId,
+    mode: 'sell',
+    value: refundCoins,
+    refundIron,
+    refundCopper,
+    title: '⊘ Sell Turret',
+    name,
+    valueHtml: `<span style="color:#6fff9a;">$${fmt(refundCoins)}</span> + <span style="color:#4d8;">${refundIron} Iron</span> + <span style="color:#4d8;">${refundCopper} Copper</span>`,
+    hint: 'This cannot be undone.',
+    confirmLabel: 'CONFIRM SELL',
+  });
 };
 
 window.closeSellOverlay = function() {
-  _sellOverlayShipId = null;
-  _sellOverlayMode = 'sell';
-  _sellOverlayValue = 0;
+  _sellOverlayCtx = null;
   const overlay = document.getElementById('sell-overlay');
-  if (overlay) overlay.classList.remove('show');
+  if (overlay) {
+    overlay.classList.remove('show');
+    overlay.onclick = null;
+  }
 };
 
 window.confirmSellOverlay = function() {
-  if (_sellOverlayShipId !== null) {
-    if (_sellOverlayMode === 'salvage') window.salvageShip(_sellOverlayShipId);
-    else window.sellShip(_sellOverlayShipId, _sellOverlayValue);
-  }
+  const ctx = _sellOverlayCtx;
   window.closeSellOverlay();
+  if (!ctx) return;
+  if (ctx.kind === 'ship') {
+    if (ctx.mode === 'salvage') window.salvageShip(ctx.id);
+    else window.sellShip(ctx.id, ctx.value);
+  } else if (ctx.kind === 'module') {
+    window.sellStorageFacility?.(ctx.id, ctx.value);
+  } else if (ctx.kind === 'turret') {
+    window.doScrapTurret?.(ctx.id, ctx.value, ctx.refundIron, ctx.refundCopper);
+  }
 };
 
 // ── Upgrades section (role-aware) ──────────────────────────────────────────

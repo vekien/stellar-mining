@@ -884,17 +884,11 @@ window.confirmSellStorage = function(moduleId) {
   const module = getModuleById(moduleId);
   if (!module) return;
   const refundCoins = getModuleInvestedCoins(module);
-  const body = getStorageModalWindow(moduleId)?.querySelector('.storage-modal-body');
-  if (!body) return;
-  body.innerHTML = `
-    <div class="module-confirm-wrap">
-      <div class="module-confirm-title">⊘ Sell this ${getModuleLabel(module).toLowerCase()}?</div>
-      <div class="module-confirm-value">You will recover:<br><span style="color:#6fff9a;font-weight:bold;">$${fmt(refundCoins)}</span></div>
-      <div class="module-confirm-actions">
-        <button class="btn danger module-confirm-btn" onclick="sellStorageFacility(${moduleId},${refundCoins})">⊘ CONFIRM SELL</button>
-        <button class="btn module-confirm-btn" onclick="renderStorageModal(${moduleId})">CANCEL</button>
-      </div>
-    </div>`;
+  const label = getModuleLabel(module);
+  if (window.openModuleSellOverlay) {
+    window.openModuleSellOverlay(moduleId, module.name, label, refundCoins);
+    return;
+  }
 };
 
 window.sellStorageFacility = function(moduleId, refundCoins) {
@@ -903,7 +897,7 @@ window.sellStorageFacility = function(moduleId, refundCoins) {
   if (!addCoins(refundCoins)) return;
   if (isPoweredBuildingModule(module) || isPowerStationModule(module)) {
     for (const ship of state.ships) {
-      if ((ship.depotType === 'storage' || ship.depotType === 'power_station' || ship.depotType === 'research_lab') && ship.depotId === moduleId) {
+      if ((ship.depotType === 'storage' || ship.depotType === 'power_station') && ship.depotId === moduleId) {
         ship.depotType = 'base';
         ship.depotId = null;
         if (ship.status === 'returning' && ship.cargo > 0) {

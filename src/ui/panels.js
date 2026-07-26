@@ -395,10 +395,6 @@ function getShipDepotLabel(ship) {
     const storage = state.modules.find(module => module.id === ship.depotId);
     return storage?.name || '—';
   }
-  if (ship.depotType === 'research_lab' && ship.depotId !== null) {
-    const lab = state.modules.find(module => module.id === ship.depotId);
-    return lab?.name || '—';
-  }
   if (ship.depotType === 'power_station' && ship.depotId !== null) {
     const station = state.modules.find(module => module.id === ship.depotId);
     return station?.name || '—';
@@ -1008,7 +1004,7 @@ export function openHdrPanel(type, options = {}) {
 
       if (!turretsUnlocked) {
         defHtml = `<div class="craft-defense-empty">
-          🔒 No defense systems unlocked yet.<br><br>
+          No defense systems unlocked yet.<br><br>
           <span style="font-size:13px;">Visit the <strong style="color:#8ab">Research panel</strong> to unlock Automatic Turret.</span>
         </div>`;
       }
@@ -1076,7 +1072,7 @@ export function openHdrPanel(type, options = {}) {
       const unlockedBuildings = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId] && moduleTabIds[activeCraftTab].has(module.id));
       if (!unlockedBuildings.length) {
         tabContent = `<div class="craft-defense-empty">
-            🔒 ${tabLabel} fabrication is still locked.<br><br>
+            ${tabLabel} fabrication is still locked.<br><br>
             <span style="font-size:13px;">Unlock placeable <strong style="color:#8ab">${tabLabel}</strong> modules in the Research panel first.</span>
           </div>`;
       } else {
@@ -1153,7 +1149,7 @@ export function openHdrPanel(type, options = {}) {
             </div>
             <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${droneCanCoins ? 'met' : 'unmet'}">$${fmt(droneDef.cost)}</span>${droneReqPills}</div>
             ${!droneCraftingUnlocked
-              ? `<button class="btn craft-defense-btn" disabled>🔒 UNLOCK DRONE IN RESEARCH</button>`
+              ? `<button class="btn craft-defense-btn" disabled>UNLOCK DRONE IN RESEARCH</button>`
               : dronesFull
               ? `<button class="btn craft-defense-btn" disabled>◬ ALL LABS AT CAPACITY</button>`
               : droneTimerActive

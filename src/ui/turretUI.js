@@ -360,22 +360,11 @@ window.confirmScrapTurret = function(id) {
     Math.floor(investedCoins * 0.75)
   );
   const refundIron = TURRET_SCRAP_IRON, refundCopper = TURRET_SCRAP_COPPER;
-  const body = document.getElementById('turret-modal-body');
-  if (!body) return;
-  body.dataset.mode = 'confirm-sell';
-  body.innerHTML = `
-    <div style="text-align:center;padding:12px 0;">
-      <div style="font-size:14px;color:#cde;margin-bottom:8px;">⊘ Sell this turret?</div>
-      <div style="font-size:12px;color:#8ab;margin-bottom:16px;">You will recover:<br>
-        <span style="color:#6fff9a;font-weight:bold;">$${fmt(refundCoins)}</span> +
-        <span style="color:#4d8;">${refundIron} Iron</span> +
-        <span style="color:#4d8;">${refundCopper} Copper</span>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn danger" style="flex:1;" onclick="doScrapTurret(${id},${refundCoins},${refundIron},${refundCopper})">⊘ CONFIRM SELL</button>
-        <button class="btn" style="flex:1;" onclick="renderTurretModal()">CANCEL</button>
-      </div>
-    </div>`;
+  const name = turret.name || getTurretTypeDef(turret.type).name;
+  if (window.openTurretSellOverlay) {
+    window.openTurretSellOverlay(id, name, refundCoins, refundIron, refundCopper);
+    return;
+  }
 };
 
 window.doScrapTurret = function(id, refundCoins, refundIron, refundCopper) {

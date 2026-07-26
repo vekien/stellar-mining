@@ -5,7 +5,7 @@ import { TILE_W, TILE_H } from '../constants.js';
 import { gridToIso, isInView, isSegmentInView } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
-import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, DRONE_LAB_ID, getModuleDef, getModuleStats, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, isDroneLabModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, hasPowerStationFuel, getNetworkVersion } from '../data/modules.js';
+import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, DRONE_LAB_ID, getModuleDef, getModuleStats, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, isDroneLabModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, getLabTowerLinkedNodes, hasPowerStationFuel, getNetworkVersion } from '../data/modules.js';
 import { canPlaceModuleAt } from '../ui/storageUI.js';
 
 let ctx = null;
@@ -633,6 +633,32 @@ export function drawStorageFacilities() {
   drawStorageSprites();
 }
 
+function drawPlacementPreviewLink(fromCol, fromRow, toCol, toRow, pulse, colors) {
+  const fromIso = gridToIso(fromCol, fromRow);
+  const toIso = gridToIso(toCol, toRow);
+  const fromX = fromIso.x;
+  const fromY = fromIso.y + TILE_H / 2;
+  const toX = toIso.x;
+  const toY = toIso.y + TILE_H / 2;
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.setLineDash([2, 7]);
+  ctx.lineDashOffset = -(performance.now() / 32) % 9;
+  ctx.strokeStyle = colors.main(pulse);
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.setLineDash([1, 9]);
+  ctx.lineDashOffset = -(performance.now() / 24) % 10;
+  ctx.strokeStyle = colors.glow;
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
 function drawPowerPolePlacementPreview(col, row, moduleType) {
   const movingModule = state.movingModule ? state.modules.find((module) => module.id === state.movingModule) : null;
   const previewLevel = movingModule?.type === moduleType ? (movingModule.level || 1) : 1;
@@ -648,34 +674,13 @@ function drawPowerPolePlacementPreview(col, row, moduleType) {
   ctx.lineWidth = 0.9;
   ctx.stroke();
 
-  const preview = { col, row, relayRange: range };
   const pulse = 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 220)));
   const footprintHalf = getModuleFootprintHalf(POWER_STATION_ID);
-  const drawPreviewLink = (toCol, toRow) => {
-    const fromIso = gridToIso(col, row);
-    const toIso = gridToIso(toCol, toRow);
-    const fromX = fromIso.x;
-    const fromY = fromIso.y + TILE_H / 2;
-    const toX = toIso.x;
-    const toY = toIso.y + TILE_H / 2;
-    ctx.beginPath();
-    ctx.moveTo(fromX, fromY);
-    ctx.lineTo(toX, toY);
-    ctx.setLineDash([2, 7]);
-    ctx.lineDashOffset = -(performance.now() / 32) % 9;
-    ctx.strokeStyle = `rgba(255,238,140,${0.72 + pulse * 0.22})`;
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(fromX, fromY);
-    ctx.lineTo(toX, toY);
-    ctx.setLineDash([1, 9]);
-    ctx.lineDashOffset = -(performance.now() / 24) % 10;
-    ctx.strokeStyle = 'rgba(255,255,220,0.42)';
-    ctx.lineWidth = 0.9;
-    ctx.stroke();
-    ctx.setLineDash([]);
+  const colors = {
+    main: (p) => `rgba(255,238,140,${0.72 + p * 0.22})`,
+    glow: 'rgba(255,255,220,0.42)',
   };
+  const drawPreviewLink = (toCol, toRow) => drawPlacementPreviewLink(col, row, toCol, toRow, pulse, colors);
 
   for (const module of state.modules) {
     if (state.movingModule && module.id === state.movingModule) continue;
@@ -718,6 +723,55 @@ function drawPowerPolePlacementPreview(col, row, moduleType) {
   ctx.restore();
 }
 
+function drawLabTowerPlacementPreview(col, row, moduleType) {
+  const movingModule = state.movingModule ? state.modules.find((module) => module.id === state.movingModule) : null;
+  const previewLevel = movingModule?.type === moduleType ? (movingModule.level || 1) : 1;
+  const stats = getModuleStats(moduleType, previewLevel);
+  const range = stats.relayRange || 0;
+  if (range <= 0) return;
+
+  ctx.save();
+  traceDiamondForRange(col, row, range);
+  ctx.fillStyle = 'rgba(90,255,170,0.1)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(110,255,190,0.3)';
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+
+  const pulse = 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 240)));
+  const colors = {
+    main: (p) => `rgba(110,255,190,${0.72 + p * 0.22})`,
+    glow: 'rgba(210,255,236,0.42)',
+  };
+  const drawPreviewLink = (toCol, toRow) => drawPlacementPreviewLink(col, row, toCol, toRow, pulse, colors);
+
+  for (const module of state.modules) {
+    if (state.movingModule && module.id === state.movingModule) continue;
+    if (isLabTowerModule(module)) {
+      const distance = Math.max(Math.abs(col - module.col), Math.abs(row - module.row));
+      if (distance <= (range + (module.relayRange || 0))) drawPreviewLink(module.col, module.row);
+      continue;
+    }
+    if (!isResearchLabModule(module)) continue;
+    const linked = getModuleFootprintCells(module.type, module.col, module.row)
+      .some((cell) => Math.max(Math.abs(col - cell.col), Math.abs(row - cell.row)) <= range);
+    if (linked) drawPreviewLink(module.col, module.row);
+  }
+
+  const previewTower = {
+    type: LAB_TOWER_ID,
+    col,
+    row,
+    level: previewLevel,
+    relayRange: range,
+    health: 1,
+  };
+  for (const node of getLabTowerLinkedNodes(previewTower, state.nodes, state.base.level)) {
+    drawPreviewLink(node.gr[0], node.gr[1]);
+  }
+  ctx.restore();
+}
+
 export function drawStoragePlacementHover() {
   if (!ctx || !state.placingModule) return;
   const col = canvasState.turretHoverCol;
@@ -735,6 +789,7 @@ export function drawStoragePlacementHover() {
     );
   }
   if (moduleType === POWER_POLE_ID) drawPowerPolePlacementPreview(col, row, moduleType);
+  else if (moduleType === LAB_TOWER_ID) drawLabTowerPlacementPreview(col, row, moduleType);
 }
 
 export function getStorageHoverAtCell(col, row) {

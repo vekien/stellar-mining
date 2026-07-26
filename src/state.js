@@ -334,7 +334,8 @@ export function loadGame() {
            loadingPickup: false,
            unloadingDepot: false,
            status:'idle', targetNode: sd.targetNode ?? null,
-        depotType: sd.depotType || 'base', depotId: sd.depotId ?? null,
+        depotType: sd.depotType === 'research_lab' ? 'base' : (sd.depotType || 'base'),
+        depotId: sd.depotType === 'research_lab' ? null : (sd.depotId ?? null),
         heading: Math.random() * Math.PI * 2,
         turnRadiusRandomness: Number.isFinite(sd.turnRadiusRandomness)
           ? sd.turnRadiusRandomness

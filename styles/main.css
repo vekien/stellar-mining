@@ -1184,7 +1184,7 @@
   }
   #rename-overlay.show { display: flex; }
   #sell-overlay {
-    position: absolute; inset: 0; z-index: 1200;
+    position: fixed; inset: 0; z-index: 1200;
     background: rgba(2,6,20,0.88);
     display: none; align-items: center; justify-content: center;
     backdrop-filter: blur(2px);

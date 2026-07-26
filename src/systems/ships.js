@@ -25,7 +25,7 @@ import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
-import { isStorageModule, isPowerStationModule, isResearchLabModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules } from '../data/modules.js';
 import { getBlackHoleRadiusScale } from '../render/animations.js';
 
 function getBlackHoleSpeedMult(ship) {
@@ -46,10 +46,6 @@ function getStorageModules() {
   return getDepotModules(state.modules).filter(isStorageModule);
 }
 
-function getResearchLabs() {
-  return getDepotModules(state.modules).filter(isResearchLabModule);
-}
-
 function getPowerStations() {
   return getDepotModules(state.modules).filter(isPowerStationModule);
 }
@@ -58,13 +54,13 @@ const craftTimeouts = {};
 let baseDownNoticeShown = false;
 
 function resolveShipDepot(ship) {
+  if (ship.depotType === 'research_lab') {
+    ship.depotType = 'base';
+    ship.depotId = null;
+  }
   if (ship.depotType === 'storage' && ship.depotId !== null) {
     const storage = getStorageModules().find(s => s.id === ship.depotId);
     if (storage) return { type: 'storage', facility: storage, label: storage.name, operational: isStorageOperational(storage) };
-  }
-  if (ship.depotType === 'research_lab' && ship.depotId !== null) {
-    const lab = getResearchLabs().find(s => s.id === ship.depotId);
-    if (lab) return { type: 'research_lab', facility: lab, label: lab.name, operational: isStorageOperational(lab) };
   }
   if (ship.depotType === 'power_station' && ship.depotId !== null) {
     const station = getPowerStations().find(s => s.id === ship.depotId);
@@ -78,10 +74,6 @@ function getShipDepotDestination(ship) {
   if (depot.type === 'storage' && depot.facility) {
     const pos = gridToWorld(depot.facility.col, depot.facility.row);
     return { x: pos.x, y: pos.y + TILE_H / 2 - 20, depotType: 'storage', depotId: depot.facility.id };
-  }
-  if (depot.type === 'research_lab' && depot.facility) {
-    const pos = gridToWorld(depot.facility.col, depot.facility.row);
-    return { x: pos.x, y: pos.y + TILE_H / 2 - 20, depotType: 'research_lab', depotId: depot.facility.id };
   }
   if (depot.type === 'power_station' && depot.facility) {
     const pos = gridToWorld(depot.facility.col, depot.facility.row);
@@ -123,7 +115,7 @@ function getShipPickupDestination(ship) {
 
 function getHoldingAnchor(ship) {
   const depot = resolveShipDepot(ship);
-  if ((depot.type === 'storage' || depot.type === 'research_lab') && depot.facility) return { col: depot.facility.col, row: depot.facility.row, size: getModuleFootprintHalf(depot.facility.type) };
+  if (depot.type === 'storage' && depot.facility) return { col: depot.facility.col, row: depot.facility.row, size: getModuleFootprintHalf(depot.facility.type) };
   if (depot.type === 'power_station' && depot.facility) return { col: depot.facility.col, row: depot.facility.row, size: 0 };
   return { col: BASE_COL, row: BASE_ROW, size: BASE_FOOTPRINT_RADIUS };
 }
@@ -284,7 +276,6 @@ function getDepotFreeCapacity(ship, depot, resourceType) {
   if (depot.type === 'base') return Number.MAX_SAFE_INTEGER;
   if (!depot.facility) return 0;
   if (depot.type === 'storage') return depot.facility && isStorageOperational(depot.facility) ? getModuleFreeCapacity(depot.facility) : 0;
-  if (depot.type === 'research_lab') return depot.facility && isStorageOperational(depot.facility) ? Number.MAX_SAFE_INTEGER : 0;
   if (depot.type === 'power_station' && resourceType) {
     return depot.facility.health > 0 ? getPowerStationResourceFreeCapacity(depot.facility, resourceType) : 0;
   }
@@ -297,7 +288,6 @@ function canReturnCargo(ship, depot, resourceType, cargoAmount = ship.cargo) {
     if (depot.type === 'base') return true;
     if (!depot.facility) return false;
     if (depot.type === 'storage') return getDepotFreeCapacity(ship, depot, resourceType) >= getCargoManifestTotal(cargoManifest);
-    if (depot.type === 'research_lab') return true;
     if (depot.type === 'power_station') {
       return Object.entries(cargoManifest).every(([type, amount]) => getPowerStationResourceFreeCapacity(depot.facility, type) >= amount);
     }
@@ -353,12 +343,12 @@ function startTransportToDepot(ship) {
 function applyDepositMilestones(ev) {
   if (state.tutStep === 3) { state.tutStep=4; state.seenMsgs['tut_mining_done']=true; document.querySelectorAll('.tut-pointer').forEach(el=>el.remove()); }
   import('../ui/tutorial.js').then(({ checkTradeTutorial }) => checkTradeTutorial());
-  if (!state.firstDeposit && ev.depotType !== 'storage' && ev.depotType !== 'power_station' && ev.depotType !== 'research_lab') {
+  if (!state.firstDeposit && ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
     state.firstDeposit = true;
     state.redirectTutActive = true;
     setTimeout(() => showOnce('first_deposit', NPCS.juno.transmissionLines.first_deposit, 15, 'juno'), 800);
   }
-  if (!state.firstCraftable && ev.depotType !== 'storage' && ev.depotType !== 'power_station' && ev.depotType !== 'research_lab') {
+  if (!state.firstCraftable && ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
     const canBuildAny = CRAFT_RECIPES.some(r => Object.entries(r.reqs).every(([res, amt]) => (state.resources[res]||0) >= amt));
     if (canBuildAny) {
       state.firstCraftable = true;
@@ -386,16 +376,6 @@ function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, count
     } else {
       state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
     }
-  } else if (ev.depotType === 'research_lab' && ev.depotId !== null) {
-    const lab = getResearchLabs().find(s => s.id === ev.depotId);
-    if (lab) {
-      deposited = ev.amount;
-      depotLabel = lab.name;
-      const w = gridToWorld(lab.col, lab.row);
-      floatiePos = { x: w.x, y: w.y - 12 };
-    } else {
-      state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
-    }
   } else if (ev.depotType === 'power_station' && ev.depotId !== null) {
     const station = getPowerStations().find(s => s.id === ev.depotId);
     if (station) {
@@ -416,7 +396,7 @@ function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, count
   if (countTrip) state.trips++;
   if (logDelivery) addLog(`📦 ${ev.name} delivered ${deposited} ${RESOURCE_DEFS[ev.cargoResource].label} to ${depotLabel}${depositBlocked ? ' (depot full)' : ''}`);
   if (showFloatieFx && deposited > 0) spawnFloatie(ev.cargoResource, deposited, floatiePos);
-  if ((ev.depotType === 'storage' || ev.depotType === 'power_station' || ev.depotType === 'research_lab') && state.selectedModule === ev.depotId && window.patchStorageModal) {
+  if ((ev.depotType === 'storage' || ev.depotType === 'power_station') && state.selectedModule === ev.depotId && window.patchStorageModal) {
     const overlay = document.getElementById('storage-modal-overlay');
     if (overlay?.style.display === 'flex') window.patchStorageModal();
   }
@@ -472,10 +452,6 @@ function unloadTransportCargo(ship, depot, maxAmount) {
 
 function getDepotFloatiePos(depot) {
   if (depot.type === 'storage' && depot.facility) {
-    const w = gridToWorld(depot.facility.col, depot.facility.row);
-    return { x: w.x, y: w.y - 12 };
-  }
-  if (depot.type === 'research_lab' && depot.facility) {
     const w = gridToWorld(depot.facility.col, depot.facility.row);
     return { x: w.x, y: w.y - 12 };
   }
@@ -670,7 +646,6 @@ export function tickShip(ship, dt) {
       const depot = resolveShipDepot(ship);
       const canLeaveHolding = depot.operational
         && !(depot.type === 'storage' && depot.facility && getModuleFreeCapacity(depot.facility) <= 0)
-        && !(depot.type === 'research_lab' && depot.facility && !isStorageOperational(depot.facility))
         && !(depot.type === 'power_station' && depot.facility && getModuleFreeCapacity(depot.facility) < ship.cargo);
       if (canLeaveHolding) {
         const depotDest = getShipDepotDestination(ship);
@@ -780,11 +755,6 @@ export function tickShip(ship, dt) {
           return;
         }
         if (depot.type === 'storage' && depot.facility && getModuleFreeCapacity(depot.facility) <= 0) {
-          ship.status = 'holding';
-          setNextHoldingDestination(ship);
-          return;
-        }
-        if (depot.type === 'research_lab' && depot.facility && !isStorageOperational(depot.facility)) {
           ship.status = 'holding';
           setNextHoldingDestination(ship);
           return;
@@ -942,17 +912,10 @@ window.recallShip = function(shipId) {
 
 // ── Sell Ship ──
 window.confirmSellShip = function(shipId, sellVal) {
-  const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
-  if (state.ships.length <= 1) { addLog('⚠ Cannot sell your last ship!'); return; }
-  const panel = document.getElementById('action-content');
-  panel.innerHTML = `
-    <div style="font-size:13px;color:#f88;margin-bottom:8px;">Sell <strong style="color:#faa">${ship.name}</strong> for <strong style="color:#ffe066">${fmt(sellVal)} coins</strong>?</div>
-    <div style="font-size:11px;color:#456;margin-bottom:10px;">This cannot be undone.</div>
-    <div class="ship-action-row">
-      <button class="btn danger" style="flex:1;font-size:12px" onclick="sellShip(${shipId},${sellVal})">CONFIRM SELL</button>
-      <button class="btn" style="flex:1;font-size:12px" onclick="renderActionPanel()">CANCEL</button>
-    </div>
-  `;
+  if (window.openSellOverlay) {
+    window.openSellOverlay(shipId, sellVal);
+    return;
+  }
 };
 
 window.sellShip = function(shipId, sellVal) {
@@ -1222,12 +1185,6 @@ window.setShipDepot = function(shipId, depotValue) {
     const storage = getStorageModules().find(s => s.id === depotId);
     if (!storage) return;
     ship.depotType = 'storage';
-    ship.depotId = depotId;
-  } else if (String(depotValue).startsWith('research_lab:')) {
-    const depotId = Number(String(depotValue).split(':')[1]);
-    const lab = getResearchLabs().find(s => s.id === depotId);
-    if (!lab) return;
-    ship.depotType = 'research_lab';
     ship.depotId = depotId;
   } else if (String(depotValue).startsWith('power_station:')) {
     const depotId = Number(String(depotValue).split(':')[1]);

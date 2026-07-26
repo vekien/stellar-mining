@@ -208,7 +208,7 @@ export function getDepotModules(modules) {
   if (_depotModulesCache && _depotModulesCacheVer === _entityListVersion) return _depotModulesCache;
   const list = [];
   for (const module of modules) {
-    if (isStorageModule(module) || isResearchLabModule(module) || isPowerStationModule(module)) {
+    if (isStorageModule(module) || isPowerStationModule(module)) {
       list.push(module);
     }
   }
