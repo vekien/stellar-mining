@@ -1010,7 +1010,7 @@ function buildUpgradesSection(shipId) {
     tierReqsHtml = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;justify-content:center;">';
     for (const [r, n] of Object.entries(tierResReqs)) {
       const met = (state.resources[r] || 0) >= n;
-      tierReqsHtml += `<span style="font-size:11px;padding:1px 5px;border-radius:3px;border:1px solid ${met?'#2a6040':'#802020'};background:${met?'rgba(20,60,30,0.4)':'rgba(60,10,10,0.35)'};color:${met?'#4d8':'#f88'};">${RESOURCE_DEFS[r]?.label ?? r}: ${n}</span>`;
+      tierReqsHtml += `<span style="font-size:11px;padding:1px 5px;border-radius:3px;border:1px solid ${met?'#2a6040':'#802020'};background:${met?'rgba(20,60,30,0.4)':'rgba(60,10,10,0.35)'};color:${met?'#4d8':'#f88'};">${RESOURCE_DEFS[r]?.label ?? r}: ${fmt(n)}</span>`;
     }
     tierReqsHtml += '</div>';
   }

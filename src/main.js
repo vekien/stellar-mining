@@ -9,6 +9,7 @@ import { BASE_COL, BASE_ROW } from './constants.js';
 import { CRASHED_SHIP_NODE_TYPE } from './data/nodes.js';
 import { SOL_DURATION } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI, fmt } from './helpers.js';
+import './ui/tippy.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
 import { initRenderer, resizeRenderer, render, setOnCameraMove, setRenderFps, invalidateNodeSortCache, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';

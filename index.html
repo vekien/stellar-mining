@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Cinzel:wght@600&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap">
 <link rel="stylesheet" href="styles/main.css">
+<link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css">
 </head>
 <body>
 
@@ -249,6 +250,31 @@
   </div>
 </div>
 
+<div id="synthesis-overlay">
+  <div id="synthesis-box" onclick="event.stopPropagation()">
+    <div class="synthesis-box-head">
+      <div class="synthesis-box-title">◈ Assign Synthesis</div>
+      <div class="synthesis-box-sub">Choose a recipe for <strong id="synthesis-slot-label">Slot 1</strong></div>
+    </div>
+    <div id="synthesis-recipe-list" class="synthesis-recipe-list"></div>
+    <div class="synthesis-box-actions">
+      <button class="btn" type="button" onclick="closeSynthesisOverlay()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<div id="module-upgrade-overlay">
+  <div id="module-upgrade-box" onclick="event.stopPropagation()">
+    <div class="module-upgrade-box-title" id="module-upgrade-title">◈ Upgrade</div>
+    <div class="module-upgrade-box-sub" id="module-upgrade-sub"></div>
+    <div id="module-upgrade-reqs" class="module-upgrade-reqs"></div>
+    <div class="module-upgrade-box-actions">
+      <button class="btn primary" type="button" id="module-upgrade-confirm" onclick="confirmModuleUpgradeOverlay()">CONFIRM</button>
+      <button class="btn" type="button" onclick="closeModuleUpgradeOverlay()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
 <div id="tooltip"></div>
 
 <div id="currency-max-popup-overlay" onclick="closeCurrencyMaxPopup()">
@@ -266,6 +292,8 @@
 </div>
 
 
+<script src="https://unpkg.com/@popperjs/core@2"></script>
+<script src="https://unpkg.com/tippy.js@6"></script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

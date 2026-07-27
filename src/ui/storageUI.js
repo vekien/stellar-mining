@@ -2,7 +2,17 @@
 // MODULE UI — craft timers, placement, and modal
 // ============================================================
 import { state } from '../state.js';
-import { addLog, fmt, resourceIconHtml, spendCoins, addCoins, isLightColor, showHintTooltip, hideTooltip } from '../helpers.js';
+import { addLog, fmt, fmtCompact, resourceIconHtml, spendCoins, addCoins, isLightColor, showHintTooltip, hideTooltip } from '../helpers.js';
+import { bindTippy, bindTippyIn } from './tippy.js';
+import {
+  SYNTHESIS_RECIPES,
+  SYNTHESIS_SLOT_COUNT,
+  getSynthesisRecipe,
+  normalizeSynthesisSlots,
+  getLinkedNodeCounts,
+  getRecipeStatus,
+  getSynthesisCraftTime,
+} from '../data/synthesis.js';
 import { refresh } from './refresh.js';
 import {
   applyFloatingPosition,
@@ -208,12 +218,44 @@ function initStorageModalDrag(modal) {
     },
     isActive: () => overlay.style.display === 'flex',
   });
+  const moduleId = Number(modal.dataset.moduleId);
+  const module = Number.isFinite(moduleId) ? getModuleById(moduleId) : null;
   initFloatingResize(modal, overlay, {
-    minW: 420,
+    minW: module && (isResearchLabModule(module) || isPowerStationModule(module)) ? 720 : 420,
     minH: 300,
     layoutKey,
     isActive: () => overlay.style.display === 'flex',
   });
+}
+
+function getModuleAccentClass(module) {
+  if (!module) return '';
+  if (isPowerStationModule(module) || isPowerPoleModule(module)) return 'modal-accent-power';
+  if (isResearchLabModule(module) || isLabTowerModule(module)) return 'modal-accent-lab';
+  if (isDroneLabModule(module)) return 'modal-accent-drone';
+  if (isStorageModule(module)) return 'modal-accent-storage';
+  return '';
+}
+
+function applyModuleModalChrome(modal, module) {
+  if (!modal || !module) return;
+  const isWide = isResearchLabModule(module) || isPowerStationModule(module);
+  const accent = getModuleAccentClass(module);
+  modal.classList.remove(
+    'storage-modal-window-lab',
+    'modal-accent-power',
+    'modal-accent-lab',
+    'modal-accent-storage',
+    'modal-accent-drone',
+  );
+  if (isWide) modal.classList.add('storage-modal-window-lab');
+  if (accent) modal.classList.add(accent);
+  const body = modal.querySelector('.storage-modal-body');
+  if (body) {
+    body.classList.toggle('storage-modal-body-lab', isWide);
+    body.style.padding = isWide ? '12px' : '14px';
+  }
+  if (isWide && parseInt(modal.style.width, 10) < 900) modal.style.width = '980px';
 }
 
 function ensureStorageModalWindow(moduleId) {
@@ -221,11 +263,14 @@ function ensureStorageModalWindow(moduleId) {
   if (modal) return modal;
   const host = getStorageModalHost();
   if (!host) return null;
+  const module = getModuleById(moduleId);
+  const isWide = module && (isResearchLabModule(module) || isPowerStationModule(module));
   modal = document.createElement('div');
   modal.className = 'storage-modal-window';
   modal.dataset.moduleId = String(moduleId);
-  modal.style.cssText = 'position:absolute;width:600px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;';
-  modal.innerHTML = `<div class="panel-shell-head storage-modal-drag-handle"><div class="panel-shell-title storage-modal-title">BUILDING</div><button class="panel-shell-close" onclick="closeStorageModal(${moduleId})">✕</button></div><div class="storage-modal-body" style="padding:14px;"></div>`;
+  modal.style.cssText = `position:absolute;width:${isWide ? 980 : 600}px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;`;
+  modal.innerHTML = `<div class="panel-shell-head storage-modal-drag-handle"><div class="panel-shell-title storage-modal-title">BUILDING</div><button class="panel-shell-close" onclick="closeStorageModal(${moduleId})">✕</button></div><div class="storage-modal-body" style="padding:${isWide ? '12px' : '14px'};"></div>`;
+  applyModuleModalChrome(modal, module);
   host.appendChild(modal);
   const overlay = document.getElementById('storage-modal-overlay');
   placeFloatingWindow(overlay, modal, `module:${moduleId}`);
@@ -258,6 +303,8 @@ export function openStorageModal(moduleId) {
 export function closeStorageModal(arg = null) {
   const overlay = document.getElementById('storage-modal-overlay');
   if (typeof arg === 'number') {
+    if (_synthesisOverlayModuleId === arg) window.closeSynthesisOverlay?.();
+    if (_upgradeOverlayModuleId === arg) window.closeModuleUpgradeOverlay?.();
     const modal = getStorageModalWindow(arg);
     if (modal) modal.remove();
   }
@@ -269,6 +316,17 @@ export function closeStorageModal(arg = null) {
     const topWindow = openWindows.sort((a, b) => Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0))[0];
     state.selectedModule = Number(topWindow?.dataset.moduleId) || state.selectedModule;
   }
+}
+
+/** Close the front-most building modal window. Returns true if one was closed. */
+export function closeTopStorageModal() {
+  const openWindows = getOpenStorageModalWindows();
+  if (!openWindows.length) return false;
+  const topWindow = openWindows.sort((a, b) => Number(b.style.zIndex || 0) - Number(a.style.zIndex || 0))[0];
+  const moduleId = Number(topWindow?.dataset.moduleId);
+  if (!Number.isFinite(moduleId)) return false;
+  closeStorageModal(moduleId);
+  return true;
 }
 
 function renderStatRows(rows) {
@@ -298,7 +356,7 @@ function setHtmlIfChangedIn(root, selector, html) {
   return el;
 }
 
-function buildLabLinkedResourcesHtml(module, info) {
+function buildLabLinkedResourcesHtml(module, info, usedIngredientIds = null) {
   if (!info.resources.length) return '<div class="module-empty-note">No linked resources in range.</div>';
   const counts = new Map();
   for (const entry of info.resources) {
@@ -314,14 +372,72 @@ function buildLabLinkedResourcesHtml(module, info) {
     .map(([resourceType, count]) => {
       const def = RESOURCE_DEFS[resourceType];
       const tier = def ? ((Object.entries(MINE_TIERS).find(([, tierDef]) => tierDef.resources.includes(resourceType))?.[0]) || '?') : '?';
-      return `<div class="module-resource-row">
-        <span class="module-resource-name" style="color:${def?.color || '#cde'};">
-          <span class="module-resource-dot" style="background:${def?.color || '#cde'};box-shadow:0 0 6px ${def?.color || '#cde'}88;"></span>
-          <span>${def?.label || resourceType}</span>
-        </span>
-        <span class="module-resource-meta">${count}x T${tier}</span>
+      const inUse = usedIngredientIds?.has(resourceType);
+      return `<div class="lab-res-row${inUse ? ' used-in' : ''}" style="color:${def?.color || '#cde'};">
+        ${resourceIconHtml(resourceType, 16)}
+        <span class="lab-res-name">${def?.label || resourceType}</span>
+        <span class="lab-res-count">${count}×</span>
+        <span class="lab-res-badge${inUse ? ' in-use' : ''}">${inUse ? 'IN USE' : `T${tier}`}</span>
       </div>`;
     }).join('');
+}
+
+function getLabUsedIngredientIds(module) {
+  const used = new Set();
+  for (const id of normalizeSynthesisSlots(module.synthesisSlots)) {
+    const recipe = getSynthesisRecipe(id);
+    if (!recipe) continue;
+    for (const input of recipe.inputs) used.add(input.id);
+  }
+  return used;
+}
+
+function buildSynthesisSlotsHtml(module) {
+  const slots = normalizeSynthesisSlots(module.synthesisSlots);
+  const labLevel = module.level || 1;
+  return slots.map((id, i) => {
+    const recipe = id ? getSynthesisRecipe(id) : null;
+    if (!recipe) {
+      return `<button type="button" class="lab-synth-slot" onclick="openSynthesisOverlay(${module.id},${i})">
+        <span class="lab-synth-slot-index">SLOT ${i + 1}</span>
+        <div class="lab-synth-slot-empty">+</div>
+        <div class="lab-synth-slot-body">
+          <div class="lab-synth-slot-empty-label">ASSIGN RECIPE</div>
+        </div>
+      </button>`;
+    }
+    const craftSec = getSynthesisCraftTime(recipe, labLevel);
+    const ings = recipe.inputs.map((input) =>
+      `<span class="lab-synth-ing" title="${RESOURCE_DEFS[input.id]?.label || input.id}">${resourceIconHtml(input.id, 14)}<span class="lab-synth-ing-amt">${fmtCompact(input.amount)}</span></span>`
+    ).join('');
+    // CSS animation duration = craft cycle (preview only until production craft is wired)
+    return `<button type="button" class="lab-synth-slot filled" onclick="openSynthesisOverlay(${module.id},${i})" style="--synth-cycle:${craftSec}s;">
+      <span class="lab-synth-slot-index">SLOT ${i + 1}</span>
+      <span class="lab-synth-slot-clear" onclick="event.stopPropagation();clearSynthesisSlot(${module.id},${i})" title="Clear">✕</span>
+      <div class="lab-synth-timer" aria-hidden="true">
+        <svg class="lab-synth-ring" viewBox="0 0 36 36">
+          <circle class="lab-synth-ring-bg" cx="18" cy="18" r="15.5" pathLength="100" />
+          <circle class="lab-synth-ring-fg" cx="18" cy="18" r="15.5" pathLength="100" />
+        </svg>
+        <div class="lab-synth-timer-icon">${resourceIconHtml(recipe.icon, 18)}</div>
+      </div>
+      <div class="lab-synth-slot-body">
+        <div class="lab-synth-slot-name" style="color:${recipe.color};">${escapeHtml(recipe.name)}</div>
+        <div class="lab-synth-slot-ings">${ings}</div>
+        <div class="lab-synth-slot-meta"><span class="lab-synth-rarity">${recipe.rarity.toUpperCase()}</span><span class="lab-synth-eta">${craftSec}s / unit</span></div>
+      </div>
+    </button>`;
+  }).join('');
+}
+
+function buildUpgradeReqsHtml(upgradeCost) {
+  const coinMet = state.coins >= upgradeCost.coins;
+  let html = `<span class="lab-req${coinMet ? '' : ' unmet'}" title="Credits"><span class="lab-req-cash">$</span><span class="lab-req-amt">${fmtCompact(upgradeCost.coins)}</span></span>`;
+  for (const [r, n] of Object.entries(upgradeCost.reqs)) {
+    const met = (state.resources[r] || 0) >= n;
+    html += `<span class="lab-req${met ? '' : ' unmet'}" title="${RESOURCE_DEFS[r]?.label || r}">${resourceIconHtml(r, 16)}<span class="lab-req-amt">${fmtCompact(n)}</span></span>`;
+  }
+  return html;
 }
 
 function buildPowerConsumerListHtml(linkedStorages, linkedTurrets) {
@@ -344,13 +460,31 @@ function buildPowerConsumerListHtml(linkedStorages, linkedTurrets) {
     })),
   ].sort((a, b) => b.usage - a.usage || a.name.localeCompare(b.name));
 
-  if (!consumers.length) return '<div class="module-empty-note">No linked consumers.</div>';
+  if (!consumers.length) return '<div class="module-empty-note">No linked consumers drawing power.</div>';
   return consumers.map((consumer) => `
-    <div class="module-resource-row">
-      <button class="btn module-btn-small" style="width:auto;padding:4px 8px;min-width:0;background:rgba(10,20,50,0.52);border-color:#2a5090;color:${consumer.color};" onclick="focusPowerNetworkTarget('${consumer.kind}', ${consumer.id})">${escapeHtml(consumer.name)}</button>
-      <span class="module-resource-meta">${escapeHtml(consumer.label)} · ${consumer.usage.toFixed(1).replace(/\.0$/, '')}/s</span>
+    <div class="ps-consumer-row">
+      <button type="button" class="ps-consumer-btn" style="color:${consumer.color};border-color:${consumer.color}55;" onclick="focusPowerNetworkTarget('${consumer.kind}', ${consumer.id})">${escapeHtml(consumer.name)}</button>
+      <span class="ps-consumer-label">${escapeHtml(consumer.label)}</span>
+      <span class="ps-consumer-usage">${consumer.usage.toFixed(1).replace(/\.0$/, '')}/s</span>
     </div>
   `).join('');
+}
+
+function buildPowerStationFuelStoresHtml(module, activeFuelType) {
+  const rows = Object.entries(module.inventory || {})
+    .filter(([, amt]) => amt > 0)
+    .sort((a, b) => b[1] - a[1]);
+  if (!rows.length) return '<div class="module-empty-note">No fuel stored yet.<br>Deliver resources via ships.</div>';
+  return rows.map(([type, amt]) => {
+    const def = RESOURCE_DEFS[type];
+    const active = type === activeFuelType;
+    return `<div class="lab-res-row${active ? ' used-in' : ''}" style="color:${def?.color || '#cde'};">
+      ${resourceIconHtml(type, 16)}
+      <span class="lab-res-name">${def?.label || type}</span>
+      <span class="lab-res-count">${fmt(amt)}</span>
+      <span class="lab-res-badge${active ? ' in-use' : ''}">${active ? 'FUEL' : ''}</span>
+    </div>`;
+  }).join('');
 }
 
 window.focusPowerNetworkTarget = function(kind, id) {
@@ -381,6 +515,238 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
   const moduleTier = Math.max(1, Math.min(10, module.level || 1));
   const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
   if (title) title.textContent = moduleDef.panelTitle;
+  applyModuleModalChrome(modal, module);
+
+  if (isPowerStationModule(module)) {
+    body.innerHTML = `
+      <div class="lab-layout ps-layout">
+        <div class="lab-hero">
+          <div class="lab-hero-left">
+            <div class="lab-hero-name-row">
+              <span id="storage-modal-name" class="storage-modal-name lab-hero-name"></span>
+              <button onclick="openStorageRenameOverlay(${module.id})" title="Rename Module" class="storage-modal-rename-btn">✎</button>
+              <div id="module-operational-banner" class="lab-status-pill">ONLINE</div>
+            </div>
+            <div class="lab-meter">
+              <div class="lab-meter-head">
+                <span class="lab-meter-label">Health</span>
+                <span id="storage-health-value" class="lab-meter-value"></span>
+              </div>
+              <div class="lab-meter-track"><div id="storage-health-bar" class="lab-meter-bar"></div></div>
+            </div>
+          </div>
+          <div id="storage-tier-pill" class="lab-tier-badge"></div>
+        </div>
+
+        <div id="power-station-no-fuel-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO FUEL</div>
+        <div id="power-station-deficit-warning" class="storage-no-power-warning" style="display:none;">WARNING: POWER DEFICIT</div>
+
+        <div class="lab-main-grid">
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ FUEL & OUTPUT</span>
+              <span class="lab-panel-sub">generation</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="ps-fuel-select-row">
+                <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Source <span id="power-station-info-badge" class="power-station-info-badge">INFO</span></span>
+                <select id="power-station-fuel-select" class="power-station-select ps-fuel-select" onchange="setPowerStationFuel(${module.id}, this.value)"></select>
+              </div>
+              <div class="ps-stat-grid">
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Input</div>
+                  <div id="power-station-fuel-rate" class="lab-stat-value"></div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Output</div>
+                  <div id="power-station-fuel-output" class="lab-stat-value blue"></div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Load</div>
+                  <div id="power-station-fuel-cost" class="lab-stat-value"></div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Status</div>
+                  <div id="power-station-fuel-status" class="lab-stat-value"></div>
+                </div>
+              </div>
+              <div class="lab-network-block">
+                <div class="lab-network-label">◈ Linked Network</div>
+                <div class="lab-network-tiles">
+                  <div class="lab-net-tile" data-tippy-content="Power Poles">
+                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
+                    <div>
+                      <div id="ps-net-poles" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Poles</div>
+                    </div>
+                  </div>
+                  <div class="lab-net-tile" data-tippy-content="Powered Consumers">
+                    <img class="lab-net-icon" src="assets/images/buildings/storage.png" alt="">
+                    <div>
+                      <div id="ps-net-consumers" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Consumers</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ CONSUMERS</span>
+              <span class="lab-panel-sub">drawing power</span>
+            </div>
+            <div class="lab-panel-body">
+              <div id="power-station-network-consumers" class="ps-consumer-list"></div>
+            </div>
+          </section>
+
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ FUEL STORES</span>
+              <span class="lab-panel-sub">held inventory</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="ps-active-fuel">
+                <div class="ps-active-fuel-head">
+                  <span class="ps-active-fuel-title">
+                    <span class="lab-power-icon">△</span>
+                    <span id="power-station-used-label">Active Fuel</span>
+                  </span>
+                  <span id="power-station-used-value" class="lab-meter-value"></span>
+                </div>
+                <div class="lab-meter-track"><div id="power-station-used-bar" class="lab-meter-bar ps-fuel-bar"></div></div>
+              </div>
+              <div id="storage-inventory-list" class="lab-res-list ps-fuel-stores"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="lab-footer">
+          <div class="lab-actions">
+            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
+            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
+            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
+            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
+          </div>
+        </div>
+        <div id="storage-upgrade-reqs" style="display:none;"></div>
+      </div>`;
+    patchModuleModal(moduleId, modal);
+    return;
+  }
+
+  if (isResearchLabModule(module)) {
+    module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
+    body.innerHTML = `
+      <div class="lab-layout">
+        <div class="lab-hero">
+          <div class="lab-hero-left">
+            <div class="lab-hero-name-row">
+              <span id="storage-modal-name" class="storage-modal-name lab-hero-name"></span>
+              <button onclick="openStorageRenameOverlay(${module.id})" title="Rename Module" class="storage-modal-rename-btn">✎</button>
+              <div id="module-operational-banner" class="lab-status-pill">ONLINE</div>
+            </div>
+            <div class="lab-meter">
+              <div class="lab-meter-head">
+                <span class="lab-meter-label">Health</span>
+                <span id="storage-health-value" class="lab-meter-value"></span>
+              </div>
+              <div class="lab-meter-track"><div id="storage-health-bar" class="lab-meter-bar"></div></div>
+            </div>
+          </div>
+          <div id="storage-tier-pill" class="lab-tier-badge"></div>
+        </div>
+
+        <div class="lab-main-grid">
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ SYSTEMS</span>
+              <span class="lab-panel-sub">status</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="lab-stat-cards">
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Throughput</div>
+                  <div id="lab-throughput-value" class="lab-stat-value blue">ACTIVE</div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Synthesis</div>
+                  <div id="lab-synth-count" class="lab-stat-value green">0 / ${SYNTHESIS_SLOT_COUNT}</div>
+                </div>
+              </div>
+              <div class="lab-power-block">
+                <div class="lab-meter-head">
+                  <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Grid</span>
+                  <span id="storage-power-value" class="lab-meter-value"></span>
+                </div>
+                <div class="lab-power-meta">
+                  <span>Usage <strong id="storage-power-usage"></strong></span>
+                  <span>Capacity</span>
+                </div>
+                <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
+                <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
+                <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
+              </div>
+              <div class="lab-network-block">
+                <div class="lab-network-label">◈ Linked Network</div>
+                <div class="lab-network-tiles">
+                  <div class="lab-net-tile" data-tippy-content="Lab Towers">
+                    <img class="lab-net-icon" src="assets/images/buildings/lab_pole.png" alt="">
+                    <div>
+                      <div id="lab-net-poles" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Poles</div>
+                    </div>
+                  </div>
+                  <div class="lab-net-tile" data-tippy-content="Research Labs">
+                    <img class="lab-net-icon" src="assets/images/buildings/lab.png" alt="">
+                    <div>
+                      <div id="lab-net-labs" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Labs</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ SYNTHESIS</span>
+              <span class="lab-panel-sub">up to ${SYNTHESIS_SLOT_COUNT} recipes</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="lab-synth-hint">Combine linked materials into advanced composites. Click a slot to choose a recipe.</div>
+              <div id="lab-synth-slots" class="lab-synth-slots" data-synth-sig="${module.level || 1}|${normalizeSynthesisSlots(module.synthesisSlots).join(',')}">${buildSynthesisSlotsHtml(module)}</div>
+            </div>
+          </section>
+
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ LINKED RESOURCES</span>
+              <span class="lab-panel-sub">via towers</span>
+            </div>
+            <div class="lab-panel-body">
+              <div id="lab-linked-resources" class="lab-res-list"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="lab-footer">
+          <div class="lab-actions">
+            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
+            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
+            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
+            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
+          </div>
+        </div>
+        <div id="storage-upgrade-reqs" style="display:none;"></div>
+      </div>`;
+    patchModuleModal(moduleId, modal);
+    return;
+  }
+
   body.innerHTML = `
     <div class="storage-modal-hero">
       <div class="storage-modal-hero-row">
@@ -486,13 +852,6 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
     <div class="power-station-network-panel">
       <div id="power-station-link-summary" class="power-station-link-summary"></div>
     </div>
-    ` : isResearchLabModule(module) ? `
-    <div class="module-section-label">◈ LINKED RESOURCES</div>
-    <div id="lab-linked-resources" class="module-scroll-panel compact"></div>
-    <div class="module-section-label">◈ LINKED NETWORK</div>
-    <div class="power-station-network-panel">
-      <div id="power-station-link-summary" class="power-station-link-summary"></div>
-    </div>
     ` : isLabTowerModule(module) ? `
     <div class="module-section-label">◈ LINKED RESOURCES</div>
     <div id="lab-linked-resources" class="module-scroll-panel compact"></div>
@@ -563,6 +922,189 @@ export function renderStorageModal(moduleId = state.selectedModule) {
   renderModuleModal(moduleId);
 }
 
+function patchPowerStationModal(module, modal, qs) {
+  const moduleDef = getModuleDef(module.type);
+  const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
+  const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+  const moduleTier = Math.max(1, Math.min(10, module.level || 1));
+  const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
+  const title = modal.querySelector('.storage-modal-title');
+  if (title) title.textContent = moduleDef.panelTitle;
+  qs('#storage-modal-name').textContent = `⬡ ${module.name}`;
+  const tierEl = qs('#storage-tier-pill');
+  tierEl.textContent = `TIER ${toRoman(moduleTier)}`;
+  tierEl.style.color = isLightColor(tierColor) ? '#111' : '#fff';
+  tierEl.style.background = tierColor;
+  qs('#storage-health-value').textContent = `${fmt(module.health)} / ${fmt(module.maxHealth)}`;
+  qs('#storage-health-value').style.color = hpColor;
+  qs('#storage-health-bar').style.width = `${hpPct}%`;
+  qs('#storage-health-bar').style.background = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
+
+  const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
+  const linkedPoles = networkInfo.poles;
+  const linkedStorages = networkInfo.storages;
+  const linkedTurrets = networkInfo.turrets;
+  const linkedConsumers = linkedStorages.length + linkedTurrets.length;
+  const inputQty = getPowerResourceConsumption(module);
+  const fuelCost = inputQty * linkedConsumers;
+  const fuelType = module.fuelResource || 'iron';
+  const fuelName = RESOURCE_DEFS[fuelType]?.label || fuelType;
+  const powerOutput = getPowerStationEffectiveOutput(module, linkedConsumers);
+  const powerOutputText = powerOutput.toFixed(1).replace(/\.0$/, '');
+  const noFuel = !hasPowerStationFuel(module);
+  const offline = (module.health || 0) <= 0 || noFuel;
+  const totalLoad = linkedStorages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0)
+    + linkedTurrets.reduce((sum, turret) => sum + (turret.powerUsage || 0), 0);
+  const totalLoadText = totalLoad.toFixed(1).replace(/\.0$/, '');
+  const netDelta = powerOutput - totalLoad;
+  const netDeltaText = `${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1).replace(/\.0$/, '')}`;
+  const statusColor = netDelta > 0 ? '#6fff9a' : netDelta < 0 ? '#ff8a8a' : '#ffe066';
+  const statusLabel = netDelta > 0 ? 'Surplus' : netDelta < 0 ? 'Deficit' : 'Balanced';
+  const facilityLabel = linkedConsumers === 1 ? 'consumer' : 'consumers';
+
+  const banner = qs('#module-operational-banner');
+  if (banner) {
+    banner.textContent = offline ? 'OFFLINE' : 'ONLINE';
+    banner.className = `lab-status-pill${offline ? ' offline' : ''}`;
+  }
+
+  const fuelSelect = qs('#power-station-fuel-select');
+  if (fuelSelect) {
+    const optionsHtml = getPowerFuelOptions().map((option) => `<option value="${option.type}" ${module.fuelResource === option.type ? 'selected' : ''}>${option.label}</option>`).join('');
+    if (fuelSelect.innerHTML !== optionsHtml) fuelSelect.innerHTML = optionsHtml;
+  }
+
+  setTextIfChangedIn(modal, '#power-station-fuel-rate', `${fmt(fuelCost)} ${fuelName}`);
+  setTextIfChangedIn(modal, '#power-station-fuel-output', `${powerOutputText}/s`);
+  setHtmlIfChangedIn(modal, '#power-station-fuel-cost', `${totalLoadText}/s<div class="ps-stat-sub">${linkedConsumers} ${facilityLabel}</div>`);
+  setHtmlIfChangedIn(modal, '#power-station-fuel-status', `<span style="color:${statusColor};">${netDeltaText}/s</span><div class="ps-stat-sub" style="color:${statusColor};">${statusLabel}</div>`);
+
+  const selectedFuelStored = module.inventory?.[fuelType] || 0;
+  setTextIfChangedIn(modal, '#power-station-used-label', fuelName);
+  setTextIfChangedIn(modal, '#power-station-used-value', `${fmt(selectedFuelStored)} / ${fmt(module.resourceCapacity || 0)}`);
+  const fuelBar = qs('#power-station-used-bar');
+  if (fuelBar) fuelBar.style.width = `${Math.max(0, Math.min(100, (selectedFuelStored / Math.max(1, module.resourceCapacity || 1)) * 100))}%`;
+
+  setTextIfChangedIn(modal, '#ps-net-poles', String(linkedPoles.length));
+  setTextIfChangedIn(modal, '#ps-net-consumers', String(linkedConsumers));
+
+  const noFuelWarning = qs('#power-station-no-fuel-warning');
+  if (noFuelWarning) {
+    noFuelWarning.textContent = `WARNING: NO ${fuelName.toUpperCase()}`;
+    noFuelWarning.style.display = noFuel ? '' : 'none';
+  }
+  const deficitWarning = qs('#power-station-deficit-warning');
+  if (deficitWarning) deficitWarning.style.display = (!noFuel && netDelta < 0) ? '' : 'none';
+
+  const infoBadge = qs('#power-station-info-badge');
+      if (infoBadge) {
+        bindTippy(infoBadge, buildPowerStationInfoTooltip({
+          fuelCost, fuelName, powerOutputText, totalLoadText, netDeltaText, statusLabel, noFuel,
+        }));
+      }
+
+  setHtmlIfChangedIn(modal, '#power-station-network-consumers', buildPowerConsumerListHtml(linkedStorages, linkedTurrets));
+  setHtmlIfChangedIn(modal, '#storage-inventory-list', buildPowerStationFuelStoresHtml(module, fuelType));
+  bindTippyIn(modal);
+
+  const upgradeCost = getModuleUpgradeCost(module);
+  const atMaxTier = module.level >= 10;
+  const upBtn = qs('#storage-upgrade-btn');
+  if (upBtn) {
+    upBtn.textContent = atMaxTier ? '★ MAX TIER' : 'UPGRADE';
+    upBtn.disabled = atMaxTier;
+    upBtn.onclick = () => {
+      if (atMaxTier) return;
+      window.openModuleUpgradeOverlay?.(module.id);
+    };
+  }
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
+}
+
+function patchResearchLabModal(module, modal, qs) {
+  module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
+  const moduleDef = getModuleDef(module.type);
+  const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
+  const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+  const moduleTier = Math.max(1, Math.min(10, module.level || 1));
+  const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
+  const title = modal.querySelector('.storage-modal-title');
+  if (title) title.textContent = moduleDef.panelTitle;
+  qs('#storage-modal-name').textContent = `⬡ ${module.name}`;
+  const tierEl = qs('#storage-tier-pill');
+  tierEl.textContent = `TIER ${toRoman(moduleTier)}`;
+  tierEl.style.color = isLightColor(tierColor) ? '#111' : '#fff';
+  tierEl.style.background = tierColor;
+  qs('#storage-health-value').textContent = `${fmtCompact(module.health)} / ${fmtCompact(module.maxHealth)}`;
+  qs('#storage-health-value').style.color = hpColor;
+  qs('#storage-health-bar').style.width = `${hpPct}%`;
+  qs('#storage-health-bar').style.background = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
+
+  const online = isStorageOperational(module);
+  const banner = qs('#module-operational-banner');
+  if (banner) {
+    banner.textContent = online ? 'ONLINE' : 'OFFLINE';
+    banner.className = `lab-status-pill${online ? '' : ' offline'}`;
+  }
+
+  const powerPct = Math.round(((module.power || 0) / Math.max(1, module.powerCapacity || 1)) * 100);
+  const currentPowerUsage = getStoragePowerUsage(module);
+  setTextIfChangedIn(modal, '#storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
+  setTextIfChangedIn(modal, '#storage-power-value', `${fmtCompact(module.power || 0)} / ${fmtCompact(module.powerCapacity)}`);
+  const powerBar = qs('#storage-power-bar');
+  if (powerBar) {
+    powerBar.style.width = `${powerPct}%`;
+    qs('#storage-power-value').classList.toggle('warn', powerPct < 25);
+  }
+  const noPower = (module.power || 0) <= 0;
+  const noPowerEl = qs('#storage-no-power-warning');
+  if (noPowerEl) noPowerEl.style.display = noPower ? '' : 'none';
+  const buyPowerBtn = qs('#storage-buy-power-btn');
+  if (buyPowerBtn) {
+    const buyPowerCost = getModuleUpgradeCost(module).coins * 5;
+    buyPowerBtn.style.display = noPower ? '' : 'none';
+    buyPowerBtn.disabled = state.coins < buyPowerCost;
+    buyPowerBtn.innerHTML = `BUY POWER <span style="color:#ffe066;">- $${fmtCompact(buyPowerCost)}</span>`;
+  }
+
+  setTextIfChangedIn(modal, '#lab-throughput-value', online ? 'ACTIVE' : 'OFFLINE');
+  const activeSlots = normalizeSynthesisSlots(module.synthesisSlots).filter(Boolean).length;
+  setTextIfChangedIn(modal, '#lab-synth-count', `${activeSlots} / ${SYNTHESIS_SLOT_COUNT}`);
+
+  const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
+  setTextIfChangedIn(modal, '#lab-net-poles', String(labInfo.towers.length));
+  setTextIfChangedIn(modal, '#lab-net-labs', String(labInfo.labs.length));
+  setHtmlIfChangedIn(modal, '#lab-linked-resources', buildLabLinkedResourcesHtml(module, labInfo, getLabUsedIngredientIds(module)));
+
+  // Only rebuild slot DOM when assignment/tier changes — avoids restarting CSS timers every patch.
+  const slotsEl = qs('#lab-synth-slots');
+  if (slotsEl) {
+    const slots = normalizeSynthesisSlots(module.synthesisSlots);
+    const slotsSig = `${module.level || 1}|${slots.join(',')}`;
+    if (slotsEl.dataset.synthSig !== slotsSig) {
+      slotsEl.dataset.synthSig = slotsSig;
+      slotsEl.innerHTML = buildSynthesisSlotsHtml(module);
+    }
+  }
+  bindTippyIn(modal);
+
+  const upgradeCost = getModuleUpgradeCost(module);
+  const atMaxTier = module.level >= 10;
+  const upBtn = qs('#storage-upgrade-btn');
+  if (upBtn) {
+    upBtn.textContent = atMaxTier ? '★ MAX TIER' : 'UPGRADE';
+    upBtn.disabled = atMaxTier || noPower;
+    upBtn.onclick = () => {
+      if (atMaxTier) return;
+      window.openModuleUpgradeOverlay?.(module.id);
+    };
+  }
+  // Keep hidden legacy node in sync for any callers
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
+}
+
 export function patchModuleModal(moduleId = state.selectedModule, modalRoot = null) {
   const module = getModuleById(moduleId);
   const modal = modalRoot || getStorageModalWindow(moduleId);
@@ -570,6 +1112,19 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
   if (!module || !title || !modal) return;
   const qs = (selector) => modal.querySelector(selector);
   if (!qs('#storage-modal-name')) { renderModuleModal(moduleId, modal); return; }
+
+  if (isPowerStationModule(module)) {
+    if (!qs('.ps-layout')) { renderModuleModal(moduleId, modal); return; }
+    patchPowerStationModal(module, modal, qs);
+    return;
+  }
+
+  if (isResearchLabModule(module)) {
+    if (!qs('.lab-layout') || qs('.ps-layout')) { renderModuleModal(moduleId, modal); return; }
+    patchResearchLabModal(module, modal, qs);
+    return;
+  }
+
   const moduleDef = getModuleDef(module.type);
   const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
   const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
@@ -588,7 +1143,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
   const canUpgrade = !atMaxTier && state.coins >= upgradeCost.coins && Object.entries(upgradeCost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', `<span class="bp-craft-req ${state.coins >= upgradeCost.coins ? 'met' : 'unmet'}">$${fmt(upgradeCost.coins)}</span>${Object.entries(upgradeCost.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')}`);
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', `<span class="bp-craft-req ${state.coins >= upgradeCost.coins ? 'met' : 'unmet'}">$${fmt(upgradeCost.coins)}</span>${Object.entries(upgradeCost.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`).join('')}`);
   const upBtn = qs('#storage-upgrade-btn');
   upBtn.textContent = atMaxTier ? '★ MAX TIER' : (isPowerPoleModule(module) || isLabTowerModule(module) || isPowerStationModule(module) || isPoweredBuildingModule(module)) ? 'UPGRADE' : `⬆ UPGRADE ${moduleDef.name.toUpperCase()}`;
   upBtn.disabled = !canUpgrade || (isPoweredBuildingModule(module) && (module.power || 0) <= 0);
@@ -610,17 +1165,27 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
     const linkedTurrets = networkInfo.turrets;
     const networkSig = `${linkedStations.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedPoles.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedStorages.map((entry) => entry.id).sort((a, b) => a - b).join(',')}|${linkedTurrets.map((entry) => entry.id).sort((a, b) => a - b).join(',')}`;
     const activeDroneCount = isDroneLabModule(module) ? (state.drones || []).filter(d => d.labId === module.id).length : 0;
-    setTextIfChangedIn(modal, '#storage-used-value', isDroneLabModule(module) ? `${activeDroneCount} / ${module.droneCapacity || 2}` : isResearchLabModule(module) ? 'ACTIVE' : `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
-    qs('#storage-used-bar').style.width = `${isDroneLabModule(module) ? Math.max(0, Math.min(100, (activeDroneCount / Math.max(1, module.droneCapacity || 2)) * 100)) : isResearchLabModule(module) ? 100 : Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
+    setTextIfChangedIn(modal, '#storage-used-value', isDroneLabModule(module) ? `${activeDroneCount} / ${module.droneCapacity || 2}` : `${fmt(getStorageTotalInventory(module))} / ${fmt(module.storageCapacity)}`);
+    const usedBar = qs('#storage-used-bar');
+    if (usedBar) {
+      usedBar.style.width = `${isDroneLabModule(module) ? Math.max(0, Math.min(100, (activeDroneCount / Math.max(1, module.droneCapacity || 2)) * 100)) : Math.max(0, Math.min(100, (getStorageTotalInventory(module) / Math.max(1, module.storageCapacity)) * 100))}%`;
+    }
     setTextIfChangedIn(modal, '#storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
     setTextIfChangedIn(modal, '#storage-power-value', `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`);
-    qs('#storage-power-bar').style.width = `${powerPct}%`;
+    const powerBarEl = qs('#storage-power-bar');
+    if (powerBarEl) powerBarEl.style.width = `${powerPct}%`;
     const noPower = (module.power || 0) <= 0;
-    qs('#storage-no-power-warning').style.display = noPower ? '' : 'none';
+    const noPowerEl = qs('#storage-no-power-warning');
+    if (noPowerEl) noPowerEl.style.display = noPower ? '' : 'none';
     const buyPowerBtn = qs('#storage-buy-power-btn');
-    buyPowerBtn.style.display = noPower ? '' : 'none';
-    buyPowerBtn.disabled = state.coins < buyPowerCost;
-    if (isStorageModule(module)) qs('#storage-inventory-list').innerHTML = invRows || '<div class="module-empty-note">No stored resources yet.</div>';
+    if (buyPowerBtn) {
+      buyPowerBtn.style.display = noPower ? '' : 'none';
+      buyPowerBtn.disabled = state.coins < buyPowerCost;
+    }
+    if (isStorageModule(module)) {
+      const invList = qs('#storage-inventory-list');
+      if (invList) invList.innerHTML = invRows || '<div class="module-empty-note">No stored resources yet.</div>';
+    }
     const summaryEl = qs('#power-station-link-summary');
     if (summaryEl && summaryEl.dataset.networkSig !== networkSig) {
       const tooltipLines = [
@@ -638,12 +1203,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
       const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
       summaryEl.dataset.networkSig = networkSig;
       summaryEl.textContent = summaryParts.join(' • ') || 'No linked modules';
-      summaryEl.onmouseover = (event) => showHintTooltip(event, tooltipText);
-      summaryEl.onmouseout = () => hideTooltip();
-    }
-    if (isResearchLabModule(module)) {
-      const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
-      setHtmlIfChangedIn(modal, '#lab-linked-resources', buildLabLinkedResourcesHtml(module, labInfo));
+      bindTippy(summaryEl, tooltipText);
     }
     if (isDroneLabModule(module)) {
       const labDrones = (state.drones || []).filter(d => d.labId === module.id);
@@ -710,9 +1270,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
       setTextIfChangedIn(modal, '#power-station-used-value', `${fmt(selectedFuelStored)} / ${fmt(module.resourceCapacity || 0)}`);
       qs('#power-station-used-bar').style.width = `${Math.max(0, Math.min(100, (selectedFuelStored / Math.max(1, module.resourceCapacity || 1)) * 100))}%`;
       if (infoBadge) {
-        const tooltipText = buildPowerStationInfoTooltip({ fuelCost, fuelName, powerOutputText, totalLoadText, netDeltaText, statusLabel, noFuel });
-        infoBadge.onmouseover = (event) => showHintTooltip(event, tooltipText);
-        infoBadge.onmouseout = () => hideTooltip();
+        bindTippy(infoBadge, buildPowerStationInfoTooltip({ fuelCost, fuelName, powerOutputText, totalLoadText, netDeltaText, statusLabel, noFuel }));
       }
       if (noFuelWarning) {
         noFuelWarning.textContent = `WARNING: NO ${fuelName.toUpperCase()}`;
@@ -773,8 +1331,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
           ].filter(Boolean);
           summaryEl.dataset.networkSig = towerSig;
           summaryEl.textContent = summaryParts.join(' • ') || 'No linked lab network';
-          summaryEl.onmouseover = (event) => showHintTooltip(event, tooltipLines.join('<br>') || 'No linked lab network.');
-          summaryEl.onmouseout = () => hideTooltip();
+          bindTippy(summaryEl, tooltipLines.join('<br>') || 'No linked lab network.');
         }
       }
     }
@@ -795,8 +1352,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
       const tooltipText = tooltipLines.length ? tooltipLines.join('<br>') : 'No linked modules.';
       summaryEl.dataset.networkSig = networkSig;
       summaryEl.textContent = summaryParts.join(' • ') || 'No linked modules';
-      summaryEl.onmouseover = (event) => showHintTooltip(event, tooltipText);
-      summaryEl.onmouseout = () => hideTooltip();
+      bindTippy(summaryEl, tooltipText);
     }
     setHtmlIfChangedIn(modal, '#storage-inventory-list', invRows || '<div class="module-empty-note">No stored fuel yet.</div>');
   }
@@ -1020,12 +1576,188 @@ window.syncDroneCraftTimers = function() {
   }
 };
 
+// ── Synthesis recipe overlay ─────────────────────────────────
+let _synthesisOverlayModuleId = null;
+let _synthesisOverlaySlot = null;
+let _upgradeOverlayModuleId = null;
+
+window.openSynthesisOverlay = function(moduleId, slotIndex) {
+  const module = getModuleById(moduleId);
+  if (!module || !isResearchLabModule(module)) return;
+  module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
+  _synthesisOverlayModuleId = moduleId;
+  _synthesisOverlaySlot = slotIndex;
+  const overlay = document.getElementById('synthesis-overlay');
+  const label = document.getElementById('synthesis-slot-label');
+  if (label) label.textContent = `Slot ${slotIndex + 1}`;
+  renderSynthesisRecipeList();
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.onclick = (e) => { if (e.target === overlay) window.closeSynthesisOverlay(); };
+  }
+};
+
+window.closeSynthesisOverlay = function() {
+  _synthesisOverlayModuleId = null;
+  _synthesisOverlaySlot = null;
+  hideTooltip();
+  const overlay = document.getElementById('synthesis-overlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    overlay.onclick = null;
+  }
+};
+
+function renderSynthesisRecipeList() {
+  const list = document.getElementById('synthesis-recipe-list');
+  if (!list || _synthesisOverlayModuleId == null) return;
+  const module = getModuleById(_synthesisOverlayModuleId);
+  if (!module) return;
+  const slots = normalizeSynthesisSlots(module.synthesisSlots);
+  const currentId = slots[_synthesisOverlaySlot] || null;
+  const used = new Set(slots.filter(Boolean));
+  const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
+  const linkedCounts = getLinkedNodeCounts(labInfo);
+
+  const labLevel = module.level || 1;
+  list.innerHTML = SYNTHESIS_RECIPES.map((recipe) => {
+    const isCurrent = recipe.id === currentId;
+    const isUsedElsewhere = used.has(recipe.id) && !isCurrent;
+    const { ok } = getRecipeStatus(recipe, linkedCounts);
+    const locked = !ok && !isCurrent;
+    const craftSec = getSynthesisCraftTime(recipe, labLevel);
+    const needs = recipe.inputs.map((input) => {
+      const linked = (linkedCounts.get(input.id) || 0) > 0;
+      return `<span class="synthesis-need ${linked ? 'ok' : 'bad'}">${resourceIconHtml(input.id, 14)}<span class="synthesis-need-amt">${fmtCompact(input.amount)}</span></span>`;
+    }).join('');
+    let status = '';
+    if (isCurrent) status = '<div class="synthesis-status active">CURRENT</div>';
+    else if (isUsedElsewhere) status = '<div class="synthesis-status active">IN USE</div>';
+    else if (ok) status = '<div class="synthesis-status ok">READY</div>';
+    else status = '<div class="synthesis-status bad">NEED LINK</div>';
+    return `<button type="button" class="synthesis-recipe-card${isUsedElsewhere || isCurrent ? ' used' : ''}${locked ? ' locked' : ''}"
+      data-recipe-id="${recipe.id}"
+      ${isUsedElsewhere || locked ? 'disabled' : ''}
+      onclick="assignSynthesisRecipe('${recipe.id}')">
+      ${resourceIconHtml(recipe.icon, 28)}
+      <div>
+        <div class="synthesis-recipe-name" style="color:${recipe.color};">${escapeHtml(recipe.name)}</div>
+        <div class="synthesis-recipe-needs">${needs}</div>
+      </div>
+      <div class="synthesis-recipe-side">
+        <div class="synthesis-rarity ${recipe.rarity}">${recipe.rarity.toUpperCase()}</div>
+        <div class="synthesis-craft-time">${craftSec}s / unit</div>
+        ${status}
+      </div>
+    </button>`;
+  }).join('');
+
+  list.querySelectorAll('.synthesis-recipe-card').forEach((card) => {
+    const recipe = getSynthesisRecipe(card.dataset.recipeId);
+    if (!recipe) return;
+    const craftSec = getSynthesisCraftTime(recipe, labLevel);
+    const tipHtml = [
+      `<strong style="color:${recipe.color};">${escapeHtml(recipe.name)}</strong>`,
+      `<span style="color:#8ab;">1 unit · ${craftSec}s at Tier ${labLevel}</span>`,
+      ...recipe.inputs.map((input) => {
+        const linked = (linkedCounts.get(input.id) || 0) > 0;
+        const label = RESOURCE_DEFS[input.id]?.label || input.id;
+        const color = RESOURCE_DEFS[input.id]?.color || '#cde';
+        return `${resourceIconHtml(input.id, 13, 'margin-right:5px;position:relative;top:1px;')}<span style="color:${color};">${escapeHtml(label)}</span>: <span style="color:#ffe066;">${fmt(input.amount)}</span>${linked ? '' : ' <span style="color:#f88;">(not linked)</span>'}`;
+      }),
+    ].join('<br>');
+    bindTippy(card, tipHtml);
+  });
+}
+
+window.assignSynthesisRecipe = function(recipeId) {
+  if (_synthesisOverlayModuleId == null || _synthesisOverlaySlot == null) return;
+  const module = getModuleById(_synthesisOverlayModuleId);
+  if (!module || !isResearchLabModule(module)) return;
+  const recipe = getSynthesisRecipe(recipeId);
+  if (!recipe) return;
+  const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
+  if (!getRecipeStatus(recipe, getLinkedNodeCounts(labInfo)).ok) return;
+  module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
+  const usedElsewhere = module.synthesisSlots.some((id, i) => id === recipeId && i !== _synthesisOverlaySlot);
+  if (usedElsewhere) return;
+  module.synthesisSlots[_synthesisOverlaySlot] = recipeId;
+  window.closeSynthesisOverlay();
+  patchModuleModal(module.id);
+};
+
+window.clearSynthesisSlot = function(moduleId, slotIndex) {
+  const module = getModuleById(moduleId);
+  if (!module || !isResearchLabModule(module)) return;
+  module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
+  module.synthesisSlots[slotIndex] = null;
+  patchModuleModal(moduleId);
+};
+
+// ── Module upgrade cost overlay ──────────────────────────────
+window.openModuleUpgradeOverlay = function(moduleId) {
+  const module = getModuleById(moduleId);
+  if (!module || module.level >= 10) return;
+  if (isPoweredBuildingModule(module) && (module.power || 0) <= 0) return;
+  window.closeSynthesisOverlay?.();
+  _upgradeOverlayModuleId = moduleId;
+  const overlay = document.getElementById('module-upgrade-overlay');
+  const title = document.getElementById('module-upgrade-title');
+  const sub = document.getElementById('module-upgrade-sub');
+  if (title) title.textContent = `◈ Upgrade ${getModuleLabel(module)}`;
+  if (sub) sub.innerHTML = `Advance <strong>${escapeHtml(module.name)}</strong> to Tier ${toRoman(Math.min(10, (module.level || 1) + 1))}`;
+  patchModuleUpgradeOverlay();
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.onclick = (e) => { if (e.target === overlay) window.closeModuleUpgradeOverlay(); };
+  }
+};
+
+function patchModuleUpgradeOverlay() {
+  if (_upgradeOverlayModuleId == null) return;
+  const module = getModuleById(_upgradeOverlayModuleId);
+  const reqsEl = document.getElementById('module-upgrade-reqs');
+  const confirmBtn = document.getElementById('module-upgrade-confirm');
+  if (!module || !reqsEl) return;
+  const cost = getModuleUpgradeCost(module);
+  const canUpgrade = state.coins >= cost.coins
+    && Object.entries(cost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n)
+    && !(isPoweredBuildingModule(module) && (module.power || 0) <= 0);
+  reqsEl.innerHTML = buildUpgradeReqsHtml(cost);
+  if (confirmBtn) {
+    confirmBtn.disabled = !canUpgrade;
+    confirmBtn.title = canUpgrade ? '' : 'Missing requirements';
+  }
+}
+
+window.closeModuleUpgradeOverlay = function() {
+  _upgradeOverlayModuleId = null;
+  const overlay = document.getElementById('module-upgrade-overlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    overlay.onclick = null;
+  }
+};
+
+window.confirmModuleUpgradeOverlay = function() {
+  const moduleId = _upgradeOverlayModuleId;
+  if (moduleId == null) return;
+  window.closeModuleUpgradeOverlay();
+  window.upgradeStorageFacility?.(moduleId);
+};
+
+window.closeLabOverlays = function() {
+  window.closeSynthesisOverlay?.();
+  window.closeModuleUpgradeOverlay?.();
+};
+
 state.modules = (state.modules || []).map((module, index) => normalizeModule(module, index + 1));
 window.syncBuildingCraftTimers();
 window.syncDroneCraftTimers();
 window.openStorageModal = openStorageModal;
 window.openModuleModal = openModuleModal;
 window.closeStorageModal = closeStorageModal;
+window.closeTopStorageModal = closeTopStorageModal;
 window.renderStorageModal = renderStorageModal;
 window.renderModuleModal = renderModuleModal;
 window.patchStorageModal = patchStorageModal;

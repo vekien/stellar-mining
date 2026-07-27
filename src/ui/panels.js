@@ -886,8 +886,28 @@ export function openHdrPanel(type, options = {}) {
       { id: 'research', label: 'RESEARCH' },
       { id: 'drones', label: 'DRONES' },
     ];
+    const moduleTabIds = {
+      storage: new Set(['storage_facility']),
+      power: new Set(['power_station', 'power_pole']),
+      research: new Set(['research_lab', 'lab_tower']),
+      drones: new Set(['drone_lab']),
+    };
+    const unplacedModuleQueue = Array.isArray(state.unplacedModuleQueue)
+      ? state.unplacedModuleQueue
+      : Array.from({ length: state.unplacedModules || 0 }, () => 'storage_facility');
+    const unplacedTurretQueue = Array.isArray(state.unplacedTurretQueue)
+      ? state.unplacedTurretQueue
+      : Array.from({ length: state.unplacedTurrets || 0 }, () => 'turret');
+    const tabHasPlaceable = {
+      ships: false,
+      defense: unplacedTurretQueue.length > 0,
+      storage: unplacedModuleQueue.some((id) => moduleTabIds.storage.has(id)),
+      power: unplacedModuleQueue.some((id) => moduleTabIds.power.has(id)),
+      research: unplacedModuleQueue.some((id) => moduleTabIds.research.has(id)),
+      drones: unplacedModuleQueue.some((id) => moduleTabIds.drones.has(id)),
+    };
     const navBar = `<div class="craft-nav">${craftTabDefs.map(t =>
-      `<button id="craft-tab-${t.id}" class="craft-nav-btn${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.label}</button>`
+      `<button id="craft-tab-${t.id}" class="craft-nav-btn${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.label}${tabHasPlaceable[t.id] ? '<span class="craft-nav-star" title="Ready to place">★</span>' : ''}</button>`
     ).join('')}</div>`;
 
     let tabContent = '';
@@ -932,7 +952,7 @@ export function openHdrPanel(type, options = {}) {
           let reqsHtml = '';
           for (const [r, n] of Object.entries(recipe.reqs)) {
             const met = (state.resources[r] || 0) >= n;
-            reqsHtml += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`;
+            reqsHtml += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`;
           }
 
           let statsHtml = '';
@@ -1028,7 +1048,7 @@ export function openHdrPanel(type, options = {}) {
           const canBuild = canCoins && reqsMet.every(([met]) => met);
           const tTracked = isTracked('turret', card.id);
           const tTrackBtn = `<button class="craft-item-track-btn${tTracked ? ' ct-tracked' : ''}" data-ct-kind="turret" data-ct-id="${card.id}" ${!tTracked && atMaxTracked ? 'disabled' : ''} onclick="toggleTrackCraft('turret','${card.id}')">${tTracked ? 'UNTRACK' : 'TRACK'}</button>`;
-          const resPills = reqsMet.map(([met, r, n]) => pill(met, `${r[0].toUpperCase() + r.slice(1)}: ${n}`)).join('');
+          const resPills = reqsMet.map(([met, r, n]) => pill(met, `${r[0].toUpperCase() + r.slice(1)}: ${fmt(n)}`)).join('');
           const queued = queuedCount(card.id);
           const craftTimer = state.turretCraftTimers?.[card.id];
           const timerActive = !!(craftTimer && Date.now() < craftTimer.endsAt);
@@ -1048,7 +1068,7 @@ export function openHdrPanel(type, options = {}) {
               <span class="craft-stat">FIRE RATE <span style="color:#ffe066;">${card.stats[2]}</span></span>
               <span class="craft-stat">RANGE <span style="color:#ffe066;">${card.stats[3]}</span></span>
             </div>
-            <div class="bp-craft-reqs" style="margin-bottom:8px;">${pill(canCoins, '$' + craft.cost)}${resPills}</div>
+            <div class="bp-craft-reqs" style="margin-bottom:8px;">${pill(canCoins, '$' + fmt(craft.cost))}${resPills}</div>
             ${queued > 0
               ? `<button class="btn place craft-defense-btn" onclick="beginPlacingTurret('${card.id}')">PLACE ${craft.name.toUpperCase()} (${queued})</button>`
               : timerActive
@@ -1061,13 +1081,7 @@ export function openHdrPanel(type, options = {}) {
       tabContent = defHtml;
 
     } else if (activeCraftTab === 'storage' || activeCraftTab === 'power' || activeCraftTab === 'research' || activeCraftTab === 'drones') {
-      const queue = Array.isArray(state.unplacedModuleQueue) ? state.unplacedModuleQueue : Array.from({ length: state.unplacedModules || 0 }, () => 'storage_facility');
-      const moduleTabIds = {
-        storage: new Set(['storage_facility']),
-        power: new Set(['power_station', 'power_pole']),
-        research: new Set(['research_lab', 'lab_tower']),
-        drones: new Set(['drone_lab']),
-      };
+      const queue = unplacedModuleQueue;
       const tabLabel = activeCraftTab.charAt(0).toUpperCase() + activeCraftTab.slice(1);
       const unlockedBuildings = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId] && moduleTabIds[activeCraftTab].has(module.id));
       if (!unlockedBuildings.length) {
@@ -1087,7 +1101,7 @@ export function openHdrPanel(type, options = {}) {
           const pct = timerActive ? Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100)) : 0;
           const canCoins = state.coins >= (moduleDef?.cost || 0);
           const reqPills = moduleDef
-            ? Object.entries(moduleDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')
+            ? Object.entries(moduleDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`).join('')
             : '';
           const canBuild = !!moduleDef && canCoins && Object.entries(moduleDef.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
           const statsHtml = moduleConfig.cardStats(1).map(([label, value]) => `<span class="craft-stat">${label} <span style="color:#ffe066;">${value}</span></span>`).join('');
@@ -1123,7 +1137,7 @@ export function openHdrPanel(type, options = {}) {
         const dronePct = droneTimerActive ? Math.max(0, Math.min(100, ((droneTimer.durationMs - droneRemainMs) / droneTimer.durationMs) * 100)) : 0;
         const droneCanCoins = state.coins >= (droneDef?.cost || 0);
         const droneReqPills = droneDef
-          ? Object.entries(droneDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${n}</span>`).join('')
+          ? Object.entries(droneDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`).join('')
           : '';
         const droneCanBuild = !!droneDef && droneCanCoins && Object.entries(droneDef?.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
         const totalDroneCount = (state.drones || []).length;

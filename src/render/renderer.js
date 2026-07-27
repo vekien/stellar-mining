@@ -2,7 +2,7 @@
 // MAIN RENDERER — canvas drawing
 // ============================================================
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, SOL_DURATION, BASE_COL, BASE_ROW, BASE_FOOTPRINT_RADIUS } from '../constants.js';
-import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS, tickCamera, updateViewBounds, isInView } from './camera.js';
+import { cam, gridToWorld, gridToIso, focusOnBase, BASE_POS, tickCamera, isCameraKeyHeld, updateViewBounds, isInView } from './camera.js';
 import { BASE_RANGE } from '../data/base.js';
 import { toRoman, SHIP_DEFS } from '../data/ships.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
@@ -952,14 +952,16 @@ export function render(ts) {
   lastFpsSampleTs = ts;
   fpsAvg = fpsAvg * 0.9 + rawFps * 0.1;
 
-  // Camera follow
+  // Camera follow — WASD/QE cancels follow so keyboard pan can take over
+  const frameDt = Math.max(1 / 120, Math.min(1 / 20, 1 / Math.max(20, fpsAvg || 60)));
+  if (isCameraKeyHeld()) state.followShip = null;
   if (state.followShip) {
     const fs = state.ships.find(s => s.id === state.followShip);
     if (fs) { cam.x = cam.targetX = fs.x; cam.y = cam.targetY = fs.y; }
     else { state.followShip = null; }
   }
 
-  const cameraMoving = tickCamera();
+  const cameraMoving = tickCamera(frameDt);
   const camSig = `${cam.x.toFixed(2)}|${cam.y.toFixed(2)}|${cam.zoom.toFixed(3)}`;
   if (_onCameraMove && (cameraMoving || camSig !== _lastCamMoveSig)) _onCameraMove();
   _lastCamMoveSig = camSig;

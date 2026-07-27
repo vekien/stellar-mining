@@ -9,6 +9,26 @@ export const ZOOM_MAX_V = 3.0;
 
 export const cam = { x:0, y:0, zoom:2.0, targetX:0, targetY:0 };
 
+/** Held camera control keys (lowercase). */
+const _camKeys = new Set();
+const CAM_PAN_SPEED = 720; // world units/sec at zoom 1
+const CAM_ZOOM_SPEED = 1.6; // zoom units/sec
+
+export function setCameraKey(key, down) {
+  const k = String(key || '').toLowerCase();
+  if (!k) return;
+  if (down) _camKeys.add(k);
+  else _camKeys.delete(k);
+}
+
+export function clearCameraKeys() {
+  _camKeys.clear();
+}
+
+export function isCameraKeyHeld() {
+  return _camKeys.size > 0;
+}
+
 /** World-space AABB of the current camera frustum (updated each frame). */
 const _view = { minX: -1e9, maxX: 1e9, minY: -1e9, maxY: 1e9 };
 
@@ -69,13 +89,37 @@ export function snapTo(wx, wy, zoom) {
   if (zoom !== undefined) cam.zoom = Math.max(ZOOM_MIN_V, Math.min(ZOOM_MAX_V, zoom));
 }
 
-export function tickCamera() {
+export function tickKeyboardCamera(dt = 1 / 60) {
+  if (!_camKeys.size) return false;
+  const t = Math.max(0.001, Math.min(0.05, dt || 1 / 60));
+  let mx = 0;
+  let my = 0;
+  if (_camKeys.has('w') || _camKeys.has('arrowup')) my -= 1;
+  if (_camKeys.has('s') || _camKeys.has('arrowdown')) my += 1;
+  if (_camKeys.has('a') || _camKeys.has('arrowleft')) mx -= 1;
+  if (_camKeys.has('d') || _camKeys.has('arrowright')) mx += 1;
+  if (_camKeys.has('q')) adjustZoom(-CAM_ZOOM_SPEED * t);
+  if (_camKeys.has('e')) adjustZoom(CAM_ZOOM_SPEED * t);
+  if (!mx && !my) return _camKeys.has('q') || _camKeys.has('e');
+  const len = Math.hypot(mx, my) || 1;
+  const speed = (CAM_PAN_SPEED / Math.max(0.35, cam.zoom)) * t;
+  const ox = (mx / len) * speed;
+  const oy = (my / len) * speed;
+  cam.targetX += ox;
+  cam.targetY += oy;
+  cam.x += ox;
+  cam.y += oy;
+  return true;
+}
+
+export function tickCamera(dt = 1 / 60) {
+  const keyboardMoving = tickKeyboardCamera(dt);
   const LERP = 0.4;
   const dx = cam.targetX - cam.x;
   const dy = cam.targetY - cam.y;
   cam.x += dx * LERP;
   cam.y += dy * LERP;
-  return Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1; // true while still moving
+  return keyboardMoving || Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1; // true while still moving
 }
 
 export function focusOnBase(zoom, options = {}) {

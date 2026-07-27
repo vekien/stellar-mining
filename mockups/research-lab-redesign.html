@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Research Lab Modal — Redesign Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #050810; margin: 2px; }
+    ::-webkit-scrollbar-thumb { background: #2a4a7a; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a6aaa; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px 56px;
+      font-family: 'Share Tech Mono', monospace;
+      color: #c8e0ff;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 30%, rgba(30,80,160,0.18), transparent 55%),
+        radial-gradient(ellipse 70% 50% at 80% 70%, rgba(20,100,80,0.12), transparent 50%),
+        linear-gradient(160deg, #03050f 0%, #06101f 50%, #040812 100%);
+    }
+
+    .stage-label {
+      position: fixed;
+      top: 16px;
+      left: 20px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: #3a6a9a;
+    }
+
+    .lab-window {
+      width: min(1000px, 100%);
+      background: linear-gradient(160deg, #0a1428 0%, #060c1a 100%);
+      border: 1px solid #2a5090;
+      border-radius: 8px;
+      box-shadow:
+        0 16px 60px rgba(0,0,0,0.75),
+        0 0 40px rgba(40,120,255,0.08),
+        inset 0 1px 0 rgba(120,180,255,0.08);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .lab-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: linear-gradient(180deg, rgba(20,45,90,0.55), rgba(8,16,36,0.4));
+      border-bottom: 1px solid #1a3a6e;
+    }
+    .lab-head-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 3px;
+      color: #4af;
+      font-weight: 700;
+    }
+    .lab-close {
+      width: 28px; height: 28px;
+      border: 1px solid #2a4a7a;
+      border-radius: 4px;
+      background: rgba(10,20,40,0.6);
+      color: #8ab;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .lab-close:hover { border-color: #4af; color: #cde; }
+
+    .lab-body {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background:
+        radial-gradient(ellipse 90% 70% at 12% 0%, rgba(40,110,200,0.14), transparent 55%),
+        radial-gradient(ellipse 70% 55% at 92% 100%, rgba(30,140,100,0.1), transparent 50%),
+        linear-gradient(180deg, rgba(12,28,58,0.55) 0%, rgba(6,12,28,0.2) 42%, rgba(4,10,22,0.35) 100%);
+    }
+
+    /* Hero */
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: stretch;
+      padding: 10px 12px;
+      border: 1px solid #2a5090;
+      border-radius: 7px;
+      background: linear-gradient(180deg, rgba(10,30,70,0.55), rgba(6,16,48,0.5));
+      box-shadow: inset 0 0 18px rgba(60,150,255,0.1);
+    }
+    .hero-left { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+    .hero-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .hero-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      color: #8fd2ff;
+      text-shadow: 0 0 10px rgba(90,190,255,0.25);
+      text-transform: uppercase;
+    }
+    .rename-btn {
+      background: none; border: none; color: #6ad; cursor: pointer; font-size: 15px; opacity: 0.85;
+    }
+    .rename-btn:hover { opacity: 1; color: #8ef; }
+    .status-pill {
+      margin-left: auto;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      padding: 5px 12px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #1a8040, #2ecc71);
+      color: #04140a;
+      box-shadow: 0 0 14px rgba(46,204,113,0.35);
+    }
+    .meter { display: flex; flex-direction: column; gap: 4px; }
+    .meter-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .meter-label { font-size: 11px; letter-spacing: 1.5px; color: #8ab; text-transform: uppercase; }
+    .meter-value { font-size: 12px; font-weight: bold; color: #4d8; }
+    .meter-value.warn { color: #fa4; }
+    .meter-track { height: 5px; background: #000; border-radius: 3px; overflow: hidden; }
+    .meter-bar { height: 100%; border-radius: 3px; }
+    .meter-bar.hp { width: 100%; background: linear-gradient(90deg, #2a8040, #4d8); }
+    .meter-bar.power { width: 16%; background: linear-gradient(90deg, #caa020, #ffe066); }
+    .tier-badge {
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      padding: 0 16px;
+      border-radius: 6px;
+      color: #111;
+      background: #c9a227;
+      border: 1px solid #ffe06655;
+      box-shadow: 0 0 18px rgba(255,224,102,0.2);
+      white-space: nowrap;
+      min-height: 100%;
+    }
+
+    /* Main grid */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 0.95fr 1.25fr 1fr;
+      gap: 10px;
+    }
+    .panel {
+      border: 1px solid #1a3a6e;
+      border-radius: 7px;
+      background: rgba(8,16,36,0.55);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .panel-h {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 10px;
+      border-bottom: 1px solid #1a3a6e;
+      background: rgba(10,25,55,0.45);
+    }
+    .panel-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: #4af;
+    }
+    .panel-sub { font-size: 11px; color: #5a7a9a; }
+    .panel-body {
+      padding: 10px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .stat-card {
+      padding: 8px;
+      border: 1px solid #243a60;
+      border-radius: 6px;
+      background: rgba(10,20,50,0.4);
+    }
+    .stat-card-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      color: #5a7aaa;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+    }
+    .stat-card-value { font-size: 14px; font-weight: bold; color: #ffe066; }
+    .stat-card-value.blue { color: #6ad4ff; }
+    .stat-card-value.green { color: #6fff9a; }
+
+    .power-block {
+      padding: 8px;
+      border: 1px solid #3a4a20;
+      border-radius: 6px;
+      background: rgba(40,40,10,0.18);
+    }
+    .power-block .meter { margin-top: 6px; }
+    .power-icon { color: #ffe066; margin-right: 4px; }
+
+    /* Network — poles + labs only */
+    .network-block {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .network-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      color: #6a5aaa;
+      text-transform: uppercase;
+    }
+    .network-tiles {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .net-tile {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #3a2a6a;
+      background: linear-gradient(180deg, rgba(50,30,100,0.28), rgba(20,12,40,0.4));
+      min-width: 0;
+    }
+    .net-tile-icon {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 0 6px rgba(160,120,255,0.25));
+      flex-shrink: 0;
+    }
+    .net-tile-text { min-width: 0; }
+    .net-tile-count {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      color: #d4c0ff;
+      line-height: 1;
+    }
+    .net-tile-name {
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      color: #8a78b8;
+      margin-top: 2px;
+    }
+
+    /* Synthesis */
+    .research-hint {
+      font-size: 11px;
+      color: #6a8aaa;
+      line-height: 1.35;
+    }
+    .research-slots {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      flex: 1;
+      align-content: stretch;
+    }
+    .research-slot {
+      position: relative;
+      min-height: 118px;
+      height: 100%;
+      border: 1px dashed #2a5080;
+      border-radius: 7px;
+      background: rgba(6,14,32,0.65);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 12px 8px 10px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+      text-align: center;
+    }
+    .research-slot:hover {
+      border-color: #4a90d0;
+      background: rgba(20,50,100,0.25);
+    }
+    .research-slot.filled {
+      border-style: solid;
+      border-color: #2a7a50;
+      background: linear-gradient(180deg, rgba(20,60,40,0.35), rgba(8,24,18,0.45));
+      box-shadow: inset 0 0 16px rgba(80,255,160,0.08);
+    }
+    .research-slot.filled:hover { border-color: #4d8; }
+    .slot-index {
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: #3a5a7a;
+    }
+    .slot-empty-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 1px dashed #2a5080;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #3a6a9a;
+      font-size: 18px;
+    }
+    .slot-empty-label { font-size: 10px; color: #4a6a8a; letter-spacing: 1px; }
+    .slot-icon {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 0 6px rgba(120,220,180,0.25));
+    }
+    .slot-name {
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 0.3px;
+      line-height: 1.15;
+    }
+    .slot-ingredients {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      flex-wrap: wrap;
+    }
+    .slot-ing-icon {
+      width: 14px;
+      height: 14px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      opacity: 0.9;
+    }
+    .slot-ing-plus { color: #4a6a8a; font-size: 10px; }
+    .slot-meta { font-size: 10px; color: #7a9aba; }
+    .slot-clear {
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border: none;
+      border-radius: 3px;
+      background: transparent;
+      color: #6a3a3a;
+      cursor: pointer;
+      font-size: 12px;
+      display: none;
+    }
+    .research-slot.filled .slot-clear { display: block; }
+    .slot-clear:hover { color: #f88; background: rgba(80,20,20,0.4); }
+    .slot-progress { width: 100%; margin-top: 2px; }
+    .slot-progress .meter-track { height: 4px; }
+    .slot-progress .meter-bar { background: linear-gradient(90deg, #1a8040, #6fff9a); }
+
+    /* Recipe picker overlay (like rename / sell) */
+    #recipe-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      background: rgba(2,6,20,0.88);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(2px);
+      padding: 20px;
+    }
+    #recipe-overlay.show { display: flex; }
+    #recipe-box {
+      width: min(520px, 100%);
+      max-height: min(72vh, 640px);
+      background: linear-gradient(135deg, rgba(6,14,40,0.98), rgba(10,24,65,0.98));
+      border: 1px solid #2a5faa;
+      border-radius: 8px;
+      box-shadow: 0 0 40px rgba(40,120,255,0.2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .recipe-box-head {
+      padding: 18px 20px 12px;
+      text-align: center;
+      border-bottom: 1px solid #1a3a6e;
+      flex-shrink: 0;
+    }
+    .recipe-box-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      color: #8fd2ff;
+      margin-bottom: 6px;
+    }
+    .recipe-box-sub {
+      font-size: 12px;
+      color: #5a7a9a;
+      line-height: 1.4;
+    }
+    .recipe-box-sub strong { color: #8ab; }
+    .recipe-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      padding: 14px 16px;
+      flex: 1;
+      min-height: 0;
+    }
+    .recipe-card {
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 12px;
+      border-radius: 6px;
+      border: 1px solid #243a60;
+      background: rgba(10,20,50,0.55);
+      cursor: pointer;
+      text-align: left;
+      color: inherit;
+      font: inherit;
+      width: 100%;
+      transition: border-color 0.12s, background 0.12s, opacity 0.12s;
+    }
+    .recipe-card:hover:not(:disabled) {
+      border-color: #4af;
+      background: rgba(30,70,130,0.4);
+    }
+    .recipe-card:disabled,
+    .recipe-card.used,
+    .recipe-card.locked {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .recipe-card.locked {
+      border-color: #4a2030;
+      background: rgba(40,10,18,0.35);
+    }
+    .recipe-card.used { border-color: #2a6040; }
+    .recipe-out-icon {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+      image-rendering: pixelated;
+    }
+    .recipe-name {
+      font-size: 14px;
+      font-weight: bold;
+      color: #cde;
+      line-height: 1.15;
+    }
+    .recipe-needs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 5px;
+      flex-wrap: wrap;
+    }
+    .recipe-need {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: #8ab;
+    }
+    .recipe-need img {
+      width: 14px;
+      height: 14px;
+      object-fit: contain;
+      image-rendering: pixelated;
+    }
+    .recipe-need.ok { color: #6fff9a; }
+    .recipe-need.bad { color: #f88; }
+    .recipe-side {
+      text-align: right;
+      font-size: 11px;
+      color: #7a9aba;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+    .recipe-side .rarity {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      margin-bottom: 2px;
+    }
+    .recipe-side .rarity.common { color: #8ab; }
+    .recipe-side .rarity.uncommon { color: #6fff9a; }
+    .recipe-side .rarity.rare { color: #6ad4ff; }
+    .recipe-side .rarity.epic { color: #c98cff; }
+    .recipe-side .status-ok { color: #6fff9a; }
+    .recipe-side .status-bad { color: #f88; }
+    .recipe-side .status-active { color: #ffe066; }
+    .recipe-box-actions {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px 16px;
+      border-top: 1px solid #1a3a6e;
+      flex-shrink: 0;
+    }
+    .recipe-box-actions .btn { flex: 1; }
+
+    /* Linked resources */
+    .res-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+      max-height: 168px;
+      padding: 0 8px 0 0;
+    }
+    .res-row {
+      display: grid;
+      grid-template-columns: 18px 1fr auto auto;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 6px 6px 4px;
+      border-bottom: 1px solid rgba(26,58,110,0.35);
+      font-size: 12px;
+    }
+    .res-row:last-child { border-bottom: none; }
+    .res-row .row-icon {
+      width: 16px;
+      height: 16px;
+      object-fit: contain;
+      image-rendering: pixelated;
+    }
+    .res-row .name { color: inherit; }
+    .res-row .count { color: #8ab; font-size: 12px; }
+    .res-row .badge {
+      font-size: 11px;
+      color: #7a9aba;
+      min-width: 36px;
+      text-align: right;
+    }
+    .res-row.used-in {
+      background: rgba(40,120,80,0.12);
+      border-radius: 3px;
+    }
+    .res-row.used-in .badge-used {
+      color: #6fff9a;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Footer — centered actions */
+    .footer {
+      display: flex;
+      justify-content: center;
+      padding-top: 2px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* Upgrade overlay */
+    #upgrade-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      background: rgba(2,6,20,0.88);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(2px);
+      padding: 20px;
+    }
+    #upgrade-overlay.show { display: flex; }
+    #upgrade-box {
+      width: min(420px, 100%);
+      background: linear-gradient(135deg, rgba(6,14,40,0.98), rgba(10,24,65,0.98));
+      border: 1px solid #2a5faa;
+      border-radius: 8px;
+      box-shadow: 0 0 40px rgba(40,120,255,0.2);
+      padding: 20px 20px 16px;
+      text-align: center;
+    }
+    .upgrade-box-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      color: #8fd2ff;
+      margin-bottom: 6px;
+    }
+    .upgrade-box-sub {
+      font-size: 12px;
+      color: #5a7a9a;
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+    .upgrade-box-sub strong { color: #cde; }
+    .reqs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .req {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      padding: 5px 8px 5px 6px;
+      border-radius: 5px;
+      border: 1px solid #2a6040;
+      background: rgba(12,36,22,0.55);
+      color: #6fff9a;
+      min-width: 62px;
+    }
+    .req.unmet {
+      border-color: #802020;
+      background: rgba(50,12,12,0.45);
+      color: #f88;
+    }
+    .req-icon {
+      width: 16px;
+      height: 16px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      flex-shrink: 0;
+    }
+    .req-cash {
+      font-weight: bold;
+      color: inherit;
+      min-width: 14px;
+      text-align: center;
+    }
+    .req-amt {
+      font-variant-numeric: tabular-nums;
+      font-weight: bold;
+      letter-spacing: 0.3px;
+    }
+    .upgrade-box-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .upgrade-box-actions .btn { flex: 1; }
+    .btn {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 1px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #2a4a7a;
+      background: rgba(20,40,80,0.55);
+      color: #8ab;
+      cursor: pointer;
+      white-space: nowrap;
+      min-width: 72px;
+    }
+    .btn:hover { border-color: #4af; color: #cde; }
+    .btn.primary {
+      background: rgba(20,60,40,0.55);
+      border-color: #2a7a43;
+      color: #6fff9a;
+    }
+    .btn.primary:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      border-color: #2a4a3a;
+      color: #5a8a6a;
+    }
+    .btn.primary:disabled:hover { border-color: #2a4a3a; color: #5a8a6a; }
+    .btn.move { background: rgba(20,50,80,0.6); border-color: #2a6a8a; }
+    .btn.rename { background: rgba(20,30,60,0.6); }
+    .btn.danger {
+      background: rgba(60,15,15,0.55);
+      border-color: #802020;
+      color: #f88;
+    }
+    .btn.danger:hover { border-color: #f44; color: #faa; }
+
+    .note {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: #3a5a7a;
+      text-align: center;
+      max-width: 780px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+      .actions { width: 100%; }
+      .actions .btn { flex: 1; }
+      .hero { grid-template-columns: 1fr; }
+      .tier-badge { justify-self: start; padding: 10px 16px; font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage-label">MOCKUP · RESEARCH LAB REDESIGN</div>
+
+  <div class="lab-window" role="dialog" aria-label="Research Lab">
+    <div class="lab-head">
+      <div class="lab-head-title">RESEARCH LAB</div>
+      <button class="lab-close" type="button" aria-label="Close">✕</button>
+    </div>
+
+    <div class="lab-body">
+      <div class="hero">
+        <div class="hero-left">
+          <div class="hero-name-row">
+            <div class="hero-name">⬡ Research Lab #1</div>
+            <button class="rename-btn" type="button" title="Rename">✎</button>
+            <div class="status-pill">ONLINE</div>
+          </div>
+          <div class="meter">
+            <div class="meter-head">
+              <span class="meter-label">Health</span>
+              <span class="meter-value">34.5k / 34.5k</span>
+            </div>
+            <div class="meter-track"><div class="meter-bar hp"></div></div>
+          </div>
+        </div>
+        <div class="tier-badge">TIER X</div>
+      </div>
+
+      <div class="main-grid">
+        <!-- LEFT -->
+        <section class="panel">
+          <div class="panel-h">
+            <span class="panel-title">◈ SYSTEMS</span>
+            <span class="panel-sub">status</span>
+          </div>
+          <div class="panel-body">
+            <div class="stat-cards">
+              <div class="stat-card">
+                <div class="stat-card-label">Throughput</div>
+                <div class="stat-card-value blue">ACTIVE</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-card-label">Synthesis</div>
+                <div class="stat-card-value green" id="slot-count">2 / 3</div>
+              </div>
+            </div>
+
+            <div class="power-block">
+              <div class="meter-head">
+                <span class="meter-label"><span class="power-icon">ϟ</span>Power Grid</span>
+                <span class="meter-value warn">512 / 3.3k</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:#8ab;margin-top:4px;">
+                <span>Usage <strong style="color:#ffe066;">10/s</strong></span>
+                <span>Capacity</span>
+              </div>
+              <div class="meter">
+                <div class="meter-track"><div class="meter-bar power"></div></div>
+              </div>
+            </div>
+
+            <div class="network-block">
+              <div class="network-label">◈ Linked Network</div>
+              <div class="network-tiles">
+                <div class="net-tile" title="Lab Towers / Poles">
+                  <img class="net-tile-icon" src="../assets/images/buildings/lab_pole.png" alt="" />
+                  <div class="net-tile-text">
+                    <div class="net-tile-count">3</div>
+                    <div class="net-tile-name">Poles</div>
+                  </div>
+                </div>
+                <div class="net-tile" title="Other Research Labs">
+                  <img class="net-tile-icon" src="../assets/images/buildings/lab.png" alt="" />
+                  <div class="net-tile-text">
+                    <div class="net-tile-count">1</div>
+                    <div class="net-tile-name">Labs</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- CENTER: Synthesis -->
+        <section class="panel">
+          <div class="panel-h">
+            <span class="panel-title">◈ SYNTHESIS</span>
+            <span class="panel-sub">up to 3 recipes</span>
+          </div>
+          <div class="panel-body">
+            <div class="research-hint">
+              Combine linked materials into advanced composites. Click a slot to choose a recipe.
+            </div>
+            <div class="research-slots" id="research-slots"></div>
+          </div>
+        </section>
+
+        <!-- RIGHT -->
+        <section class="panel">
+          <div class="panel-h">
+            <span class="panel-title">◈ LINKED RESOURCES</span>
+            <span class="panel-sub">via towers</span>
+          </div>
+          <div class="panel-body">
+            <div class="res-list" id="linked-list"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="footer">
+        <div class="actions">
+          <button class="btn primary" type="button" id="btn-upgrade">UPGRADE</button>
+          <button class="btn move" type="button">MOVE</button>
+          <button class="btn rename" type="button">RENAME</button>
+          <button class="btn danger" type="button">SELL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recipe picker overlay -->
+  <div id="recipe-overlay">
+    <div id="recipe-box" onclick="event.stopPropagation()">
+      <div class="recipe-box-head">
+        <div class="recipe-box-title">◈ Assign Synthesis</div>
+        <div class="recipe-box-sub">Choose a recipe for <strong id="recipe-slot-label">Slot 1</strong></div>
+      </div>
+      <div class="recipe-list" id="recipe-list"></div>
+      <div class="recipe-box-actions">
+        <button class="btn" type="button" id="recipe-cancel">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upgrade cost overlay -->
+  <div id="upgrade-overlay">
+    <div id="upgrade-box" onclick="event.stopPropagation()">
+      <div class="upgrade-box-title">◈ Upgrade Lab</div>
+      <div class="upgrade-box-sub">Advance <strong>Research Lab #1</strong> to the next tier</div>
+      <div class="reqs">
+        <span class="req unmet" title="Credits"><span class="req-cash">$</span><span class="req-amt">250k</span></span>
+        <span class="req" title="Iron"><img class="req-icon" src="../assets/images/resources/iron.png" alt=""><span class="req-amt">18k</span></span>
+        <span class="req" title="Copper"><img class="req-icon" src="../assets/images/resources/copper.png" alt=""><span class="req-amt">14k</span></span>
+        <span class="req" title="Oxygen"><img class="req-icon" src="../assets/images/resources/oxygen.png" alt=""><span class="req-amt">9k</span></span>
+        <span class="req" title="Nickel"><img class="req-icon" src="../assets/images/resources/nickel.png" alt=""><span class="req-amt">6.5k</span></span>
+        <span class="req" title="Silicon"><img class="req-icon" src="../assets/images/resources/silicon.png" alt=""><span class="req-amt">9k</span></span>
+        <span class="req" title="Cobalt"><img class="req-icon" src="../assets/images/resources/cobalt.png" alt=""><span class="req-amt">5k</span></span>
+        <span class="req" title="Titanium"><img class="req-icon" src="../assets/images/resources/titanium.png" alt=""><span class="req-amt">3.5k</span></span>
+        <span class="req" title="Aluminum"><img class="req-icon" src="../assets/images/resources/aluminum.png" alt=""><span class="req-amt">2.5k</span></span>
+        <span class="req" title="Gold"><img class="req-icon" src="../assets/images/resources/gold.png" alt=""><span class="req-amt">1.8k</span></span>
+      </div>
+      <div class="upgrade-box-actions">
+        <button class="btn primary" type="button" id="upgrade-confirm" disabled title="Missing credits">CONFIRM</button>
+        <button class="btn" type="button" id="upgrade-cancel">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    Click a synthesis slot for recipes · UPGRADE opens cost overlay · Esc / backdrop closes overlays
+  </div>
+
+  <script>
+    const ICON = (id) => `../assets/images/resources/${id}.png`;
+
+    // Linked nodes available to this lab (via towers)
+    const LINKED = {
+      iron:     { name: 'Iron',     color: '#c07040', tier: 1, nodes: 3 },
+      copper:   { name: 'Copper',   color: '#e07a3a', tier: 1, nodes: 2 },
+      oxygen:   { name: 'Oxygen',   color: '#4ec4ff', tier: 2, nodes: 2 },
+      nickel:   { name: 'Nickel',   color: '#8fd0a0', tier: 2, nodes: 1 },
+      silicon:  { name: 'Silicon',  color: '#b8c0c8', tier: 3, nodes: 2 },
+      cobalt:   { name: 'Cobalt',   color: '#6a8cff', tier: 3, nodes: 1 },
+      titanium: { name: 'Titanium', color: '#a0b8d0', tier: 4, nodes: 1 },
+      aluminum: { name: 'Aluminum', color: '#c8d0d8', tier: 3, nodes: 1 },
+      gold:     { name: 'Gold',     color: '#ffe066', tier: 4, nodes: 1 },
+      // carbon shown as silicon stand-in icon for mock (no carbon art)
+      carbon:   { name: 'Carbon',   color: '#6a7080', tier: 2, nodes: 2, icon: 'silicon' },
+    };
+
+    // Composite synthesis recipes
+    const RECIPES = [
+      {
+        id: 'carb_iron',
+        name: 'Carbonated Iron',
+        color: '#a08070',
+        icon: 'iron',
+        rarity: 'common',
+        inputs: [
+          { id: 'iron', nodes: 1 },
+          { id: 'carbon', nodes: 1 },
+        ],
+      },
+      {
+        id: 'oxy_copper',
+        name: 'Oxidized Copper',
+        color: '#40a090',
+        icon: 'copper',
+        rarity: 'common',
+        inputs: [
+          { id: 'copper', nodes: 1 },
+          { id: 'oxygen', nodes: 1 },
+        ],
+      },
+      {
+        id: 'sil_steel',
+        name: 'Silicate Steel',
+        color: '#90b0c8',
+        icon: 'silicon',
+        rarity: 'uncommon',
+        inputs: [
+          { id: 'iron', nodes: 2 },
+          { id: 'silicon', nodes: 1 },
+        ],
+      },
+      {
+        id: 'nick_alloy',
+        name: 'Ferro-Nickel',
+        color: '#80c090',
+        icon: 'nickel',
+        rarity: 'uncommon',
+        inputs: [
+          { id: 'iron', nodes: 1 },
+          { id: 'nickel', nodes: 2 },
+        ],
+      },
+      {
+        id: 'cobaltic',
+        name: 'Cobaltic Lattice',
+        color: '#7090ff',
+        icon: 'cobalt',
+        rarity: 'rare',
+        inputs: [
+          { id: 'cobalt', nodes: 2 },
+          { id: 'silicon', nodes: 1 },
+          { id: 'oxygen', nodes: 1 },
+        ],
+      },
+      {
+        id: 'titan_carb',
+        name: 'Titanium Carbide',
+        color: '#b0c8e0',
+        icon: 'titanium',
+        rarity: 'rare',
+        inputs: [
+          { id: 'titanium', nodes: 2 },
+          { id: 'carbon', nodes: 2 },
+        ],
+      },
+      {
+        id: 'auric_matrix',
+        name: 'Auric Matrix',
+        color: '#ffe066',
+        icon: 'gold',
+        rarity: 'epic',
+        inputs: [
+          { id: 'gold', nodes: 2 },
+          { id: 'titanium', nodes: 2 },
+          { id: 'cobalt', nodes: 1 },
+        ],
+      },
+    ];
+
+    let slots = ['carb_iron', 'sil_steel', null];
+    let activeSlot = null;
+
+    const slotsEl = document.getElementById('research-slots');
+    const recipeEl = document.getElementById('recipe-list');
+    const listEl = document.getElementById('linked-list');
+    const countEl = document.getElementById('slot-count');
+    const overlayEl = document.getElementById('recipe-overlay');
+    const upgradeOverlayEl = document.getElementById('upgrade-overlay');
+    const slotLabelEl = document.getElementById('recipe-slot-label');
+
+    function getRecipe(id) {
+      return RECIPES.find(r => r.id === id);
+    }
+
+    function iconFor(id) {
+      const res = LINKED[id];
+      return ICON(res?.icon || id);
+    }
+
+    function usedIds() {
+      return new Set(slots.filter(Boolean));
+    }
+
+    function recipeStatus(recipe) {
+      let ok = true;
+      for (const input of recipe.inputs) {
+        const have = LINKED[input.id]?.nodes || 0;
+        if (have < input.nodes) ok = false;
+      }
+      return { ok };
+    }
+
+    function closeRecipeOverlay() {
+      activeSlot = null;
+      overlayEl.classList.remove('show');
+      renderSlots();
+    }
+
+    function openRecipeOverlay(slotIndex) {
+      activeSlot = slotIndex;
+      slotLabelEl.textContent = `Slot ${slotIndex + 1}`;
+      renderRecipeList();
+      overlayEl.classList.add('show');
+      renderSlots();
+    }
+
+    function renderSlots() {
+      const used = usedIds();
+      countEl.textContent = `${[...used].length} / 3`;
+
+      slotsEl.innerHTML = slots.map((id, i) => {
+        const recipe = id ? getRecipe(id) : null;
+        if (!recipe) {
+          return `
+            <div class="research-slot" data-slot="${i}">
+              <span class="slot-index">SLOT ${i + 1}</span>
+              <div class="slot-empty-icon">+</div>
+              <div class="slot-empty-label">ASSIGN</div>
+            </div>`;
+        }
+        const ings = recipe.inputs.map((input, idx) => `
+          ${idx ? '<span class="slot-ing-plus">+</span>' : ''}
+          <img class="slot-ing-icon" src="${iconFor(input.id)}" title="${LINKED[input.id]?.name || input.id}" alt="">
+        `).join('');
+        return `
+          <div class="research-slot filled" data-slot="${i}">
+            <span class="slot-index">SLOT ${i + 1}</span>
+            <button class="slot-clear" data-clear="${i}" type="button" title="Clear">✕</button>
+            <img class="slot-icon" src="${ICON(recipe.icon)}" alt="">
+            <div class="slot-name" style="color:${recipe.color};">${recipe.name}</div>
+            <div class="slot-ingredients">${ings}</div>
+            <div class="slot-meta">${recipe.rarity.toUpperCase()}</div>
+            <div class="slot-progress">
+              <div class="meter-track"><div class="meter-bar" style="width:${48 + i * 22}%;"></div></div>
+            </div>
+          </div>`;
+      }).join('');
+
+      // Linked resources
+      const usedIngredients = new Set();
+      for (const id of used) {
+        const recipe = getRecipe(id);
+        if (!recipe) continue;
+        for (const input of recipe.inputs) usedIngredients.add(input.id);
+      }
+
+      listEl.innerHTML = Object.entries(LINKED).map(([id, res]) => {
+        const inUse = usedIngredients.has(id);
+        return `
+          <div class="res-row ${inUse ? 'used-in' : ''}" style="color:${res.color};">
+            <img class="row-icon" src="${iconFor(id)}" alt="">
+            <span class="name">${res.name}</span>
+            <span class="count">${res.nodes}×</span>
+            <span class="badge ${inUse ? 'badge-used' : ''}">${inUse ? 'IN USE' : 'T' + res.tier}</span>
+          </div>`;
+      }).join('');
+    }
+
+    function renderRecipeList() {
+      const used = usedIds();
+      // Current slot's recipe is allowed to show as selected/replacable
+      const currentId = activeSlot !== null ? slots[activeSlot] : null;
+
+      recipeEl.innerHTML = RECIPES.map(recipe => {
+        const isUsedElsewhere = used.has(recipe.id) && recipe.id !== currentId;
+        const isCurrent = recipe.id === currentId;
+        const { ok } = recipeStatus(recipe);
+        const locked = !ok && !isCurrent;
+        const needs = recipe.inputs.map(input => {
+          const have = LINKED[input.id]?.nodes || 0;
+          const good = have >= input.nodes;
+          return `
+            <span class="recipe-need ${good ? 'ok' : 'bad'}" title="${LINKED[input.id]?.name || input.id}">
+              <img src="${iconFor(input.id)}" alt="">
+              ${have}/${input.nodes}
+            </span>`;
+        }).join('');
+
+        let sideStatus = '';
+        if (isCurrent) sideStatus = '<div class="status-active">CURRENT</div>';
+        else if (isUsedElsewhere) sideStatus = '<div class="status-active">IN USE</div>';
+        else if (ok) sideStatus = '<div class="status-ok">READY</div>';
+        else sideStatus = '<div class="status-bad">NEED NODES</div>';
+
+        return `
+          <button class="recipe-card ${isUsedElsewhere || isCurrent ? 'used' : ''} ${locked ? 'locked' : ''}"
+            data-pick="${recipe.id}"
+            ${isUsedElsewhere || locked ? 'disabled' : ''}
+            type="button">
+            <img class="recipe-out-icon" src="${ICON(recipe.icon)}" alt="">
+            <div>
+              <div class="recipe-name" style="color:${recipe.color};">${recipe.name}</div>
+              <div class="recipe-needs">${needs}</div>
+            </div>
+            <div class="recipe-side">
+              <div class="rarity ${recipe.rarity}">${recipe.rarity.toUpperCase()}</div>
+              ${sideStatus}
+            </div>
+          </button>`;
+      }).join('');
+    }
+
+    slotsEl.addEventListener('click', (e) => {
+      const clear = e.target.closest('[data-clear]');
+      if (clear) {
+        e.stopPropagation();
+        const i = Number(clear.dataset.clear);
+        slots[i] = null;
+        renderSlots();
+        return;
+      }
+      const slot = e.target.closest('[data-slot]');
+      if (!slot) return;
+      openRecipeOverlay(Number(slot.dataset.slot));
+    });
+
+    recipeEl.addEventListener('click', (e) => {
+      const card = e.target.closest('[data-pick]');
+      if (!card || card.disabled || activeSlot === null) return;
+      const id = card.dataset.pick;
+      const recipe = getRecipe(id);
+      if (!recipe || !recipeStatus(recipe).ok) return;
+      // Allow re-selecting current; block if used in another slot
+      if (usedIds().has(id) && slots[activeSlot] !== id) return;
+      slots[activeSlot] = id;
+      closeRecipeOverlay();
+    });
+
+    function closeUpgradeOverlay() {
+      upgradeOverlayEl.classList.remove('show');
+    }
+    function openUpgradeOverlay() {
+      closeRecipeOverlay();
+      upgradeOverlayEl.classList.add('show');
+    }
+
+    overlayEl.addEventListener('click', (e) => {
+      if (e.target === overlayEl) closeRecipeOverlay();
+    });
+    upgradeOverlayEl.addEventListener('click', (e) => {
+      if (e.target === upgradeOverlayEl) closeUpgradeOverlay();
+    });
+    document.getElementById('recipe-cancel').addEventListener('click', closeRecipeOverlay);
+    document.getElementById('upgrade-cancel').addEventListener('click', closeUpgradeOverlay);
+    document.getElementById('btn-upgrade').addEventListener('click', openUpgradeOverlay);
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (upgradeOverlayEl.classList.contains('show')) closeUpgradeOverlay();
+      else if (overlayEl.classList.contains('show')) closeRecipeOverlay();
+    });
+
+    renderSlots();
+  </script>
+</body>
+</html>

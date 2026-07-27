@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from './data/resources.js';
 import { TILE_W, TILE_H, GRID_COLS, GRID_ROWS, ZOOM_MIN, ZOOM_MAX, BASE_COL, BASE_ROW, isBaseFootprintCell } from './constants.js';
-import { cam, gridToWorld, screenToWorld, focusOn, focusOnBase, adjustZoom } from './render/camera.js';
+import { cam, gridToWorld, screenToWorld, focusOn, focusOnBase, adjustZoom, setCameraKey, clearCameraKeys } from './render/camera.js';
 import { W, H } from './render/renderer.js';
 import { canvasState } from './render/canvasState.js';
 import { addLog, fmt, resourceIconHtml, tooltipEl, showTooltip, moveTooltip, hideTooltip } from './helpers.js';
@@ -12,10 +12,10 @@ import { refresh } from './ui/refresh.js';
 import { renderTutPointers } from './ui/tutorial.js';
 import { removeReassignTooltip } from './ui/tutorial.js';
 import { cancelTurretPlacement } from './ui/turretUI.js';
-import { cancelStoragePlacement, canPlaceModuleAt, getModuleAtCell, getModuleAtWorld, getStorageTotalInventory, openStorageModal } from './ui/storageUI.js';
+import { cancelStoragePlacement, canPlaceModuleAt, getModuleAtCell, getModuleAtWorld, getStorageTotalInventory, openStorageModal, closeTopStorageModal } from './ui/storageUI.js';
 import { renderBasePanel } from './ui/basePanel.js';
 import { closeRenameOverlay } from './ui/rename.js';
-import { openTurretModal } from './ui/turretUI.js';
+import { openTurretModal, closeTurretModalIfOpen } from './ui/turretUI.js';
 import { assignShip } from './systems/ships.js';
 import { getStoragePowerUsage } from './data/storage.js';
 import { TURRET_BASE_STATS, getTurretPowerCapacity, getTurretPowerUsage, getTurretTypeDef, getTurretStats } from './data/turrets.js';
@@ -306,22 +306,77 @@ export function initInput(canvas) {
   });
 
   // ── KEYBOARD ────────────────────────────────────────────────
+  const cameraKeyCodes = new Set([
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  ]);
+  const codeToCamKey = {
+    KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyQ: 'q', KeyE: 'e',
+    ArrowUp: 'arrowup', ArrowDown: 'arrowdown', ArrowLeft: 'arrowleft', ArrowRight: 'arrowright',
+  };
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = (el.tagName || '').toUpperCase();
+    return el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  }
+
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      if (state.renamingShip || state.renamingBase || state.renamingStorage || state.renamingTurret) { closeRenameOverlay(); return; }
-      const sellOverlay = document.getElementById('sell-overlay');
-      if (sellOverlay && sellOverlay.classList.contains('show')) {
-        if (window.closeSellOverlay) window.closeSellOverlay();
+      // Close one layer at a time, highest priority first.
+      if (state.renamingShip || state.renamingBase || state.renamingStorage || state.renamingTurret) {
+        closeRenameOverlay();
         return;
       }
-      const hdrOverlay = document.getElementById('hdr-modal-overlay');
-      if (hdrOverlay && hdrOverlay.classList.contains('open')) {
-        if (window.dismissHdrModal) window.dismissHdrModal();
+      if (document.getElementById('currency-max-popup-overlay')?.classList.contains('show')) {
+        window.closeCurrencyMaxPopup?.();
         return;
       }
+      if (document.getElementById('sell-overlay')?.classList.contains('show')) {
+        window.closeSellOverlay?.();
+        return;
+      }
+      if (document.getElementById('synthesis-overlay')?.classList.contains('show')) {
+        window.closeSynthesisOverlay?.();
+        return;
+      }
+      if (document.getElementById('module-upgrade-overlay')?.classList.contains('show')) {
+        window.closeModuleUpgradeOverlay?.();
+        return;
+      }
+      if (document.getElementById('modal-overlay')?.classList.contains('show')) {
+        window.closeModal?.();
+        return;
+      }
+      if (document.getElementById('settings-overlay')?.classList.contains('show')) {
+        window.closeSettings?.();
+        return;
+      }
+      if (document.getElementById('about-overlay')?.classList.contains('show')) {
+        window.closeAbout?.();
+        return;
+      }
+      if (document.getElementById('log-history-overlay')?.classList.contains('show')) {
+        window.closeLogHistory?.();
+        return;
+      }
+      if (document.getElementById('admiral-panel')?.classList.contains('visible')) {
+        window.dismissAdmiral?.();
+        return;
+      }
+      if (document.getElementById('hdr-modal-overlay')?.classList.contains('open')) {
+        window.dismissHdrModal?.();
+        return;
+      }
+      if (closeTurretModalIfOpen()) return;
+      if (closeTopStorageModal()) return;
       if (state.placingTurret) { cancelTurretPlacement(); return; }
       if (state.placingModule) { cancelStoragePlacement(); return; }
-      if (state.basePanelOpen) { state.basePanelOpen = false; renderBasePanel(); return; }
+      if (state.basePanelOpen) {
+        state.basePanelOpen = false;
+        renderBasePanel();
+        return;
+      }
       if (state.selectedShip) {
         state.pendingAssign = null;
         state.selectedShip  = null;
@@ -330,8 +385,24 @@ export function initInput(canvas) {
         removeReassignTooltip();
         if (refresh.ui) refresh.ui();
       }
+      return;
     }
+
+    if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
+    if (!cameraKeyCodes.has(e.code)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    setCameraKey(codeToCamKey[e.code], true);
+    state.followShip = null;
   });
+
+  window.addEventListener('keyup', e => {
+    if (!cameraKeyCodes.has(e.code)) return;
+    setCameraKey(codeToCamKey[e.code], false);
+  });
+
+  window.addEventListener('blur', () => clearCameraKeys());
 }
 
 // ── CANVAS CLICK HANDLER ──────────────────────────────────────

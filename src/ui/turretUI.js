@@ -146,9 +146,19 @@ export function openTurretModal(turretId) {
 }
 
 export function closeTurretModal(e) {
+  // Overlay backdrop clicks pass the event; programmatic closes pass nothing/null.
   if (e && e.target !== document.getElementById('turret-modal-overlay')) return;
-  document.getElementById('turret-modal-overlay').style.display = 'none';
+  const overlay = document.getElementById('turret-modal-overlay');
+  if (overlay) overlay.style.display = 'none';
   state.selectedTurret = null;
+}
+
+/** Returns true if the turret modal was open and is now closed. */
+export function closeTurretModalIfOpen() {
+  const overlay = document.getElementById('turret-modal-overlay');
+  if (!overlay || overlay.style.display !== 'flex') return false;
+  closeTurretModal(null);
+  return true;
 }
 
 export function renderTurretModal() {
@@ -296,7 +306,7 @@ export function renderTurretModal() {
     const reqEntries = Object.entries(upgCost.reqs);
     const pill  = (met, label) => '<span class="bp-craft-req '+(met?'met':'unmet')+'">'+label+'</span>';
     const cpill = (met, label) => '<span class="bp-craft-req" style="border-color:'+(met?'#2a7a43':'#802020')+';background:'+(met?'rgba(10,60,24,0.42)':'rgba(60,10,10,0.4)')+';color:'+(met?'#6fff9a':'#f88')+';">'+label+'</span>';
-    return cpill(c1, '$'+upgCost.coins) + reqEntries.map(([r, n]) => pill((state.resources[r]||0) >= n, `${r[0].toUpperCase()+r.slice(1)}: ${n}`)).join('');
+    return cpill(c1, '$'+fmt(upgCost.coins)) + reqEntries.map(([r, n]) => pill((state.resources[r]||0) >= n, `${r[0].toUpperCase()+r.slice(1)}: ${fmt(n)}`)).join('');
   })();
   const reqsEl = body.querySelector('#turret-upgrade-reqs');
   if (reqsEl && reqsEl.innerHTML !== reqsHtml) reqsEl.innerHTML = reqsHtml;
@@ -447,6 +457,7 @@ window.syncTurretCraftTimers();
 // Expose functions needed by dynamically-rendered HTML onclick handlers
 window.openTurretModal = openTurretModal;
 window.closeTurretModal = closeTurretModal;
+window.closeTurretModalIfOpen = closeTurretModalIfOpen;
 window.renderTurretModal = renderTurretModal;
 window.patchTurretModal = patchTurretModal;
 window.cancelTurretPlacement = cancelTurretPlacement;

@@ -218,6 +218,13 @@ class ResearchLabBuildingType extends PoweredInventoryBuildingType {
       ['POWER CAP', fmtStat(stats.powerCapacity)],
     ];
   }
+
+  applyDefaults(module, index = 1) {
+    super.applyDefaults(module, index);
+    const slots = Array.isArray(module.synthesisSlots) ? module.synthesisSlots.slice(0, 3) : [];
+    while (slots.length < 3) slots.push(null);
+    module.synthesisSlots = slots.map((id) => (typeof id === 'string' ? id : null));
+  }
 }
 
 class PowerStationBuildingType extends BuildingType {

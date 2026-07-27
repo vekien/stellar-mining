@@ -24,8 +24,23 @@ export function isLightColor(hex) {
   return (r * 0.299 + g * 0.587 + b * 0.114) > 160;
 }
 
-/** Format number with commas (floor first) */
-export function fmt(n) { return Math.floor(n).toLocaleString(); }
+/** Compact amount for UI (1.5k, 250k, 1.2M) */
+export function fmtCompact(n) {
+  const v = Math.floor(Number(n) || 0);
+  const abs = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  const trim = (x) => {
+    const rounded = x >= 100 ? Math.round(x) : x >= 10 ? Math.round(x * 10) / 10 : Math.round(x * 10) / 10;
+    return String(rounded).replace(/\.0$/, '');
+  };
+  if (abs >= 1_000_000_000) return `${sign}${trim(abs / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}${trim(abs / 1_000)}k`;
+  return `${sign}${abs}`;
+}
+
+/** Format number for UI — compact at 1k+ */
+export function fmt(n) { return fmtCompact(n); }
 
 export const MAX_COINS = 999_999_999;
 export const RESOURCE_CAP = 999_999_999;
@@ -203,6 +218,16 @@ export function hideTooltip() {
 }
 
 export function showHintTooltip(e, text) {
+  // Prefer Tippy when hovering a real element (no delay, smart placement)
+  const el = e?.currentTarget || e?.target;
+  if (el && el.nodeType === 1 && typeof window.bindTippy === 'function') {
+    window.bindTippy(el, text);
+    if (el._tippy) {
+      if (!el._tippy.state.isVisible) el._tippy.show();
+      return;
+    }
+  }
+  // Fallback: legacy floating tooltip (canvas / no Tippy)
   const tt = tooltipEl();
   tt.classList.add('tt-compact');
   tt.innerHTML = `<div class="tt-name">${text}</div>`;

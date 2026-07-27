@@ -267,7 +267,7 @@ export function renderBasePanel() {
         if (nextResReqs) {
           for (const [r, n] of Object.entries(nextResReqs)) {
             const met = (state.resources[r] || 0) >= n;
-            reqPills += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r]?.label??r}: ${n}</span>`;
+            reqPills += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r]?.label??r}: ${fmt(n)}</span>`;
           }
         }
         return `<div class="bp-upgrade-next">
