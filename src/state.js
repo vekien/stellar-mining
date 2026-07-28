@@ -130,8 +130,9 @@ export function setShipIdCounter(v) { shipIdCounter = v; }
 export function bumpShipIdCounter() { return shipIdCounter++; }
 
 function serializeModule(module) {
+  const { importEvents, ...rest } = module || {};
   return {
-    ...module,
+    ...rest,
     inventory: module?.inventory && typeof module.inventory === 'object'
       ? { ...module.inventory }
       : {},

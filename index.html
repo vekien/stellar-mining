@@ -275,6 +275,19 @@
   </div>
 </div>
 
+<div id="fuel-picker-overlay">
+  <div id="fuel-picker-box" onclick="event.stopPropagation()">
+    <div class="fuel-picker-head">
+      <div class="fuel-picker-title">◈ Select Power Source</div>
+      <div class="fuel-picker-sub">Import = delivered here · Mined = fleet yield · Burn = station demand</div>
+    </div>
+    <div id="fuel-picker-list" class="fuel-picker-list"></div>
+    <div class="fuel-picker-actions">
+      <button class="btn" type="button" onclick="closeFuelPickerOverlay()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
 <div id="tooltip"></div>
 
 <div id="currency-max-popup-overlay" onclick="closeCurrencyMaxPopup()">

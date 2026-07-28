@@ -285,11 +285,11 @@ export function initInput(canvas) {
       canvasState.baseHovered = false;
       canvasState.lastHoveredNode = hit.id;
       if (hit.type === CRASHED_SHIP_NODE_TYPE) {
-        showTooltip(e, hit.type);
+        showTooltip(e, hit.type, { nodeId: hit.id });
       } else {
         const nodeTier = getResourceTier(hit.type) || 1;
         const unmineableByFleet = nodeTier > (state.highestAvailableNodeTier || 1);
-        showTooltip(e, hit.type, { unmineableByFleet });
+        showTooltip(e, hit.type, { unmineableByFleet, nodeId: hit.id });
       }
     } else if (onBase) {
       if (canvasState.lastHoveredNode !== null) canvasState.lastHoveredNode = null;
@@ -342,6 +342,10 @@ export function initInput(canvas) {
       }
       if (document.getElementById('module-upgrade-overlay')?.classList.contains('show')) {
         window.closeModuleUpgradeOverlay?.();
+        return;
+      }
+      if (document.getElementById('fuel-picker-overlay')?.classList.contains('show')) {
+        window.closeFuelPickerOverlay?.();
         return;
       }
       if (document.getElementById('modal-overlay')?.classList.contains('show')) {

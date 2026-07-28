@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { addLog, fmt, fmtCompact, resourceIconHtml, spendCoins, addCoins, isLightColor, showHintTooltip, hideTooltip } from '../helpers.js';
-import { bindTippy, bindTippyIn } from './tippy.js';
+import { bindTippy, bindTippyIn, destroyTippiesIn, hideAllTippies, setHtmlDestroyingTippies } from './tippy.js';
 import {
   SYNTHESIS_RECIPES,
   SYNTHESIS_SLOT_COUNT,
@@ -50,8 +50,10 @@ import {
   hasPowerStationFuel,
   getNoFuelNetworkIds,
   invalidateNetworkCache,
+  getModuleImportPerMinute,
 } from '../data/modules.js';
 import { getStoragePowerUsage, isStorageOperational } from '../data/storage.js';
+import { getDronesForLab, getDroneStatusText } from '../systems/drones.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
 import { cam, focusOn, gridToWorld } from '../render/camera.js';
@@ -221,7 +223,7 @@ function initStorageModalDrag(modal) {
   const moduleId = Number(modal.dataset.moduleId);
   const module = Number.isFinite(moduleId) ? getModuleById(moduleId) : null;
   initFloatingResize(modal, overlay, {
-    minW: module && (isResearchLabModule(module) || isPowerStationModule(module)) ? 720 : 420,
+    minW: module && (isResearchLabModule(module) || isPowerStationModule(module) || isStorageModule(module) || isDroneLabModule(module)) ? 720 : 420,
     minH: 300,
     layoutKey,
     isActive: () => overlay.style.display === 'flex',
@@ -239,7 +241,7 @@ function getModuleAccentClass(module) {
 
 function applyModuleModalChrome(modal, module) {
   if (!modal || !module) return;
-  const isWide = isResearchLabModule(module) || isPowerStationModule(module);
+  const isWide = isResearchLabModule(module) || isPowerStationModule(module) || isStorageModule(module) || isDroneLabModule(module);
   const accent = getModuleAccentClass(module);
   modal.classList.remove(
     'storage-modal-window-lab',
@@ -256,6 +258,11 @@ function applyModuleModalChrome(modal, module) {
     body.style.padding = isWide ? '12px' : '14px';
   }
   if (isWide && parseInt(modal.style.width, 10) < 900) modal.style.width = '980px';
+  // Default open height for drone lab (~compact bay list). Skip if user resized.
+  if (isDroneLabModule(module) && modal.dataset.moved !== '1' && !modal.dataset.height) {
+    modal.style.height = '560px';
+    modal.dataset.height = '560';
+  }
 }
 
 function ensureStorageModalWindow(moduleId) {
@@ -264,11 +271,13 @@ function ensureStorageModalWindow(moduleId) {
   const host = getStorageModalHost();
   if (!host) return null;
   const module = getModuleById(moduleId);
-  const isWide = module && (isResearchLabModule(module) || isPowerStationModule(module));
+  const isWide = module && (isResearchLabModule(module) || isPowerStationModule(module) || isStorageModule(module) || isDroneLabModule(module));
+  const isDrone = module && isDroneLabModule(module);
   modal = document.createElement('div');
   modal.className = 'storage-modal-window';
   modal.dataset.moduleId = String(moduleId);
-  modal.style.cssText = `position:absolute;width:${isWide ? 980 : 600}px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;`;
+  modal.style.cssText = `position:absolute;width:${isWide ? 980 : 600}px;${isDrone ? 'height:560px;' : ''}background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;`;
+  if (isDrone) modal.dataset.height = '560';
   modal.innerHTML = `<div class="panel-shell-head storage-modal-drag-handle"><div class="panel-shell-title storage-modal-title">BUILDING</div><button class="panel-shell-close" onclick="closeStorageModal(${moduleId})">✕</button></div><div class="storage-modal-body" style="padding:${isWide ? '12px' : '14px'};"></div>`;
   applyModuleModalChrome(modal, module);
   host.appendChild(modal);
@@ -281,7 +290,14 @@ function ensureStorageModalWindow(moduleId) {
 export function openModuleModal(moduleId) {
   state.selectedModule = moduleId;
   const overlay = document.getElementById('storage-modal-overlay');
-  if (overlay) overlay.style.display = 'flex';
+  if (overlay) {
+    overlay.style.display = 'flex';
+    if (!overlay.dataset.tippyLeaveBound) {
+      overlay.dataset.tippyLeaveBound = '1';
+      overlay.addEventListener('mouseleave', () => hideAllTippies());
+      overlay.addEventListener('scroll', () => hideAllTippies(), true);
+    }
+  }
   const modal = ensureStorageModalWindow(moduleId);
   if (modal) {
     renderModuleModal(moduleId, modal);
@@ -301,12 +317,16 @@ export function openStorageModal(moduleId) {
 }
 
 export function closeStorageModal(arg = null) {
+  hideAllTippies();
   const overlay = document.getElementById('storage-modal-overlay');
   if (typeof arg === 'number') {
     if (_synthesisOverlayModuleId === arg) window.closeSynthesisOverlay?.();
     if (_upgradeOverlayModuleId === arg) window.closeModuleUpgradeOverlay?.();
     const modal = getStorageModalWindow(arg);
-    if (modal) modal.remove();
+    if (modal) {
+      destroyTippiesIn(modal);
+      modal.remove();
+    }
   }
   const openWindows = getOpenStorageModalWindows();
   if (!openWindows.length) {
@@ -352,7 +372,7 @@ function setTextIfChangedIn(root, selector, text) {
 function setHtmlIfChangedIn(root, selector, html) {
   const el = root?.querySelector(selector);
   if (!el) return null;
-  if (el.innerHTML !== html) el.innerHTML = html;
+  if (el.innerHTML !== html) setHtmlDestroyingTippies(el, html);
   return el;
 }
 
@@ -470,6 +490,41 @@ function buildPowerConsumerListHtml(linkedStorages, linkedTurrets) {
   `).join('');
 }
 
+function buildStorageInventoryGridHtml(module, query = '', sort = 'amount') {
+  const q = String(query || '').trim().toLowerCase();
+  let rows = Object.entries(module.inventory || {}).filter(([, amt]) => (amt || 0) > 0);
+  if (q) {
+    rows = rows.filter(([type]) => {
+      const label = (RESOURCE_DEFS[type]?.label || type).toLowerCase();
+      const tier = Object.entries(MINE_TIERS).find(([, t]) => t.resources?.includes(type))?.[0] || '';
+      return label.includes(q) || type.toLowerCase().includes(q) || `t${tier}` === q || tier === q;
+    });
+  }
+  if (sort === 'name') {
+    rows.sort((a, b) => (RESOURCE_DEFS[a[0]]?.label || a[0]).localeCompare(RESOURCE_DEFS[b[0]]?.label || b[0]));
+  } else {
+    rows.sort((a, b) => b[1] - a[1]);
+  }
+  if (!rows.length) {
+    return q
+      ? `<div class="module-empty-note">No resources match “${escapeHtml(query)}”.</div>`
+      : '<div class="module-empty-note">Inventory empty.<br>Assign ships to deposit here.</div>';
+  }
+  return rows.map(([type, amt]) => {
+    const def = RESOURCE_DEFS[type];
+    const label = def?.label || type;
+    const color = def?.color || '#cde';
+    const tier = Object.entries(MINE_TIERS).find(([, t]) => t.resources?.includes(type))?.[0] || '';
+    const tip = `${escapeHtml(label)}${tier ? ` · Tier ${tier}` : ''}<br><span style="color:#ffe066;">${fmt(amt)}</span> stored`;
+    return `<div class="st-inv-cell" data-tippy-content="${tip.replace(/"/g, '&quot;')}" style="--st-cell-accent:${color};">
+      <div class="st-inv-icon">${resourceIconHtml(type, 34)}</div>
+      <div class="st-inv-amt">${fmt(amt)}</div>
+      <div class="st-inv-name" style="color:${color};">${escapeHtml(label)}</div>
+      ${tier ? `<div class="st-inv-tier">T${tier}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 function buildPowerStationFuelStoresHtml(module, activeFuelType) {
   const rows = Object.entries(module.inventory || {})
     .filter(([, amt]) => amt > 0)
@@ -487,6 +542,191 @@ function buildPowerStationFuelStoresHtml(module, activeFuelType) {
   }).join('');
 }
 
+function getDroneStatusMeta(drone) {
+  const isScanning = drone.status === 'scanning';
+  const isFlying = drone.status === 'flying';
+  const isReturning = drone.status === 'returning';
+  const isLaunching = drone.status === 'idle' && drone.taskNodeId !== null;
+  if (isScanning) return { key: 'scanning', label: 'SCANNING', color: '#40ffcc' };
+  if (isFlying) return { key: 'flying', label: 'EN ROUTE', color: '#4ab8ff' };
+  if (isReturning) return { key: 'returning', label: 'RETURNING', color: '#c98cff' };
+  if (isLaunching) return { key: 'launching', label: 'LAUNCHING', color: '#ffe066' };
+  return { key: 'idle', label: 'IDLE', color: '#6a8aaa' };
+}
+
+/** Task theme accents for drone bay rows (extend as new task types land). */
+const DRONE_TASK_THEMES = {
+  crashed_ship: { key: 'ship', label: 'Crashed Ship', accent: '#8a9aaa' },
+  ship: { key: 'ship', label: 'Crashed Ship', accent: '#8a9aaa' },
+  relic: { key: 'relic', label: 'Relic', accent: '#c98cff' },
+  anomaly: { key: 'anomaly', label: 'Anomaly', accent: '#ffe066' },
+};
+
+function getDroneTaskTheme(drone) {
+  const node = Number.isFinite(drone?.taskNodeId)
+    ? (state.nodes || []).find((n) => n.id === drone.taskNodeId)
+    : null;
+  const type = drone?.taskType || node?.type || '';
+  if (DRONE_TASK_THEMES[type]) return DRONE_TASK_THEMES[type];
+  if (type === 'crashed_ship' || node?.type === 'crashed_ship') return DRONE_TASK_THEMES.crashed_ship;
+  if (!type) return { key: 'idle', label: 'Standby', accent: '#5af0ff' };
+  return { key: 'unknown', label: String(type).replace(/_/g, ' '), accent: '#5af0ff' };
+}
+
+function getDroneTargetMeta(drone) {
+  const theme = getDroneTaskTheme(drone);
+  const node = Number.isFinite(drone?.taskNodeId)
+    ? (state.nodes || []).find((n) => n.id === drone.taskNodeId)
+    : null;
+  if (theme.key === 'ship' || drone?.taskType === 'crashed_ship' || node?.type === 'crashed_ship') {
+    return {
+      label: theme.label,
+      theme,
+      iconHtml: '<img class="dl-target-img" src="assets/images/crashed_ships/crashed_ship_1.png" alt="">',
+    };
+  }
+  if (theme.key === 'relic') {
+    return {
+      label: theme.label,
+      theme,
+      iconHtml: '<span class="ms-icon ms-icon-md ms-icon-fill" aria-hidden="true">diamond</span>',
+    };
+  }
+  if (theme.key === 'anomaly') {
+    return {
+      label: theme.label,
+      theme,
+      iconHtml: '<span class="ms-icon ms-icon-md ms-icon-fill" aria-hidden="true">blur_on</span>',
+    };
+  }
+  if (node) {
+    return {
+      label: node.name || theme.label || node.type || 'Target',
+      theme,
+      iconHtml: '<span class="ms-icon ms-icon-md" aria-hidden="true">travel_explore</span>',
+    };
+  }
+  if (drone?.taskType) {
+    return {
+      label: theme.label,
+      theme,
+      iconHtml: '<span class="ms-icon ms-icon-md" aria-hidden="true">travel_explore</span>',
+    };
+  }
+  return {
+    label: 'Standby',
+    theme,
+    iconHtml: '<span class="ms-icon ms-icon-md" aria-hidden="true">drone</span>',
+  };
+}
+
+function getDroneProgressPct(drone) {
+  if (!drone) return 0;
+  if (Number.isFinite(drone.scanProgress)) return Math.max(0, Math.min(100, drone.scanProgress * 100));
+  if (drone.status === 'scanning' && Number.isFinite(drone.scanTimer) && Number.isFinite(drone.scanDuration) && drone.scanDuration > 0) {
+    return Math.max(0, Math.min(100, (1 - drone.scanTimer / drone.scanDuration) * 100));
+  }
+  if (drone.status === 'flying' && Number.isFinite(drone.flightTotalDist) && drone.flightTotalDist > 0) {
+    const remaining = Math.hypot((drone.destX || 0) - (drone.x || 0), (drone.destY || 0) - (drone.y || 0));
+    return Math.max(0, Math.min(100, (1 - remaining / drone.flightTotalDist) * 100));
+  }
+  if (drone.status === 'returning') return 100;
+  if (drone.status === 'scanning') return 35;
+  if (drone.status === 'flying') return 15;
+  if (drone.status === 'idle' && drone.taskNodeId != null) return 5;
+  return 0;
+}
+
+function getDroneFindHtml(drone) {
+  const find = drone?.find || drone?.loot || null;
+  if (!find) {
+    return `<div class="dl-find empty" data-tippy-content="Salvage find appears here when recovered">
+      <span class="ms-icon ms-icon-sm" aria-hidden="true">inventory_2</span>
+    </div>`;
+  }
+  if (typeof find === 'string' && RESOURCE_DEFS[find]) {
+    const def = RESOURCE_DEFS[find];
+    return `<div class="dl-find" data-tippy-content="Recovered ${escapeHtml(def.label)}" style="--dl-find-accent:${def.color || '#5af0ff'};">
+      ${resourceIconHtml(find, 22)}
+    </div>`;
+  }
+  if (find?.type && RESOURCE_DEFS[find.type]) {
+    const def = RESOURCE_DEFS[find.type];
+    const amt = find.amount > 0 ? ` ×${fmt(find.amount)}` : '';
+    return `<div class="dl-find" data-tippy-content="Recovered ${escapeHtml(def.label)}${amt}" style="--dl-find-accent:${def.color || '#5af0ff'};">
+      ${resourceIconHtml(find.type, 22)}
+    </div>`;
+  }
+  return `<div class="dl-find" data-tippy-content="${escapeHtml(find?.name || 'Salvage recovered')}">
+    <span class="ms-icon ms-icon-sm ms-icon-fill" aria-hidden="true">star</span>
+  </div>`;
+}
+
+function buildDroneBayListHtml(module) {
+  const drones = getDronesForLab(module.id).slice().sort((a, b) => a.id - b.id);
+  const capacity = Math.max(0, module.droneCapacity || 2);
+  const rows = [];
+  for (let i = 0; i < capacity; i++) {
+    const drone = drones[i];
+    if (!drone) {
+      rows.push(`<div class="dl-drone-row empty">
+        <div class="dl-drone-icon"><span class="ms-icon ms-icon-md" aria-hidden="true">drone</span></div>
+        <div class="dl-drone-body">
+          <div class="dl-drone-top">
+            <div class="dl-drone-name"><span class="ms-icon ms-icon-sm dl-name-icon" aria-hidden="true">drone_2</span>Bay ${i + 1}</div>
+            <div class="dl-drone-status idle">EMPTY</div>
+          </div>
+          <div class="dl-drone-task">Empty pad — craft a drone to deploy</div>
+          <div class="dl-progress-track"><div class="dl-progress-bar" style="width:0%"></div></div>
+        </div>
+        <div class="dl-find empty"><span class="ms-icon ms-icon-sm" aria-hidden="true">inventory_2</span></div>
+      </div>`);
+      continue;
+    }
+    const meta = getDroneStatusMeta(drone);
+    const target = getDroneTargetMeta(drone);
+    const theme = target.theme || getDroneTaskTheme(drone);
+    const taskText = getDroneStatusText(drone);
+    const progress = getDroneProgressPct(drone);
+    const accent = theme.accent || '#5af0ff';
+    rows.push(`<div class="dl-drone-row clickable task-${theme.key} ${meta.key}" style="--dl-task-accent:${accent};" role="button" tabindex="0" onclick="focusDrone(${drone.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusDrone(${drone.id});}" data-tippy-content="Focus camera on ${escapeHtml(drone.name || `Drone #${drone.id}`)}">
+      <div class="dl-drone-icon" data-tippy-content="${escapeHtml(target.label)}">${target.iconHtml}</div>
+      <div class="dl-drone-body">
+        <div class="dl-drone-top">
+          <div class="dl-drone-name"><span class="ms-icon ms-icon-sm dl-name-icon" aria-hidden="true">drone_2</span>${escapeHtml(drone.name || `Drone #${drone.id}`)}</div>
+          <div class="dl-drone-status ${meta.key}" style="color:${meta.color};border-color:${meta.color}55;">${meta.label}</div>
+        </div>
+        <div class="dl-drone-task" style="color:${meta.color};">${escapeHtml(taskText)}</div>
+        <div class="dl-progress-track" data-tippy-content="Mission progress ${Math.round(progress)}%">
+          <div class="dl-progress-bar ${meta.key}" style="width:${progress.toFixed(1)}%;background:linear-gradient(90deg,${meta.color}88,${meta.color});"></div>
+        </div>
+      </div>
+      ${getDroneFindHtml(drone)}
+    </div>`);
+  }
+  if (!rows.length) {
+    return '<div class="module-empty-note">No drone bays available.</div>';
+  }
+  return rows.join('');
+}
+
+window.filterStorageInventory = function(moduleId) {
+  const modal = getStorageModalWindow(moduleId);
+  const module = getModuleById(moduleId);
+  if (!modal || !module) return;
+  const searchEl = modal.querySelector('#st-inv-search');
+  const sortEl = modal.querySelector('#st-inv-sort');
+  const list = modal.querySelector('#storage-inventory-list');
+  if (!list) return;
+  hideAllTippies();
+  const query = searchEl?.value || '';
+  const sort = sortEl?.value || 'amount';
+  const invSig = `${sort}|${query}|${Object.entries(module.inventory || {}).filter(([, n]) => (n || 0) > 0).map(([t, n]) => `${t}:${Math.floor(n)}`).sort().join(',')}`;
+  list.dataset.invSig = invSig;
+  setHtmlDestroyingTippies(list, buildStorageInventoryGridHtml(module, query, sort));
+  bindTippyIn(list);
+};
+
 window.focusPowerNetworkTarget = function(kind, id) {
   if (kind === 'turret') {
     const turret = state.turrets.find((entry) => entry.id === id);
@@ -503,6 +743,13 @@ window.focusPowerNetworkTarget = function(kind, id) {
   openStorageModal(id);
 };
 
+window.focusDrone = function(droneId) {
+  const drone = (state.drones || []).find((d) => d.id === droneId);
+  if (!drone || !Number.isFinite(drone.x) || !Number.isFinite(drone.y)) return;
+  hideAllTippies();
+  focusOn(drone.x, drone.y, Math.max(cam.zoom, 1.15));
+};
+
 export function renderModuleModal(moduleId = state.selectedModule, modalRoot = null) {
   const module = getModuleById(moduleId);
   const modal = modalRoot || getStorageModalWindow(moduleId);
@@ -516,6 +763,224 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
   const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
   if (title) title.textContent = moduleDef.panelTitle;
   applyModuleModalChrome(modal, module);
+
+  if (isStorageModule(module)) {
+    body.innerHTML = `
+      <div class="lab-layout st-layout">
+        <div class="lab-hero">
+          <div class="lab-hero-left">
+            <div class="lab-hero-name-row">
+              <span id="storage-modal-name" class="storage-modal-name lab-hero-name"></span>
+              <button onclick="openStorageRenameOverlay(${module.id})" title="Rename Module" class="storage-modal-rename-btn">✎</button>
+              <div id="module-operational-banner" class="lab-status-pill">ONLINE</div>
+            </div>
+            <div class="lab-meter">
+              <div class="lab-meter-head">
+                <span class="lab-meter-label">Health</span>
+                <span id="storage-health-value" class="lab-meter-value"></span>
+              </div>
+              <div class="lab-meter-track"><div id="storage-health-bar" class="lab-meter-bar"></div></div>
+            </div>
+          </div>
+          <div id="storage-tier-pill" class="lab-tier-badge"></div>
+        </div>
+
+        <div class="st-main-grid">
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ SYSTEMS</span>
+              <span class="lab-panel-sub">status</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="lab-stat-cards">
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Status</div>
+                  <div id="st-status-value" class="lab-stat-value green">ONLINE</div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Fill</div>
+                  <div id="st-fill-value" class="lab-stat-value">0%</div>
+                </div>
+              </div>
+              <div class="lab-power-block">
+                <div class="lab-meter-head">
+                  <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Grid</span>
+                  <span id="storage-power-value" class="lab-meter-value"></span>
+                </div>
+                <div class="lab-power-meta">
+                  <span>Usage <strong id="storage-power-usage"></strong></span>
+                  <span>Capacity</span>
+                </div>
+                <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
+                <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
+                <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
+              </div>
+              <div class="lab-power-block">
+                <div class="lab-meter-head">
+                  <span class="lab-meter-label">Storage Used</span>
+                  <span id="storage-used-value" class="lab-meter-value"></span>
+                </div>
+                <div class="lab-meter-track"><div id="storage-used-bar" class="lab-meter-bar" style="background:linear-gradient(90deg,#1a6aff,#48f);"></div></div>
+              </div>
+              <div class="lab-network-block">
+                <div class="lab-network-label">◈ Linked Network</div>
+                <div class="lab-network-tiles">
+                  <div class="lab-net-tile" data-tippy-content="Power Stations">
+                    <img class="lab-net-icon" src="assets/images/buildings/power.png" alt="">
+                    <div>
+                      <div id="st-net-stations" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Stations</div>
+                    </div>
+                  </div>
+                  <div class="lab-net-tile" data-tippy-content="Power Poles">
+                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
+                    <div>
+                      <div id="st-net-poles" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Poles</div>
+                    </div>
+                  </div>
+                </div>
+                <div id="power-station-link-summary" class="st-net-summary" style="display:none;"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="lab-panel st-inv-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ INVENTORY</span>
+              <span class="lab-panel-sub" id="st-inv-count">0 types</span>
+            </div>
+            <div class="lab-panel-body st-inv-body">
+              <div class="st-inv-toolbar">
+                <input id="st-inv-search" class="st-inv-search" type="search" placeholder="Search resources…" value="" oninput="filterStorageInventory(${module.id})" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
+                <select id="st-inv-sort" class="st-inv-sort" onchange="filterStorageInventory(${module.id})" onmousedown="event.stopPropagation()">
+                  <option value="amount">Qty ↓</option>
+                  <option value="name">Name</option>
+                </select>
+              </div>
+              <div id="storage-inventory-list" class="st-inv-grid"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="lab-footer">
+          <div class="lab-actions">
+            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
+            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
+            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
+            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
+          </div>
+        </div>
+        <div id="storage-upgrade-reqs" style="display:none;"></div>
+      </div>`;
+    patchModuleModal(moduleId, modal);
+    return;
+  }
+
+  if (isDroneLabModule(module)) {
+    body.innerHTML = `
+      <div class="lab-layout dl-layout">
+        <div class="lab-hero">
+          <div class="lab-hero-left">
+            <div class="lab-hero-name-row">
+              <span id="storage-modal-name" class="storage-modal-name lab-hero-name"></span>
+              <button onclick="openStorageRenameOverlay(${module.id})" title="Rename Module" class="storage-modal-rename-btn">✎</button>
+              <div id="module-operational-banner" class="lab-status-pill">ONLINE</div>
+            </div>
+            <div class="lab-meter">
+              <div class="lab-meter-head">
+                <span class="lab-meter-label">Health</span>
+                <span id="storage-health-value" class="lab-meter-value"></span>
+              </div>
+              <div class="lab-meter-track"><div id="storage-health-bar" class="lab-meter-bar"></div></div>
+            </div>
+          </div>
+          <div id="storage-tier-pill" class="lab-tier-badge"></div>
+        </div>
+
+        <div class="st-main-grid">
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ SYSTEMS</span>
+              <span class="lab-panel-sub">operations</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="lab-stat-cards">
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Status</div>
+                  <div id="dl-status-value" class="lab-stat-value green">ONLINE</div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Active</div>
+                  <div id="dl-active-value" class="lab-stat-value blue">0 / 0</div>
+                </div>
+              </div>
+              <div class="lab-power-block">
+                <div class="lab-meter-head">
+                  <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Grid</span>
+                  <span id="storage-power-value" class="lab-meter-value"></span>
+                </div>
+                <div class="lab-power-meta">
+                  <span data-tippy-content="Power usage scales with drone count: 1/s per drone deployed.">Usage <strong id="storage-power-usage"></strong></span>
+                  <span>Capacity</span>
+                </div>
+                <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
+                <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
+                <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
+              </div>
+              <div class="lab-power-block">
+                <div class="lab-meter-head">
+                  <span class="lab-meter-label">Drone Bay</span>
+                  <span id="storage-used-value" class="lab-meter-value"></span>
+                </div>
+                <div class="lab-meter-track"><div id="storage-used-bar" class="lab-meter-bar" style="background:linear-gradient(90deg,#0a6a80,#5af0ff);"></div></div>
+              </div>
+              <div class="lab-network-block">
+                <div class="lab-network-label">◈ Linked Network</div>
+                <div class="lab-network-tiles">
+                  <div class="lab-net-tile" data-tippy-content="Power Stations">
+                    <img class="lab-net-icon" src="assets/images/buildings/power.png" alt="">
+                    <div>
+                      <div id="dl-net-stations" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Stations</div>
+                    </div>
+                  </div>
+                  <div class="lab-net-tile" data-tippy-content="Power Poles">
+                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
+                    <div>
+                      <div id="dl-net-poles" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Poles</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="lab-panel st-inv-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ DRONE BAY</span>
+              <span class="lab-panel-sub" id="dl-bay-count">0 active</span>
+            </div>
+            <div class="lab-panel-body st-inv-body">
+              <div id="drone-bay-status-list" class="dl-drone-list"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="lab-footer">
+          <div class="lab-actions">
+            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
+            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
+            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
+            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
+          </div>
+        </div>
+        <div id="storage-upgrade-reqs" style="display:none;"></div>
+      </div>`;
+    patchModuleModal(moduleId, modal);
+    return;
+  }
 
   if (isPowerStationModule(module)) {
     body.innerHTML = `
@@ -549,27 +1014,52 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
             </div>
             <div class="lab-panel-body">
               <div class="ps-fuel-select-row">
-                <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Source <span id="power-station-info-badge" class="power-station-info-badge">INFO</span></span>
-                <select id="power-station-fuel-select" class="power-station-select ps-fuel-select" onchange="setPowerStationFuel(${module.id}, this.value)"></select>
+                <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Source</span>
+                <button type="button" id="power-station-fuel-btn" class="ps-fuel-btn" onclick="openFuelPickerOverlay(${module.id})">
+                  <span id="power-station-fuel-btn-icon" class="ps-fuel-btn-icon"></span>
+                  <span id="power-station-fuel-btn-label" class="ps-fuel-btn-label">Iron</span>
+                  <span class="ps-fuel-btn-chevron">▾</span>
+                </button>
               </div>
-              <div class="ps-stat-grid">
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Input</div>
-                  <div id="power-station-fuel-rate" class="lab-stat-value"></div>
+
+              <div class="ps-dash" id="power-station-dash">
+                <div class="ps-dash-section">
+                  <div class="ps-dash-head">
+                    <span class="ps-dash-title">Fuel flow</span>
+                    <span id="ps-fuel-balance-pill" class="ps-balance-pill">—</span>
+                  </div>
+                  <div class="ps-dash-row" id="ps-row-import" data-tippy-content="">
+                    <span class="ps-dash-label">Import</span>
+                    <div class="ps-dash-track"><div id="ps-bar-import" class="ps-dash-bar ps-bar-import"></div></div>
+                    <span id="ps-val-import" class="ps-dash-val">0/m</span>
+                  </div>
+                  <div class="ps-dash-row" id="ps-row-burn" data-tippy-content="">
+                    <span class="ps-dash-label">Burn</span>
+                    <div class="ps-dash-track"><div id="ps-bar-burn" class="ps-dash-bar ps-bar-burn"></div></div>
+                    <span id="ps-val-burn" class="ps-dash-val">0/m</span>
+                  </div>
+                  <div class="ps-dash-note" id="ps-fuel-note"></div>
                 </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Output</div>
-                  <div id="power-station-fuel-output" class="lab-stat-value blue"></div>
-                </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Load</div>
-                  <div id="power-station-fuel-cost" class="lab-stat-value"></div>
-                </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Status</div>
-                  <div id="power-station-fuel-status" class="lab-stat-value"></div>
+
+                <div class="ps-dash-section">
+                  <div class="ps-dash-head">
+                    <span class="ps-dash-title">Power grid</span>
+                    <span id="ps-power-balance-pill" class="ps-balance-pill">—</span>
+                  </div>
+                  <div class="ps-dash-row" id="ps-row-output" data-tippy-content="">
+                    <span class="ps-dash-label">Output</span>
+                    <div class="ps-dash-track"><div id="ps-bar-output" class="ps-dash-bar ps-bar-output"></div></div>
+                    <span id="ps-val-output" class="ps-dash-val">0/s</span>
+                  </div>
+                  <div class="ps-dash-row" id="ps-row-load" data-tippy-content="">
+                    <span class="ps-dash-label">Load</span>
+                    <div class="ps-dash-track"><div id="ps-bar-load" class="ps-dash-bar ps-bar-load"></div></div>
+                    <span id="ps-val-load" class="ps-dash-val">0/s</span>
+                  </div>
+                  <div class="ps-dash-note" id="ps-power-note"></div>
                 </div>
               </div>
+
               <div class="lab-network-block">
                 <div class="lab-network-label">◈ Linked Network</div>
                 <div class="lab-network-tiles">
@@ -611,7 +1101,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
               <div class="ps-active-fuel">
                 <div class="ps-active-fuel-head">
                   <span class="ps-active-fuel-title">
-                    <span class="lab-power-icon">△</span>
+                    <span id="power-station-used-icon" class="ps-active-fuel-icon"></span>
                     <span id="power-station-used-label">Active Fuel</span>
                   </span>
                   <span id="power-station-used-value" class="lab-meter-value"></span>
@@ -922,6 +1412,198 @@ export function renderStorageModal(moduleId = state.selectedModule) {
   renderModuleModal(moduleId);
 }
 
+function patchDroneLabModal(module, modal, qs) {
+  const moduleDef = getModuleDef(module.type);
+  const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
+  const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+  const moduleTier = Math.max(1, Math.min(10, module.level || 1));
+  const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
+  const title = modal.querySelector('.storage-modal-title');
+  if (title) title.textContent = moduleDef.panelTitle;
+  qs('#storage-modal-name').textContent = `⬡ ${module.name}`;
+  const tierEl = qs('#storage-tier-pill');
+  tierEl.textContent = `TIER ${toRoman(moduleTier)}`;
+  tierEl.style.color = isLightColor(tierColor) ? '#111' : '#fff';
+  tierEl.style.background = tierColor;
+  qs('#storage-health-value').textContent = `${fmt(module.health)} / ${fmt(module.maxHealth)}`;
+  qs('#storage-health-value').style.color = hpColor;
+  qs('#storage-health-bar').style.width = `${hpPct}%`;
+  qs('#storage-health-bar').style.background = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
+
+  const online = isStorageOperational(module);
+  const noPower = (module.power || 0) <= 0;
+  const banner = qs('#module-operational-banner');
+  if (banner) {
+    banner.textContent = online ? 'ONLINE' : 'OFFLINE';
+    banner.className = `lab-status-pill${online ? '' : ' offline'}`;
+  }
+  setTextIfChangedIn(modal, '#dl-status-value', online ? 'ONLINE' : 'OFFLINE');
+  const statusVal = qs('#dl-status-value');
+  if (statusVal) {
+    statusVal.classList.toggle('green', online);
+    statusVal.style.color = online ? '' : '#f88';
+  }
+
+  const activeDroneCount = getDronesForLab(module.id).length;
+  const capacity = Math.max(1, module.droneCapacity || 2);
+  const bayPct = Math.max(0, Math.min(100, (activeDroneCount / capacity) * 100));
+  setTextIfChangedIn(modal, '#dl-active-value', `${activeDroneCount} / ${capacity}`);
+  setTextIfChangedIn(modal, '#storage-used-value', `${activeDroneCount} / ${capacity}`);
+  setTextIfChangedIn(modal, '#dl-bay-count', `${activeDroneCount} active`);
+  const usedBar = qs('#storage-used-bar');
+  if (usedBar) usedBar.style.width = `${bayPct}%`;
+
+  const powerPct = Math.round(((module.power || 0) / Math.max(1, module.powerCapacity || 1)) * 100);
+  const currentPowerUsage = getStoragePowerUsage(module);
+  setTextIfChangedIn(modal, '#storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
+  setTextIfChangedIn(modal, '#storage-power-value', `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`);
+  const powerBar = qs('#storage-power-bar');
+  if (powerBar) powerBar.style.width = `${powerPct}%`;
+  const noPowerEl = qs('#storage-no-power-warning');
+  if (noPowerEl) noPowerEl.style.display = noPower ? '' : 'none';
+  const buyPowerBtn = qs('#storage-buy-power-btn');
+  if (buyPowerBtn) {
+    const buyPowerCost = getModuleUpgradeCost(module).coins * 5;
+    buyPowerBtn.style.display = noPower ? '' : 'none';
+    buyPowerBtn.disabled = state.coins < buyPowerCost;
+    buyPowerBtn.innerHTML = `BUY POWER <span style="color:#ffe066;">- $${fmt(buyPowerCost)}</span>`;
+  }
+
+  const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
+  setTextIfChangedIn(modal, '#dl-net-stations', String(networkInfo.stations.length));
+  setTextIfChangedIn(modal, '#dl-net-poles', String(networkInfo.poles.length));
+
+  const list = qs('#drone-bay-status-list');
+  if (list) {
+    const drones = getDronesForLab(module.id).slice().sort((a, b) => a.id - b.id);
+    const droneSig = `${capacity}|${drones.map((d) => {
+      const findKey = d.find?.type || d.find || d.loot?.type || d.loot || '';
+      return `${d.id}:${d.status}:${d.taskNodeId ?? ''}:${d.taskType || ''}:${findKey}`;
+    }).join(',')}`;
+    if (list.dataset.droneSig !== droneSig) {
+      list.dataset.droneSig = droneSig;
+      setHtmlDestroyingTippies(list, buildDroneBayListHtml(module));
+      bindTippyIn(list);
+    } else {
+      const rows = [...list.querySelectorAll('.dl-drone-row:not(.empty)')];
+      drones.forEach((d, idx) => {
+        const row = rows[idx];
+        if (!row) return;
+        const bar = row.querySelector('.dl-progress-bar');
+        const pct = getDroneProgressPct(d);
+        if (bar) bar.style.width = `${pct.toFixed(1)}%`;
+      });
+    }
+  }
+  bindTippyIn(modal);
+
+  const upgradeCost = getModuleUpgradeCost(module);
+  const atMaxTier = module.level >= 10;
+  const upBtn = qs('#storage-upgrade-btn');
+  if (upBtn) {
+    upBtn.textContent = atMaxTier ? '★ MAX TIER' : 'UPGRADE';
+    upBtn.disabled = atMaxTier || noPower;
+    upBtn.onclick = () => {
+      if (atMaxTier) return;
+      window.openModuleUpgradeOverlay?.(module.id);
+    };
+  }
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
+}
+
+function patchStorageFacilityModal(module, modal, qs) {
+  const moduleDef = getModuleDef(module.type);
+  const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
+  const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+  const moduleTier = Math.max(1, Math.min(10, module.level || 1));
+  const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
+  const title = modal.querySelector('.storage-modal-title');
+  if (title) title.textContent = moduleDef.panelTitle;
+  qs('#storage-modal-name').textContent = `⬡ ${module.name}`;
+  const tierEl = qs('#storage-tier-pill');
+  tierEl.textContent = `TIER ${toRoman(moduleTier)}`;
+  tierEl.style.color = isLightColor(tierColor) ? '#111' : '#fff';
+  tierEl.style.background = tierColor;
+  qs('#storage-health-value').textContent = `${fmt(module.health)} / ${fmt(module.maxHealth)}`;
+  qs('#storage-health-value').style.color = hpColor;
+  qs('#storage-health-bar').style.width = `${hpPct}%`;
+  qs('#storage-health-bar').style.background = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
+
+  const online = isStorageOperational(module);
+  const noPower = (module.power || 0) <= 0;
+  const banner = qs('#module-operational-banner');
+  if (banner) {
+    banner.textContent = online ? 'ONLINE' : 'OFFLINE';
+    banner.className = `lab-status-pill${online ? '' : ' offline'}`;
+  }
+  setTextIfChangedIn(modal, '#st-status-value', online ? 'ONLINE' : 'OFFLINE');
+  const statusVal = qs('#st-status-value');
+  if (statusVal) {
+    statusVal.classList.toggle('green', online);
+    statusVal.style.color = online ? '' : '#f88';
+  }
+
+  const totalInv = getStorageTotalInventory(module);
+  const cap = Math.max(1, module.storageCapacity || 1);
+  const fillPct = Math.max(0, Math.min(100, Math.round((totalInv / cap) * 100)));
+  setTextIfChangedIn(modal, '#st-fill-value', `${fillPct}%`);
+  setTextIfChangedIn(modal, '#storage-used-value', `${fmt(totalInv)} / ${fmt(module.storageCapacity)}`);
+  const usedBar = qs('#storage-used-bar');
+  if (usedBar) usedBar.style.width = `${fillPct}%`;
+
+  const powerPct = Math.round(((module.power || 0) / Math.max(1, module.powerCapacity || 1)) * 100);
+  const currentPowerUsage = getStoragePowerUsage(module);
+  setTextIfChangedIn(modal, '#storage-power-usage', `${currentPowerUsage.toFixed(1).replace(/\.0$/, '')}/s`);
+  setTextIfChangedIn(modal, '#storage-power-value', `${fmt(module.power || 0)} / ${fmt(module.powerCapacity)}`);
+  const powerBar = qs('#storage-power-bar');
+  if (powerBar) powerBar.style.width = `${powerPct}%`;
+  const noPowerEl = qs('#storage-no-power-warning');
+  if (noPowerEl) noPowerEl.style.display = noPower ? '' : 'none';
+  const buyPowerBtn = qs('#storage-buy-power-btn');
+  if (buyPowerBtn) {
+    const buyPowerCost = getModuleUpgradeCost(module).coins * 5;
+    buyPowerBtn.style.display = noPower ? '' : 'none';
+    buyPowerBtn.disabled = state.coins < buyPowerCost;
+    buyPowerBtn.innerHTML = `BUY POWER <span style="color:#ffe066;">- $${fmt(buyPowerCost)}</span>`;
+  }
+
+  const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
+  setTextIfChangedIn(modal, '#st-net-stations', String(networkInfo.stations.length));
+  setTextIfChangedIn(modal, '#st-net-poles', String(networkInfo.poles.length));
+
+  const searchEl = qs('#st-inv-search');
+  const sortEl = qs('#st-inv-sort');
+  const query = searchEl?.value || '';
+  const sort = sortEl?.value || 'amount';
+  const typeCount = Object.values(module.inventory || {}).filter((n) => (n || 0) > 0).length;
+  setTextIfChangedIn(modal, '#st-inv-count', `${typeCount} type${typeCount === 1 ? '' : 's'}`);
+  const invList = qs('#storage-inventory-list');
+  if (invList) {
+    const invSig = `${sort}|${query}|${Object.entries(module.inventory || {}).filter(([, n]) => (n || 0) > 0).map(([t, n]) => `${t}:${Math.floor(n)}`).sort().join(',')}`;
+    if (invList.dataset.invSig !== invSig) {
+      invList.dataset.invSig = invSig;
+      setHtmlDestroyingTippies(invList, buildStorageInventoryGridHtml(module, query, sort));
+      bindTippyIn(invList);
+    }
+  }
+  bindTippyIn(modal);
+
+  const upgradeCost = getModuleUpgradeCost(module);
+  const atMaxTier = module.level >= 10;
+  const upBtn = qs('#storage-upgrade-btn');
+  if (upBtn) {
+    upBtn.textContent = atMaxTier ? '★ MAX TIER' : 'UPGRADE';
+    upBtn.disabled = atMaxTier || noPower;
+    upBtn.onclick = () => {
+      if (atMaxTier) return;
+      window.openModuleUpgradeOverlay?.(module.id);
+    };
+  }
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
+}
+
 function patchPowerStationModal(module, modal, qs) {
   const moduleDef = getModuleDef(module.type);
   const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
@@ -968,22 +1650,99 @@ function patchPowerStationModal(module, modal, qs) {
     banner.className = `lab-status-pill${offline ? ' offline' : ''}`;
   }
 
-  const fuelSelect = qs('#power-station-fuel-select');
-  if (fuelSelect) {
-    const optionsHtml = getPowerFuelOptions().map((option) => `<option value="${option.type}" ${module.fuelResource === option.type ? 'selected' : ''}>${option.label}</option>`).join('');
-    if (fuelSelect.innerHTML !== optionsHtml) fuelSelect.innerHTML = optionsHtml;
+  const fuelBtnLabel = qs('#power-station-fuel-btn-label');
+  const fuelBtnIcon = qs('#power-station-fuel-btn-icon');
+  if (fuelBtnLabel) fuelBtnLabel.textContent = fuelName;
+  if (fuelBtnIcon) {
+    const iconHtml = resourceIconHtml(fuelType, 16);
+    if (fuelBtnIcon.innerHTML !== iconHtml) fuelBtnIcon.innerHTML = iconHtml;
   }
 
-  setTextIfChangedIn(modal, '#power-station-fuel-rate', `${fmt(fuelCost)} ${fuelName}`);
-  setTextIfChangedIn(modal, '#power-station-fuel-output', `${powerOutputText}/s`);
-  setHtmlIfChangedIn(modal, '#power-station-fuel-cost', `${totalLoadText}/s<div class="ps-stat-sub">${linkedConsumers} ${facilityLabel}</div>`);
-  setHtmlIfChangedIn(modal, '#power-station-fuel-status', `<span style="color:${statusColor};">${netDeltaText}/s</span><div class="ps-stat-sub" style="color:${statusColor};">${statusLabel}</div>`);
+  // ── Dashboard: fuel flow vs power grid ──
+  const importPerMin = getModuleImportPerMinute(module, fuelType);
+  const burnPerSec = fuelCost;
+  const burnPerMin = burnPerSec * 60;
+  const importMeets = burnPerMin <= 0 ? true : importPerMin + 0.001 >= burnPerMin;
+  const fuelMax = Math.max(importPerMin, burnPerMin, 1);
+  const powerMax = Math.max(powerOutput, totalLoad, 1);
+  const setBar = (id, pct) => {
+    const el = qs(id);
+    if (el) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  };
+  const setPill = (id, cls, text) => {
+    const el = qs(id);
+    if (!el) return;
+    el.className = `ps-balance-pill ${cls}`;
+    el.textContent = text;
+  };
+
+  setTextIfChangedIn(modal, '#ps-val-import', `${fmt(Math.round(importPerMin))}/m`);
+  setTextIfChangedIn(modal, '#ps-val-burn', `${fmt(Math.round(burnPerMin))}/m`);
+  setTextIfChangedIn(modal, '#ps-val-output', `${powerOutputText}/s`);
+  setTextIfChangedIn(modal, '#ps-val-load', `${totalLoadText}/s`);
+  setBar('#ps-bar-import', (importPerMin / fuelMax) * 100);
+  setBar('#ps-bar-burn', (burnPerMin / fuelMax) * 100);
+  setBar('#ps-bar-output', (powerOutput / powerMax) * 100);
+  setBar('#ps-bar-load', (totalLoad / powerMax) * 100);
+
+  if (noFuel) {
+    setPill('#ps-fuel-balance-pill', 'bad', 'NO FUEL');
+    setTextIfChangedIn(modal, '#ps-fuel-note', `No ${fuelName} in tank — generators offline.`);
+  } else if (burnPerMin <= 0) {
+    setPill('#ps-fuel-balance-pill', 'idle', 'NO LOAD');
+    setTextIfChangedIn(modal, '#ps-fuel-note', 'No consumers — not burning fuel.');
+  } else if (importMeets) {
+    setPill('#ps-fuel-balance-pill', 'ok', 'FUEL OK');
+    setTextIfChangedIn(modal, '#ps-fuel-note', `Imports cover burn · ${fmt(Math.round(importPerMin - burnPerMin))}/m surplus fuel`);
+  } else {
+    const short = Math.round(burnPerMin - importPerMin);
+    setPill('#ps-fuel-balance-pill', 'warn', 'FUEL SHORT');
+    setTextIfChangedIn(modal, '#ps-fuel-note', `Import short ${fmt(short)}/m — burning stockpile.`);
+  }
+
+  if (noFuel || offline) {
+    setPill('#ps-power-balance-pill', 'bad', 'OFFLINE');
+    setTextIfChangedIn(modal, '#ps-power-note', 'Station offline — no power output.');
+  } else if (netDelta >= 0) {
+    setPill('#ps-power-balance-pill', 'ok', 'SURPLUS');
+    setTextIfChangedIn(modal, '#ps-power-note', `Generating ${netDeltaText}/s more than load.`);
+  } else {
+    setPill('#ps-power-balance-pill', 'bad', 'POWER SHORT');
+    // Clarify: fuel can be fine while power gen cap is too low for this ore
+    const maxOut = getPowerFuelOutput(fuelType);
+    setTextIfChangedIn(modal, '#ps-power-note',
+      importMeets && !noFuel
+        ? `${fuelName} only outputs ${maxOut}/s max — switch to a richer fuel to cover ${totalLoadText}/s load.`
+        : `Load exceeds output by ${Math.abs(netDelta).toFixed(1).replace(/\.0$/, '')}/s.`);
+  }
+
+  bindTippy(qs('#ps-row-import'),
+    `<strong>Import</strong><br>Fuel delivered to this station (last ~60s).<br><span style="color:#ffe066">${Math.floor(importPerMin).toLocaleString()}/min</span> ${escapeHtml(fuelName)}`);
+  bindTippy(qs('#ps-row-burn'),
+    `<strong>Burn</strong><br>${fmt(inputQty)} ${escapeHtml(fuelName)} per consumer × ${linkedConsumers} ${facilityLabel}.<br><span style="color:#ffe066">${burnPerSec.toFixed(1).replace(/\.0$/, '')}/s</span> = <span style="color:#ffe066">${Math.round(burnPerMin).toLocaleString()}/min</span>`);
+  bindTippy(qs('#ps-row-output'),
+    `<strong>Power output</strong><br>Max electricity this fuel can generate.<br>${escapeHtml(fuelName)} → <span style="color:#ffe066">${powerOutputText}/s</span>${noFuel ? '<br><span style="color:#f88">No fuel in tank</span>' : ''}<br><span style="color:#8ab">Richer ores produce more power/s.</span>`);
+  bindTippy(qs('#ps-row-load'),
+    `<strong>Power load</strong><br>Demand from ${linkedConsumers} linked ${facilityLabel}.<br><span style="color:#ffe066">${totalLoadText}/s</span> total draw`);
 
   const selectedFuelStored = module.inventory?.[fuelType] || 0;
+  const fuelCap = module.resourceCapacity || 0;
   setTextIfChangedIn(modal, '#power-station-used-label', fuelName);
-  setTextIfChangedIn(modal, '#power-station-used-value', `${fmt(selectedFuelStored)} / ${fmt(module.resourceCapacity || 0)}`);
+  setTextIfChangedIn(modal, '#power-station-used-value', `${fmt(selectedFuelStored)} / ${fmt(fuelCap)}`);
+  const fuelIconEl = qs('#power-station-used-icon');
+  if (fuelIconEl) {
+    const iconHtml = resourceIconHtml(fuelType, 16);
+    if (fuelIconEl.innerHTML !== iconHtml) fuelIconEl.innerHTML = iconHtml;
+  }
+  const fuelValEl = qs('#power-station-used-value');
+  if (fuelValEl) {
+    fuelValEl.style.cursor = 'help';
+    const exactStored = Math.floor(selectedFuelStored).toLocaleString();
+    const exactCap = Math.floor(fuelCap).toLocaleString();
+    bindTippy(fuelValEl, `<strong style="color:${RESOURCE_DEFS[fuelType]?.color || '#cde'}">${escapeHtml(fuelName)}</strong><br>${exactStored} / ${exactCap}`);
+  }
   const fuelBar = qs('#power-station-used-bar');
-  if (fuelBar) fuelBar.style.width = `${Math.max(0, Math.min(100, (selectedFuelStored / Math.max(1, module.resourceCapacity || 1)) * 100))}%`;
+  if (fuelBar) fuelBar.style.width = `${Math.max(0, Math.min(100, (selectedFuelStored / Math.max(1, fuelCap || 1)) * 100))}%`;
 
   setTextIfChangedIn(modal, '#ps-net-poles', String(linkedPoles.length));
   setTextIfChangedIn(modal, '#ps-net-consumers', String(linkedConsumers));
@@ -994,14 +1753,20 @@ function patchPowerStationModal(module, modal, qs) {
     noFuelWarning.style.display = noFuel ? '' : 'none';
   }
   const deficitWarning = qs('#power-station-deficit-warning');
-  if (deficitWarning) deficitWarning.style.display = (!noFuel && netDelta < 0) ? '' : 'none';
-
-  const infoBadge = qs('#power-station-info-badge');
-      if (infoBadge) {
-        bindTippy(infoBadge, buildPowerStationInfoTooltip({
-          fuelCost, fuelName, powerOutputText, totalLoadText, netDeltaText, statusLabel, noFuel,
-        }));
-      }
+  if (deficitWarning) {
+    // Only warn power short when fuel tank has fuel — avoid "deficit" panic when issue is empty tank
+    if (noFuel) {
+      deficitWarning.style.display = 'none';
+    } else if (netDelta < 0 && importMeets) {
+      deficitWarning.textContent = `POWER SHORT — ${fuelName.toUpperCase()} CAPS AT ${getPowerFuelOutput(fuelType)}/S OUTPUT`;
+      deficitWarning.style.display = '';
+    } else if (netDelta < 0) {
+      deficitWarning.textContent = 'WARNING: POWER DEFICIT';
+      deficitWarning.style.display = '';
+    } else {
+      deficitWarning.style.display = 'none';
+    }
+  }
 
   setHtmlIfChangedIn(modal, '#power-station-network-consumers', buildPowerConsumerListHtml(linkedStorages, linkedTurrets));
   setHtmlIfChangedIn(modal, '#storage-inventory-list', buildPowerStationFuelStoresHtml(module, fuelType));
@@ -1113,6 +1878,18 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
   const qs = (selector) => modal.querySelector(selector);
   if (!qs('#storage-modal-name')) { renderModuleModal(moduleId, modal); return; }
 
+  if (isStorageModule(module)) {
+    if (!qs('.st-layout')) { renderModuleModal(moduleId, modal); return; }
+    patchStorageFacilityModal(module, modal, qs);
+    return;
+  }
+
+  if (isDroneLabModule(module)) {
+    if (!qs('.dl-layout')) { renderModuleModal(moduleId, modal); return; }
+    patchDroneLabModal(module, modal, qs);
+    return;
+  }
+
   if (isPowerStationModule(module)) {
     if (!qs('.ps-layout')) { renderModuleModal(moduleId, modal); return; }
     patchPowerStationModal(module, modal, qs);
@@ -1120,7 +1897,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
   }
 
   if (isResearchLabModule(module)) {
-    if (!qs('.lab-layout') || qs('.ps-layout')) { renderModuleModal(moduleId, modal); return; }
+    if (!qs('.lab-layout') || qs('.ps-layout') || qs('.st-layout') || qs('.dl-layout')) { renderModuleModal(moduleId, modal); return; }
     patchResearchLabModal(module, modal, qs);
     return;
   }
@@ -1475,11 +2252,185 @@ window.sellStorageFacility = function(moduleId, refundCoins) {
   if (refresh.ui) refresh.ui();
 };
 
+function getFuelResourceTier(type) {
+  return Number(Object.entries(MINE_TIERS).find(([, t]) => t.resources?.includes(type))?.[0] || 99);
+}
+
+/** Active mining yield rates by resource type (units per minute). Matches Resources panel formula. */
+function getMiningYieldPerMinute() {
+  const yields = Object.create(null);
+  for (const ship of state.ships || []) {
+    if (ship.targetNode == null || ship.status === 'idle') continue;
+    const node = state.nodes.find((n) => n.id === ship.targetNode);
+    if (!node?.type) continue;
+    const rate = 60 / (1.5 / Math.max(0.01, ship.mineSpeed || 1));
+    yields[node.type] = (yields[node.type] || 0) + rate;
+  }
+  return yields;
+}
+
+let _fuelPickerModuleId = null;
+
+window.openFuelPickerOverlay = function(moduleId) {
+  const module = getModuleById(moduleId);
+  if (!module || !isPowerStationModule(module)) return;
+  window.closeSynthesisOverlay?.();
+  window.closeModuleUpgradeOverlay?.();
+  _fuelPickerModuleId = moduleId;
+  renderFuelPickerList();
+  const overlay = document.getElementById('fuel-picker-overlay');
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.onclick = (e) => { if (e.target === overlay) window.closeFuelPickerOverlay(); };
+  }
+};
+
+window.closeFuelPickerOverlay = function() {
+  _fuelPickerModuleId = null;
+  hideAllTippies();
+  const overlay = document.getElementById('fuel-picker-overlay');
+  if (overlay) {
+    destroyTippiesIn(overlay);
+    overlay.classList.remove('show');
+    overlay.onclick = null;
+  }
+};
+
+window.refreshFuelPickerIfOpen = function(moduleId = null) {
+  if (_fuelPickerModuleId == null) return;
+  if (moduleId != null && moduleId !== _fuelPickerModuleId) return;
+  renderFuelPickerList();
+};
+
+function renderFuelPickerList() {
+  const list = document.getElementById('fuel-picker-list');
+  if (!list || _fuelPickerModuleId == null) return;
+  const module = getModuleById(_fuelPickerModuleId);
+  if (!module) return;
+  const stationLevel = Math.max(1, module.level || 1);
+  const inputPerConsumer = getPowerResourceConsumption(module);
+  const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
+  const consumers = (networkInfo.storages?.length || 0) + (networkInfo.turrets?.length || 0);
+  const current = module.fuelResource || 'iron';
+
+  const yields = getMiningYieldPerMinute();
+  // Burn uses actual consumer count (0 consumers = 0 burn)
+  const burnPerSec = inputPerConsumer * Math.max(0, consumers);
+  const burnPerMin = burnPerSec * 60;
+
+  list.innerHTML = getPowerFuelOptions().map((opt) => {
+    const tier = getFuelResourceTier(opt.type);
+    const unlocked = tier <= stationLevel;
+    const selected = opt.type === current;
+    const stored = module.inventory?.[opt.type] || 0;
+    const color = RESOURCE_DEFS[opt.type]?.color || '#cde';
+    const eff = inputPerConsumer > 0 ? (opt.output / inputPerConsumer) : 0;
+    const yieldPerMin = yields[opt.type] || 0;
+    const importPerMin = getModuleImportPerMinute(module, opt.type);
+    const yieldRounded = Math.round(yieldPerMin);
+    const importRounded = Math.round(importPerMin);
+    const burnRounded = Math.round(burnPerMin);
+    // Sustainable only if deliveries into THIS station cover burn
+    const importMeets = burnPerMin <= 0 ? importPerMin > 0 : importPerMin + 0.001 >= burnPerMin;
+    const netDrainPerSec = Math.max(0, burnPerSec - (importPerMin / 60));
+    const stockSeconds = netDrainPerSec > 0 ? stored / netDrainPerSec : Infinity;
+    const stockEta = (() => {
+      if (!Number.isFinite(stockSeconds) || stockSeconds <= 0) return '';
+      if (stockSeconds < 60) return `~${Math.max(1, Math.round(stockSeconds))}s left`;
+      if (stockSeconds < 3600) return `~${Math.round(stockSeconds / 60)}m left`;
+      return `~${(stockSeconds / 3600).toFixed(1)}h left`;
+    })();
+    const shortBy = Math.max(0, Math.round(burnPerMin - importPerMin));
+
+    let supplyCls = 'none';
+    let supplyLabel = 'No import';
+    let supplyDetail = `${fmt(importRounded)}/m in · ${fmt(burnRounded)}/m burn · ${fmt(yieldRounded)}/m mined`;
+
+    if (!unlocked) {
+      supplyCls = 'locked';
+      supplyLabel = `Need station T${tier}`;
+      supplyDetail = `Unlocks at tier ${tier}`;
+    } else if (burnPerMin <= 0) {
+      supplyCls = importPerMin > 0 || yieldPerMin > 0 ? 'ok' : 'idle';
+      supplyLabel = importPerMin > 0 ? 'Importing' : (yieldPerMin > 0 ? 'Mined (not delivered here)' : 'No power load');
+      supplyDetail = burnPerMin <= 0
+        ? `${fmt(importRounded)}/m in · ${fmt(yieldRounded)}/m mined · no burn`
+        : supplyDetail;
+    } else if (importMeets) {
+      supplyCls = 'ok';
+      supplyLabel = 'Meets demand';
+      supplyDetail = `${fmt(importRounded)}/m in · ${fmt(burnRounded)}/m burn · ${fmt(yieldRounded)}/m mined`;
+    } else if (stored > 0 && netDrainPerSec > 0) {
+      // Imports alone cannot sustain — running down station stockpile
+      supplyCls = 'emergency';
+      supplyLabel = 'Emergency Stockpile';
+      supplyDetail = `In short ${fmt(shortBy)}/m · ${stockEta || 'draining'} · ${fmt(yieldRounded)}/m mined`;
+    } else if (importPerMin > 0) {
+      supplyCls = 'short';
+      supplyLabel = `Import short ${fmt(shortBy)}/m`;
+      supplyDetail = `${fmt(importRounded)}/m in · ${fmt(burnRounded)}/m burn · ${fmt(yieldRounded)}/m mined`;
+    } else if (yieldPerMin > 0) {
+      supplyCls = 'short';
+      supplyLabel = 'Mined, not delivered here';
+      supplyDetail = `0/m in · ${fmt(burnRounded)}/m burn · ${fmt(yieldRounded)}/m mined`;
+    } else {
+      supplyCls = 'none';
+      supplyLabel = 'Will starve';
+      supplyDetail = `0/m in · ${fmt(burnRounded)}/m burn · 0/m mined`;
+    }
+
+    const lockedCls = unlocked ? '' : ' locked';
+    const selCls = selected ? ' selected' : '';
+    return `<button type="button" class="fuel-picker-card${lockedCls}${selCls} fuel-supply-${supplyCls}"
+      ${unlocked ? '' : 'disabled'}
+      onclick="selectPowerStationFuel('${opt.type}')">
+      <div class="fuel-picker-icon">${resourceIconHtml(opt.type, 28)}</div>
+      <div class="fuel-picker-main">
+        <div class="fuel-picker-name" style="color:${color};">${escapeHtml(opt.label)}</div>
+        <div class="fuel-picker-meta">
+          <span>T${tier}</span>
+          <span>Stock ${fmt(stored)}</span>
+          ${selected ? '<span class="fuel-picker-current">ACTIVE</span>' : ''}
+        </div>
+        <div class="fuel-picker-supply fuel-supply-${supplyCls}">
+          <span class="fuel-supply-dot"></span>
+          <span class="fuel-supply-label">${supplyLabel}</span>
+          <span class="fuel-supply-rates">${supplyDetail}</span>
+        </div>
+      </div>
+      <div class="fuel-picker-stats">
+        <div class="fuel-picker-stat"><span class="fuel-picker-stat-l">Input</span><span class="fuel-picker-stat-v">${fmt(inputPerConsumer)}/cons</span></div>
+        <div class="fuel-picker-stat"><span class="fuel-picker-stat-l">Output</span><span class="fuel-picker-stat-v fuel-out">${opt.output}/s</span></div>
+        <div class="fuel-picker-stat"><span class="fuel-picker-stat-l">Burn @${consumers || 0}</span><span class="fuel-picker-stat-v">${fmt(burnPerSec)}/s</span></div>
+        <div class="fuel-picker-stat"><span class="fuel-picker-stat-l">Eff.</span><span class="fuel-picker-stat-v">${eff.toFixed(1)}×</span></div>
+      </div>
+      ${unlocked ? '' : `<div class="fuel-picker-lock">Requires Station Tier ${tier}</div>`}
+    </button>`;
+  }).join('');
+}
+
+window.selectPowerStationFuel = function(fuelResource) {
+  if (_fuelPickerModuleId == null) return;
+  const moduleId = _fuelPickerModuleId;
+  const module = getModuleById(moduleId);
+  if (!module || !isPowerStationModule(module)) return;
+  const tier = getFuelResourceTier(fuelResource);
+  if (tier > (module.level || 1)) return;
+  if (!getPowerFuelOptions().some((o) => o.type === fuelResource)) return;
+  module.fuelResource = fuelResource;
+  window.closeFuelPickerOverlay();
+  patchModuleModal(moduleId);
+  if (refresh.ui) refresh.ui();
+};
+
 window.setPowerStationFuel = function(moduleId, fuelResource) {
   const module = getModuleById(moduleId);
   if (!module || !isPowerStationModule(module)) return;
+  const tier = getFuelResourceTier(fuelResource);
+  if (tier > (module.level || 1)) return;
   module.fuelResource = fuelResource;
-  renderModuleModal(moduleId);
+  if (window.patchModuleModal) window.patchModuleModal(moduleId);
+  else renderModuleModal(moduleId);
 };
 
 window.startCraftBuilding = function(moduleType = STORAGE_FACILITY_ID) {
@@ -1601,8 +2552,10 @@ window.closeSynthesisOverlay = function() {
   _synthesisOverlayModuleId = null;
   _synthesisOverlaySlot = null;
   hideTooltip();
+  hideAllTippies();
   const overlay = document.getElementById('synthesis-overlay');
   if (overlay) {
+    destroyTippiesIn(overlay);
     overlay.classList.remove('show');
     overlay.onclick = null;
   }
@@ -1749,6 +2702,7 @@ window.confirmModuleUpgradeOverlay = function() {
 window.closeLabOverlays = function() {
   window.closeSynthesisOverlay?.();
   window.closeModuleUpgradeOverlay?.();
+  window.closeFuelPickerOverlay?.();
 };
 
 state.modules = (state.modules || []).map((module, index) => normalizeModule(module, index + 1));

@@ -191,12 +191,20 @@ export function showTooltip(e, resourceType, options = {}) {
   const tierLabel = tierEntry ? MINE_TIERS[tierEntry[0]].label : '';
   const tierColor = tierEntry ? (TIER_COLORS[parseInt(tierEntry[0])] || '#e8eaf0') : '#8ab';
   const stock = state ? (state.resources[resourceType] || 0) : 0;
+  const nodeId = options.nodeId;
+  const assignedShips = (state && Number.isFinite(nodeId))
+    ? (state.ships || []).filter((s) => s.targetNode === nodeId)
+    : [];
+  const assignedHtml = assignedShips.length
+    ? `<div style="margin-top:4px;">Assigned: <span style="color:#8fc3ff;">${assignedShips.map((s) => s.name || `Ship #${s.id}`).join(', ')}</span></div>`
+    : (Number.isFinite(nodeId) ? '<div style="margin-top:4px;color:#5a7a9a;">Assigned: <span style="color:#6a8098;">None</span></div>' : '');
   const tt = tooltipEl();
   tt.innerHTML = `
     <div class="tt-name">${resourceIconHtml(resourceType, 14, 'margin-right:6px;position:relative;top:2px;')}${def.label}</div>
     <div>Sell price: <span class="tt-price" style="color:#6fff9a;">$${def.sellPrice} per unit</span></div>
     ${stock > 0 ? `<div>In depot: <span style="color:#cde">${fmt(stock)}</span> <span style="color:#6fff9a;">($${fmt(stock * def.sellPrice)})</span></div>` : ''}
     <div class="tt-tier" style="color:${tierColor}">⬡ ${tierLabel}</div>
+    ${assignedHtml}
     ${options.unmineableByFleet ? '<div style="margin-top:4px;color:#f0b080;">No ship can mine this tier yet.</div>' : ''}
   `;
   tt.style.display = 'block';

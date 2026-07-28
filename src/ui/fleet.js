@@ -2,7 +2,7 @@
 // FLEET UI — ship list, filters, action panel, trade tab
 // ============================================================
 import { state } from '../state.js';
-import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getDepotModules } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getDepotModules } from '../data/modules.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
@@ -130,6 +130,19 @@ export function getShipRouteError(ship) {
     : '';
 }
 
+function depotHasRoomForShip(depot, ship) {
+  if (!depot || !ship) return false;
+  if (ship.depotType === 'power_station') {
+    const cargoType = ship.cargoResource
+      || Object.entries(ship.cargoManifest || {}).find(([, n]) => n > 0)?.[0]
+      || null;
+    if (!cargoType) return true;
+    const need = ship.cargoManifest?.[cargoType] || ship.cargo || 1;
+    return getPowerStationResourceFreeCapacity(depot, cargoType) >= Math.min(need, 1);
+  }
+  return getModuleFreeCapacity(depot) >= 1;
+}
+
 export function getShipHoldingReason(ship) {
   const assignedDepot = ship.depotId !== null && (ship.depotType === 'storage' || ship.depotType === 'power_station')
     ? getDepotModules(state.modules).find(s => s.id === ship.depotId) || null
@@ -138,8 +151,10 @@ export function getShipHoldingReason(ship) {
     ? assignedDepot
       ? ship.depotType === 'storage' && (assignedDepot.power || 0) <= 0
         ? `Blocked: ${assignedDepot.name} has no power`
-        : getModuleFreeCapacity(assignedDepot) < (ship.depotType === 'power_station' ? ship.cargo : 1)
-          ? `Blocked: ${assignedDepot.name} is full`
+        : !depotHasRoomForShip(assignedDepot, ship)
+          ? ship.depotType === 'power_station' && ship.cargoResource
+            ? `Blocked: ${assignedDepot.name} is full of ${ship.cargoResource}`
+            : `Blocked: ${assignedDepot.name} is full`
           : (assignedDepot.health || 0) <= 0
             ? `Blocked: ${assignedDepot.name} is fully damaged`
             : 'Blocked: assigned depot unavailable'

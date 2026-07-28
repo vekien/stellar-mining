@@ -25,7 +25,7 @@ import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
-import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules } from '../data/modules.js';
+import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules, recordModuleImport } from '../data/modules.js';
 import { getBlackHoleRadiusScale } from '../render/animations.js';
 
 function getBlackHoleSpeedMult(ship) {
@@ -283,20 +283,23 @@ function getDepotFreeCapacity(ship, depot, resourceType) {
 }
 
 function canReturnCargo(ship, depot, resourceType, cargoAmount = ship.cargo) {
+  // Allow partial unload: only need some free capacity for cargo on board.
   const cargoManifest = ship.cargoManifest || null;
   if (cargoManifest && Object.keys(cargoManifest).length) {
     if (depot.type === 'base') return true;
     if (!depot.facility) return false;
-    if (depot.type === 'storage') return getDepotFreeCapacity(ship, depot, resourceType) >= getCargoManifestTotal(cargoManifest);
+    if (depot.type === 'storage') return getDepotFreeCapacity(ship, depot, resourceType) > 0;
     if (depot.type === 'power_station') {
-      return Object.entries(cargoManifest).every(([type, amount]) => getPowerStationResourceFreeCapacity(depot.facility, type) >= amount);
+      return Object.entries(cargoManifest).some(([type, amount]) => (
+        amount > 0 && getPowerStationResourceFreeCapacity(depot.facility, type) > 0
+      ));
     }
     return false;
   }
   if (cargoAmount <= 0) return true;
   const free = getDepotFreeCapacity(ship, depot, resourceType);
   if (!Number.isFinite(free)) return false;
-  return free >= cargoAmount;
+  return free > 0;
 }
 
 function setTransportHoldingAnchor(ship) {
@@ -381,7 +384,11 @@ function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, count
     if (station) {
       const free = getPowerStationResourceFreeCapacity(station, ev.cargoResource);
       deposited = free >= ev.amount ? ev.amount : 0;
-      if (deposited > 0) station.inventory[ev.cargoResource] = (station.inventory[ev.cargoResource] || 0) + deposited;
+      if (deposited > 0) {
+        station.inventory[ev.cargoResource] = (station.inventory[ev.cargoResource] || 0) + deposited;
+        recordModuleImport(station, ev.cargoResource, deposited);
+        window.refreshFuelPickerIfOpen?.(station.id);
+      }
       depotLabel = station.name;
       depositBlocked = deposited < ev.amount;
       const w = gridToWorld(station.col, station.row);
@@ -646,7 +653,7 @@ export function tickShip(ship, dt) {
       const depot = resolveShipDepot(ship);
       const canLeaveHolding = depot.operational
         && !(depot.type === 'storage' && depot.facility && getModuleFreeCapacity(depot.facility) <= 0)
-        && !(depot.type === 'power_station' && depot.facility && getModuleFreeCapacity(depot.facility) < ship.cargo);
+        && !(depot.type === 'power_station' && depot.facility && ship.cargo > 0 && !canReturnCargo(ship, depot, ship.cargoResource));
       if (canLeaveHolding) {
         const depotDest = getShipDepotDestination(ship);
         ship.destX = depotDest.x;

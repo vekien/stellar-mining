@@ -91,13 +91,51 @@ export function getModuleInventoryTotal(module) {
 export function getModuleFreeCapacity(module) {
   if (isStorageModule(module)) return Math.max(0, (module?.storageCapacity || 0) - getModuleInventoryTotal(module));
   if (isResearchLabModule(module)) return Number.MAX_SAFE_INTEGER;
-  if (isPowerStationModule(module)) return Math.max(0, (module?.resourceCapacity || 0) - getModuleInventoryTotal(module));
+  // Power station capacity is per resource type (not a shared total tank).
+  // Without a resource type, prefer getPowerStationResourceFreeCapacity(module, type).
+  // Generic callers treat the station as having room unless capacity is unset.
+  if (isPowerStationModule(module)) return module?.resourceCapacity || 0;
   return 0;
 }
 
 export function getPowerStationResourceFreeCapacity(module, resourceType) {
   if (!isPowerStationModule(module) || !resourceType) return 0;
   return Math.max(0, (module?.resourceCapacity || 0) - (module?.inventory?.[resourceType] || 0));
+}
+
+const IMPORT_WINDOW_MS = 60_000;
+
+/** Record a delivery into a module for rolling import-rate stats (runtime only, not saved). */
+export function recordModuleImport(module, resourceType, amount) {
+  if (!module || !resourceType || !(amount > 0)) return;
+  const now = Date.now();
+  if (!Array.isArray(module.importEvents)) module.importEvents = [];
+  module.importEvents.push({ t: now, type: resourceType, amount });
+  const cutoff = now - IMPORT_WINDOW_MS;
+  if (module.importEvents.length > 80 || (module.importEvents[0] && module.importEvents[0].t < cutoff)) {
+    module.importEvents = module.importEvents.filter((e) => e.t >= cutoff);
+  }
+}
+
+/** Units delivered to this module in the last ~60s for a resource (≈ per-minute rate). */
+export function getModuleImportPerMinute(module, resourceType) {
+  if (!module || !resourceType) return 0;
+  const now = Date.now();
+  const cutoff = now - IMPORT_WINDOW_MS;
+  const events = Array.isArray(module.importEvents) ? module.importEvents : [];
+  let total = 0;
+  let oldest = now;
+  let count = 0;
+  for (const e of events) {
+    if (e.t < cutoff || e.type !== resourceType) continue;
+    total += e.amount || 0;
+    if (e.t < oldest) oldest = e.t;
+    count++;
+  }
+  if (total <= 0 || count === 0) return 0;
+  // Extrapolate if the observation window is still filling
+  const span = Math.max(5_000, Math.min(IMPORT_WINDOW_MS, now - oldest));
+  return total * (IMPORT_WINDOW_MS / span);
 }
 
 function getPowerNodeRange(module) {
