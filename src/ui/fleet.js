@@ -39,13 +39,21 @@ let _sellOverlayCtx = null;
 
 const ROLE_LABELS = { mining: 'Mining', transport: 'Transport', combat: 'Combat', garrison: 'Garrison', unique: 'Unique' };
 
+function isMineableCargoType(resourceType) {
+  const def = RESOURCE_DEFS[resourceType];
+  return !!(def && !def.special && !def.noIcon);
+}
+
 export function getShipCargoSummary(ship) {
-  const cargoEntries = Object.entries(ship.cargoManifest || {}).filter(([, amount]) => amount > 0);
-  return cargoEntries.length
-    ? cargoEntries.map(([resourceType, amount]) => `${RESOURCE_DEFS[resourceType]?.label || resourceType} ${fmt(amount)}`).join(' + ')
-    : ship.cargo > 0 && ship.cargoResource
-      ? `${RESOURCE_DEFS[ship.cargoResource]?.label || ship.cargoResource} ${fmt(ship.cargo)}`
-      : 'None';
+  const cargoEntries = Object.entries(ship.cargoManifest || {})
+    .filter(([resourceType, amount]) => amount > 0 && isMineableCargoType(resourceType));
+  if (cargoEntries.length) {
+    return cargoEntries.map(([resourceType, amount]) => `${RESOURCE_DEFS[resourceType]?.label || resourceType} ${fmt(amount)}`).join(' + ');
+  }
+  if (ship.cargo > 0 && ship.cargoResource && isMineableCargoType(ship.cargoResource)) {
+    return `${RESOURCE_DEFS[ship.cargoResource]?.label || ship.cargoResource} ${fmt(ship.cargo)}`;
+  }
+  return ship.cargo > 0 ? fmt(ship.cargo) : 'None';
 }
 
 function getShipPickupLabel(ship) {
@@ -88,7 +96,8 @@ export function getShipTransportSummary(ship) {
 
 export function getShipTransportStatusHtml(ship) {
   const summary = getShipTransportSummary(ship);
-  const cargoEntries = Object.entries(ship.cargoManifest || {}).filter(([, amount]) => amount > 0);
+  const cargoEntries = Object.entries(ship.cargoManifest || {})
+    .filter(([resourceType, amount]) => amount > 0 && isMineableCargoType(resourceType));
   if (!cargoEntries.length) {
     return `<div style="font-size:12px;color:#cde;line-height:1.4;">${summary.value}</div>`;
   }
@@ -435,7 +444,7 @@ export function renderShipsList() {
     statusBadge.textContent = statusMeta.badge;
     row2.appendChild(statusBadge);
 
-    if (resDef) {
+    if (resDef && !resDef.special && !resDef.noIcon) {
       const dot = document.createElement('img');
       dot.src = getResourceIconPath(targetNode?.type);
       dot.alt = resDef.label;
@@ -451,6 +460,12 @@ export function renderShipsList() {
       row2.appendChild(dot);
       row2.appendChild(resLabel);
       row2.appendChild(cargoText);
+    } else if (resDef?.special) {
+      // Special map nodes (crashed ships, etc.) — label only, not ore cargo
+      const resLabel = document.createElement('span');
+      resLabel.style.cssText = `font-size:14px;color:${resDef.color || '#8ab'};`;
+      resLabel.textContent = resDef.label;
+      row2.appendChild(resLabel);
     } else {
       if ((ship.mineSpeed || 0) > 0) {
         const unassignedLabel = document.createElement('span');

@@ -223,7 +223,7 @@ function initStorageModalDrag(modal) {
   const moduleId = Number(modal.dataset.moduleId);
   const module = Number.isFinite(moduleId) ? getModuleById(moduleId) : null;
   initFloatingResize(modal, overlay, {
-    minW: module && (isResearchLabModule(module) || isPowerStationModule(module) || isStorageModule(module) || isDroneLabModule(module)) ? 720 : 420,
+    minW: module && isWideBuildingModal(module) ? 720 : 420,
     minH: 300,
     layoutKey,
     isActive: () => overlay.style.display === 'flex',
@@ -239,9 +239,24 @@ function getModuleAccentClass(module) {
   return '';
 }
 
+function isWideBuildingModal(module) {
+  return !!(module && (
+    isResearchLabModule(module)
+    || isPowerStationModule(module)
+    || isStorageModule(module)
+    || isDroneLabModule(module)
+    || isPowerPoleModule(module)
+    || isLabTowerModule(module)
+  ));
+}
+
+function isCompactWideBuilding(module) {
+  return isPowerPoleModule(module) || isLabTowerModule(module);
+}
+
 function applyModuleModalChrome(modal, module) {
   if (!modal || !module) return;
-  const isWide = isResearchLabModule(module) || isPowerStationModule(module) || isStorageModule(module) || isDroneLabModule(module);
+  const isWide = isWideBuildingModal(module);
   const accent = getModuleAccentClass(module);
   modal.classList.remove(
     'storage-modal-window-lab',
@@ -257,11 +272,18 @@ function applyModuleModalChrome(modal, module) {
     body.classList.toggle('storage-modal-body-lab', isWide);
     body.style.padding = isWide ? '12px' : '14px';
   }
-  if (isWide && parseInt(modal.style.width, 10) < 900) modal.style.width = '980px';
-  // Default open height for drone lab (~compact bay list). Skip if user resized.
-  if (isDroneLabModule(module) && modal.dataset.moved !== '1' && !modal.dataset.height) {
-    modal.style.height = '560px';
-    modal.dataset.height = '560';
+  if (isWide && parseInt(modal.style.width, 10) < 900) {
+    modal.style.width = isCompactWideBuilding(module) ? '900px' : '980px';
+  }
+  // Default open heights. Skip if user resized.
+  if (modal.dataset.moved !== '1' && !modal.dataset.height) {
+    if (isDroneLabModule(module)) {
+      modal.style.height = '560px';
+      modal.dataset.height = '560';
+    } else if (isCompactWideBuilding(module)) {
+      modal.style.height = '520px';
+      modal.dataset.height = '520';
+    }
   }
 }
 
@@ -271,13 +293,16 @@ function ensureStorageModalWindow(moduleId) {
   const host = getStorageModalHost();
   if (!host) return null;
   const module = getModuleById(moduleId);
-  const isWide = module && (isResearchLabModule(module) || isPowerStationModule(module) || isStorageModule(module) || isDroneLabModule(module));
+  const isWide = isWideBuildingModal(module);
   const isDrone = module && isDroneLabModule(module);
+  const isCompact = module && isCompactWideBuilding(module);
+  const defaultW = isWide ? (isCompact ? 900 : 980) : 600;
+  const defaultH = isDrone ? 560 : isCompact ? 520 : 0;
   modal = document.createElement('div');
   modal.className = 'storage-modal-window';
   modal.dataset.moduleId = String(moduleId);
-  modal.style.cssText = `position:absolute;width:${isWide ? 980 : 600}px;${isDrone ? 'height:560px;' : ''}background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;`;
-  if (isDrone) modal.dataset.height = '560';
+  modal.style.cssText = `position:absolute;width:${defaultW}px;${defaultH ? `height:${defaultH}px;` : ''}background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;`;
+  if (defaultH) modal.dataset.height = String(defaultH);
   modal.innerHTML = `<div class="panel-shell-head storage-modal-drag-handle"><div class="panel-shell-title storage-modal-title">BUILDING</div><button class="panel-shell-close" onclick="closeStorageModal(${moduleId})">✕</button></div><div class="storage-modal-body" style="padding:${isWide ? '12px' : '14px'};"></div>`;
   applyModuleModalChrome(modal, module);
   host.appendChild(modal);
@@ -419,7 +444,6 @@ function buildSynthesisSlotsHtml(module) {
     const recipe = id ? getSynthesisRecipe(id) : null;
     if (!recipe) {
       return `<button type="button" class="lab-synth-slot" onclick="openSynthesisOverlay(${module.id},${i})">
-        <span class="lab-synth-slot-index">SLOT ${i + 1}</span>
         <div class="lab-synth-slot-empty">+</div>
         <div class="lab-synth-slot-body">
           <div class="lab-synth-slot-empty-label">ASSIGN RECIPE</div>
@@ -432,7 +456,6 @@ function buildSynthesisSlotsHtml(module) {
     ).join('');
     // CSS animation duration = craft cycle (preview only until production craft is wired)
     return `<button type="button" class="lab-synth-slot filled" onclick="openSynthesisOverlay(${module.id},${i})" style="--synth-cycle:${craftSec}s;">
-      <span class="lab-synth-slot-index">SLOT ${i + 1}</span>
       <span class="lab-synth-slot-clear" onclick="event.stopPropagation();clearSynthesisSlot(${module.id},${i})" title="Clear">✕</span>
       <div class="lab-synth-timer" aria-hidden="true">
         <svg class="lab-synth-ring" viewBox="0 0 36 36">
@@ -1127,6 +1150,226 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
     return;
   }
 
+  if (isLabTowerModule(module)) {
+    body.innerHTML = `
+      <div class="lab-layout lt-layout">
+        <div class="lab-hero">
+          <div class="lab-hero-left">
+            <div class="lab-hero-name-row">
+              <span id="storage-modal-name" class="storage-modal-name lab-hero-name"></span>
+              <button onclick="openStorageRenameOverlay(${module.id})" title="Rename Module" class="storage-modal-rename-btn">✎</button>
+              <div id="module-operational-banner" class="lab-status-pill">ONLINE</div>
+            </div>
+            <div class="lab-meter">
+              <div class="lab-meter-head">
+                <span class="lab-meter-label">Health</span>
+                <span id="storage-health-value" class="lab-meter-value"></span>
+              </div>
+              <div class="lab-meter-track"><div id="storage-health-bar" class="lab-meter-bar"></div></div>
+            </div>
+          </div>
+          <div id="storage-tier-pill" class="lab-tier-badge"></div>
+        </div>
+
+        <div class="pp-main-grid">
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ LAB RELAY</span>
+              <span class="lab-panel-sub">systems</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="lab-stat-cards">
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Status</div>
+                  <div id="lt-status-value" class="lab-stat-value green">ONLINE</div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Relay Range</div>
+                  <div id="relay-range-value" class="lab-stat-value">0 TILES</div>
+                </div>
+              </div>
+
+              <div class="pp-range-block lt-range-block">
+                <div class="lab-meter-head">
+                  <span class="lab-meter-label">Coverage</span>
+                  <span id="relay-range-blocks" class="pp-range-blocks lt-range-blocks"></span>
+                </div>
+                <div class="lt-range-note" id="lt-range-note">Links matching-tier resource nodes in range.</div>
+              </div>
+
+              <div class="lab-stat-cards">
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Node Tier</div>
+                  <div id="lt-node-tier" class="lab-stat-value">T${module.level || 1}</div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Linked Nodes</div>
+                  <div id="lt-node-count" class="lab-stat-value">0</div>
+                </div>
+              </div>
+
+              <div class="lab-network-block">
+                <div class="lab-network-label">◈ Linked Network</div>
+                <div class="lab-network-tiles">
+                  <div class="lab-net-tile" data-tippy-content="Research Labs">
+                    <img class="lab-net-icon" src="assets/images/buildings/lab.png" alt="">
+                    <div>
+                      <div id="lt-net-labs" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Labs</div>
+                    </div>
+                  </div>
+                  <div class="lab-net-tile" data-tippy-content="Lab Towers">
+                    <img class="lab-net-icon" src="assets/images/buildings/lab_pole.png" alt="">
+                    <div>
+                      <div id="lt-net-towers" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Towers</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="lab-panel st-inv-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ LINKED RESOURCES</span>
+              <span class="lab-panel-sub" id="lt-res-count">in range</span>
+            </div>
+            <div class="lab-panel-body">
+              <div id="lab-linked-resources" class="lab-res-list lt-res-list"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="lab-footer">
+          <div class="lab-actions">
+            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
+            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
+            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
+            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
+          </div>
+        </div>
+        <div id="storage-upgrade-reqs" style="display:none;"></div>
+      </div>`;
+    patchModuleModal(moduleId, modal);
+    return;
+  }
+
+  if (isPowerPoleModule(module)) {
+    body.innerHTML = `
+      <div class="lab-layout pp-layout">
+        <div class="lab-hero">
+          <div class="lab-hero-left">
+            <div class="lab-hero-name-row">
+              <span id="storage-modal-name" class="storage-modal-name lab-hero-name"></span>
+              <button onclick="openStorageRenameOverlay(${module.id})" title="Rename Module" class="storage-modal-rename-btn">✎</button>
+              <div id="module-operational-banner" class="lab-status-pill">ONLINE</div>
+            </div>
+            <div class="lab-meter">
+              <div class="lab-meter-head">
+                <span class="lab-meter-label">Health</span>
+                <span id="storage-health-value" class="lab-meter-value"></span>
+              </div>
+              <div class="lab-meter-track"><div id="storage-health-bar" class="lab-meter-bar"></div></div>
+            </div>
+          </div>
+          <div id="storage-tier-pill" class="lab-tier-badge"></div>
+        </div>
+
+        <div id="power-station-no-fuel-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO FUEL ON NETWORK</div>
+
+        <div class="pp-main-grid">
+          <section class="lab-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ RELAY</span>
+              <span class="lab-panel-sub">systems</span>
+            </div>
+            <div class="lab-panel-body">
+              <div class="lab-stat-cards">
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Status</div>
+                  <div id="pp-status-value" class="lab-stat-value green">ONLINE</div>
+                </div>
+                <div class="lab-stat-card">
+                  <div class="lab-stat-label">Relay Range</div>
+                  <div id="relay-range-value" class="lab-stat-value">0 TILES</div>
+                </div>
+              </div>
+
+              <div class="pp-range-block">
+                <div class="lab-meter-head">
+                  <span class="lab-meter-label">Coverage</span>
+                  <span id="relay-range-blocks" class="pp-range-blocks"></span>
+                </div>
+              </div>
+
+              <div class="ps-dash" id="power-pole-dash">
+                <div class="ps-dash-section">
+                  <div class="ps-dash-head">
+                    <span class="ps-dash-title">Power load</span>
+                    <span id="pp-balance-pill" class="ps-balance-pill">—</span>
+                  </div>
+                  <div class="ps-dash-row" id="pp-row-output" data-tippy-content="">
+                    <span class="ps-dash-label">Output</span>
+                    <div class="ps-dash-track"><div id="pp-bar-output" class="ps-dash-bar ps-bar-output"></div></div>
+                    <span id="pp-val-output" class="ps-dash-val">0/s</span>
+                  </div>
+                  <div class="ps-dash-row" id="pp-row-load" data-tippy-content="">
+                    <span class="ps-dash-label">Load</span>
+                    <div class="ps-dash-track"><div id="pp-bar-load" class="ps-dash-bar ps-bar-load"></div></div>
+                    <span id="pp-val-load" class="ps-dash-val">0/s</span>
+                  </div>
+                  <div class="ps-dash-note" id="pp-power-note"></div>
+                </div>
+              </div>
+
+              <div class="lab-network-block">
+                <div class="lab-network-label">◈ Linked Network</div>
+                <div class="lab-network-tiles">
+                  <div class="lab-net-tile" data-tippy-content="Power Stations">
+                    <img class="lab-net-icon" src="assets/images/buildings/power.png" alt="">
+                    <div>
+                      <div id="pp-net-stations" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Stations</div>
+                    </div>
+                  </div>
+                  <div class="lab-net-tile" data-tippy-content="Power Poles">
+                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
+                    <div>
+                      <div id="pp-net-poles" class="lab-net-count">0</div>
+                      <div class="lab-net-name">Poles</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="lab-panel st-inv-panel">
+            <div class="lab-panel-h">
+              <span class="lab-panel-title">◈ CONSUMERS</span>
+              <span class="lab-panel-sub" id="pp-consumer-count">drawing power</span>
+            </div>
+            <div class="lab-panel-body">
+              <div id="power-station-network-consumers" class="ps-consumer-list"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="lab-footer">
+          <div class="lab-actions">
+            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
+            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
+            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
+            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
+          </div>
+        </div>
+        <div id="storage-upgrade-reqs" style="display:none;"></div>
+      </div>`;
+    patchModuleModal(moduleId, modal);
+    return;
+  }
+
   if (isResearchLabModule(module)) {
     module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
     body.innerHTML = `
@@ -1787,6 +2030,204 @@ function patchPowerStationModal(module, modal, qs) {
   if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
 }
 
+function patchPowerPoleModal(module, modal, qs) {
+  const moduleDef = getModuleDef(module.type);
+  const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
+  const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+  const moduleTier = Math.max(1, Math.min(10, module.level || 1));
+  const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
+  const title = modal.querySelector('.storage-modal-title');
+  if (title) title.textContent = moduleDef.panelTitle;
+  qs('#storage-modal-name').textContent = `⬡ ${module.name}`;
+  const tierEl = qs('#storage-tier-pill');
+  tierEl.textContent = `TIER ${toRoman(moduleTier)}`;
+  tierEl.style.color = isLightColor(tierColor) ? '#111' : '#fff';
+  tierEl.style.background = tierColor;
+  qs('#storage-health-value').textContent = `${fmt(module.health)} / ${fmt(module.maxHealth)}`;
+  qs('#storage-health-value').style.color = hpColor;
+  qs('#storage-health-bar').style.width = `${hpPct}%`;
+  qs('#storage-health-bar').style.background = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
+
+  const online = (module.health || 0) > 0;
+  const banner = qs('#module-operational-banner');
+  if (banner) {
+    banner.textContent = online ? 'ONLINE' : 'OFFLINE';
+    banner.className = `lab-status-pill${online ? '' : ' offline'}`;
+  }
+  setTextIfChangedIn(modal, '#pp-status-value', online ? 'ONLINE' : 'OFFLINE');
+  const statusVal = qs('#pp-status-value');
+  if (statusVal) {
+    statusVal.classList.toggle('green', online);
+    statusVal.style.color = online ? '' : '#f88';
+  }
+
+  const range = Math.max(0, module.relayRange || 0);
+  setTextIfChangedIn(modal, '#relay-range-value', `${range} TILES`);
+  setTextIfChangedIn(modal, '#relay-range-blocks', Array.from({ length: range }, () => '■').join(' '));
+
+  const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
+  const networkState = getPowerNetworkState(state.modules, state.turrets);
+  const linkedPoles = networkInfo.poles;
+  const linkedStorages = networkInfo.storages;
+  const linkedStations = networkInfo.stations;
+  const linkedTurrets = networkInfo.turrets;
+  const linkedConsumers = linkedStorages.length + linkedTurrets.length;
+  const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
+
+  const totalLoad = linkedStorages.reduce((sum, storage) => sum + getStoragePowerUsage(storage), 0)
+    + linkedTurrets.reduce((sum, turret) => sum + (turret.powerUsage || 0), 0);
+  const activeStations = linkedStations.filter((station) => (station.health || 0) > 0 && hasPowerStationFuel(station));
+  const offlineStations = linkedStations.filter((station) => (station.health || 0) > 0 && !hasPowerStationFuel(station));
+  const totalOutput = activeStations.reduce((sum, station) => {
+    const stationConsumers = (networkState.stationLinkedStorages.get(station.id) || []).length
+      + (networkState.stationLinkedTurrets.get(station.id) || []).length;
+    return sum + getPowerStationEffectiveOutput(station, stationConsumers);
+  }, 0);
+  const offlineOutput = offlineStations.reduce((sum, station) => sum + getPowerFuelOutput(station.fuelResource || 'iron'), 0);
+  const netDelta = totalOutput - totalLoad;
+  const totalOutputText = totalOutput.toFixed(1).replace(/\.0$/, '');
+  const totalLoadText = totalLoad.toFixed(1).replace(/\.0$/, '');
+  const netDeltaText = `${netDelta >= 0 ? '+' : ''}${netDelta.toFixed(1).replace(/\.0$/, '')}`;
+  const statusLabel = netDelta > 0 ? 'Surplus' : netDelta < 0 ? 'Deficit' : 'Balanced';
+  const facilityLabel = linkedConsumers === 1 ? 'consumer' : 'consumers';
+
+  const barMax = Math.max(totalOutput, totalLoad, 0.001);
+  const setBar = (id, pct) => {
+    const el = qs(id);
+    if (el) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  };
+  setBar('#pp-bar-output', (totalOutput / barMax) * 100);
+  setBar('#pp-bar-load', (totalLoad / barMax) * 100);
+  setTextIfChangedIn(modal, '#pp-val-output', `${totalOutputText}/s`);
+  setTextIfChangedIn(modal, '#pp-val-load', `${totalLoadText}/s`);
+
+  const setPill = (id, cls, text) => {
+    const el = qs(id);
+    if (!el) return;
+    el.className = `ps-balance-pill ${cls}`;
+    setTextIfChangedIn(modal, id, text);
+  };
+  if (!online) {
+    setPill('#pp-balance-pill', 'bad', 'OFFLINE');
+    setTextIfChangedIn(modal, '#pp-power-note', 'Relay destroyed — network path interrupted.');
+  } else if (linkedStations.length <= 0) {
+    setPill('#pp-balance-pill', 'idle', 'NO STATION');
+    setTextIfChangedIn(modal, '#pp-power-note', 'Not linked to a powered station.');
+  } else if (noFuelIds.has(module.id) || activeStations.length <= 0) {
+    setPill('#pp-balance-pill', 'bad', 'NO FUEL');
+    setTextIfChangedIn(modal, '#pp-power-note', offlineOutput > 0
+      ? `Linked stations offline for fuel (−${offlineOutput.toFixed(1).replace(/\.0$/, '')}/s potential).`
+      : 'Linked stations have no fuel.');
+  } else if (netDelta > 0.05) {
+    setPill('#pp-balance-pill', 'ok', 'SURPLUS');
+    setTextIfChangedIn(modal, '#pp-power-note', `Network generating ${netDeltaText}/s more than load.`);
+  } else if (netDelta < -0.05) {
+    setPill('#pp-balance-pill', 'bad', 'DEFICIT');
+    setTextIfChangedIn(modal, '#pp-power-note', `Load exceeds network output by ${Math.abs(netDelta).toFixed(1).replace(/\.0$/, '')}/s.`);
+  } else {
+    setPill('#pp-balance-pill', 'ok', 'BALANCED');
+    setTextIfChangedIn(modal, '#pp-power-note', 'Network output matches consumer load.');
+  }
+
+  bindTippy(qs('#pp-row-output'),
+    `<strong>Network output</strong><br>Power from linked stations with fuel.<br><span style="color:#ffe066">${totalOutputText}/s</span>${offlineOutput > 0 ? `<br><span style="color:#f88">−${offlineOutput.toFixed(1).replace(/\.0$/, '')}/s offline (no fuel)</span>` : ''}`);
+  bindTippy(qs('#pp-row-load'),
+    `<strong>Network load</strong><br>Demand from ${linkedConsumers} linked ${facilityLabel}.<br><span style="color:#ffe066">${totalLoadText}/s</span> total draw`);
+
+  setTextIfChangedIn(modal, '#pp-net-stations', String(linkedStations.length));
+  setTextIfChangedIn(modal, '#pp-net-poles', String(linkedPoles.length));
+  setTextIfChangedIn(modal, '#pp-consumer-count', `${linkedConsumers} drawing`);
+
+  const noFuelWarning = qs('#power-station-no-fuel-warning');
+  if (noFuelWarning) noFuelWarning.style.display = noFuelIds.has(module.id) ? '' : 'none';
+
+  setHtmlIfChangedIn(modal, '#power-station-network-consumers', buildPowerConsumerListHtml(linkedStorages, linkedTurrets));
+  bindTippyIn(modal);
+
+  const upgradeCost = getModuleUpgradeCost(module);
+  const atMaxTier = module.level >= 10;
+  const upBtn = qs('#storage-upgrade-btn');
+  if (upBtn) {
+    upBtn.textContent = atMaxTier ? '★ MAX TIER' : 'UPGRADE';
+    upBtn.disabled = atMaxTier;
+    upBtn.onclick = () => {
+      if (atMaxTier) return;
+      window.openModuleUpgradeOverlay?.(module.id);
+    };
+  }
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
+}
+
+function patchLabTowerModal(module, modal, qs) {
+  const moduleDef = getModuleDef(module.type);
+  const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
+  const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+  const moduleTier = Math.max(1, Math.min(10, module.level || 1));
+  const tierColor = MINE_TIERS[moduleTier]?.color || '#8ab';
+  const title = modal.querySelector('.storage-modal-title');
+  if (title) title.textContent = moduleDef.panelTitle;
+  qs('#storage-modal-name').textContent = `⬡ ${module.name}`;
+  const tierEl = qs('#storage-tier-pill');
+  tierEl.textContent = `TIER ${toRoman(moduleTier)}`;
+  tierEl.style.color = isLightColor(tierColor) ? '#111' : '#fff';
+  tierEl.style.background = tierColor;
+  qs('#storage-health-value').textContent = `${fmt(module.health)} / ${fmt(module.maxHealth)}`;
+  qs('#storage-health-value').style.color = hpColor;
+  qs('#storage-health-bar').style.width = `${hpPct}%`;
+  qs('#storage-health-bar').style.background = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
+
+  const online = (module.health || 0) > 0;
+  const banner = qs('#module-operational-banner');
+  if (banner) {
+    banner.textContent = online ? 'ONLINE' : 'OFFLINE';
+    banner.className = `lab-status-pill${online ? '' : ' offline'}`;
+  }
+  setTextIfChangedIn(modal, '#lt-status-value', online ? 'ONLINE' : 'OFFLINE');
+  const statusVal = qs('#lt-status-value');
+  if (statusVal) {
+    statusVal.classList.toggle('green', online);
+    statusVal.style.color = online ? '' : '#f88';
+  }
+
+  const range = Math.max(0, module.relayRange || 0);
+  setTextIfChangedIn(modal, '#relay-range-value', `${range} TILES`);
+  const blocksEl = qs('#relay-range-blocks');
+  if (blocksEl) {
+    const blocks = Array.from({ length: range }, () => '■').join(' ');
+    if (blocksEl.textContent !== blocks) blocksEl.textContent = blocks;
+  }
+
+  const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
+  const resourceTypes = new Set(labInfo.resources.map((entry) => entry.node?.type).filter(Boolean));
+  setTextIfChangedIn(modal, '#lt-node-tier', `T${moduleTier}`);
+  setTextIfChangedIn(modal, '#lt-node-count', String(labInfo.resources.length));
+  setTextIfChangedIn(modal, '#lt-net-labs', String(labInfo.labs.length));
+  // Include self in tower count display
+  setTextIfChangedIn(modal, '#lt-net-towers', String(labInfo.towers.length + 1));
+  setTextIfChangedIn(modal, '#lt-res-count', `${resourceTypes.size} type${resourceTypes.size === 1 ? '' : 's'}`);
+  setTextIfChangedIn(modal, '#lt-range-note', online
+    ? `Links Tier ${moduleTier} resource nodes within ${range} tiles.`
+    : 'Tower offline — resource links inactive.');
+
+  setHtmlIfChangedIn(modal, '#lab-linked-resources', buildLabLinkedResourcesHtml(module, labInfo));
+  bindTippyIn(modal);
+
+  const upgradeCost = getModuleUpgradeCost(module);
+  const atMaxTier = module.level >= 10;
+  const upBtn = qs('#storage-upgrade-btn');
+  if (upBtn) {
+    upBtn.textContent = atMaxTier ? '★ MAX TIER' : 'UPGRADE';
+    upBtn.disabled = atMaxTier;
+    upBtn.onclick = () => {
+      if (atMaxTier) return;
+      window.openModuleUpgradeOverlay?.(module.id);
+    };
+  }
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
+}
+
 function patchResearchLabModal(module, modal, qs) {
   module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
   const moduleDef = getModuleDef(module.type);
@@ -1896,8 +2337,20 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
     return;
   }
 
+  if (isPowerPoleModule(module)) {
+    if (!qs('.pp-layout')) { renderModuleModal(moduleId, modal); return; }
+    patchPowerPoleModal(module, modal, qs);
+    return;
+  }
+
+  if (isLabTowerModule(module)) {
+    if (!qs('.lt-layout')) { renderModuleModal(moduleId, modal); return; }
+    patchLabTowerModal(module, modal, qs);
+    return;
+  }
+
   if (isResearchLabModule(module)) {
-    if (!qs('.lab-layout') || qs('.ps-layout') || qs('.st-layout') || qs('.dl-layout')) { renderModuleModal(moduleId, modal); return; }
+    if (!qs('.lab-layout') || qs('.ps-layout') || qs('.st-layout') || qs('.dl-layout') || qs('.pp-layout') || qs('.lt-layout')) { renderModuleModal(moduleId, modal); return; }
     patchResearchLabModal(module, modal, qs);
     return;
   }

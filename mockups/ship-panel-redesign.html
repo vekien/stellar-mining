@@ -1,0 +1,1666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ship Command Modal — Mock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
+  <style>
+    :root {
+      --line: #1c3a66;
+      --text: #d5e2f2;
+      --muted: #7a96b4;
+      --dim: #4f6f90;
+      --blue: #4ab0ff;
+      --gold: #ffe066;
+      --green: #5dffa0;
+      --red: #ff7a7a;
+      --accent: #60d090;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 20px;
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 900px 480px at 20% 0%, rgba(40,100,180,.12), transparent 55%),
+        #050910;
+    }
+    .ms {
+      font-family: 'Material Symbols Outlined', sans-serif;
+      font-size: 18px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .ms.fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+    .demo-switch { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .demo-switch button {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: rgba(8,16,32,.85);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .demo-switch button.on {
+      color: var(--blue);
+      border-color: rgba(74,176,255,.5);
+      background: rgba(30,70,130,.35);
+    }
+
+    /* ── Window ── */
+    .win {
+      width: 980px;
+      max-width: 98vw;
+      height: 620px;
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      border-radius: 10px;
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, #1a3a6e);
+      background: linear-gradient(165deg, #0b1528, #08101c);
+      box-shadow: 0 24px 64px rgba(0,0,0,.7), 0 0 28px color-mix(in srgb, var(--accent) 10%, transparent);
+      overflow: hidden;
+    }
+
+    .titlebar {
+      height: 42px;
+      flex: 0 0 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px 0 16px;
+      border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+      background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, rgba(8,16,36,.9)), rgba(6,12,24,.5));
+    }
+    .titlebar h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      letter-spacing: 2.5px;
+      color: var(--accent);
+    }
+    .xbtn {
+      width: 28px; height: 28px; border: 0; border-radius: 4px;
+      background: transparent; color: var(--dim); font-size: 18px; cursor: pointer;
+    }
+    .xbtn:hover { color: #fff; background: rgba(200,60,60,.2); }
+
+    .body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 10px;
+    }
+
+    /* Hero */
+    .hero {
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+      background:
+        radial-gradient(ellipse 70% 120% at 0% 50%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 55%),
+        linear-gradient(180deg, rgba(10,30,60,.55), rgba(6,14,32,.5));
+    }
+    .hero-left { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+    .hero-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .hero-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 16px;
+      letter-spacing: 1.5px;
+      color: color-mix(in srgb, var(--accent) 35%, #e8f4ff);
+      font-weight: 700;
+    }
+    .rename { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+    .status-pill {
+      margin-left: auto;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+    .status-pill.loading { background: linear-gradient(90deg,#8a6010,#caa020); color: #1a1000; }
+    .status-pill.idle { background: linear-gradient(90deg,#1a8040,#2ecc71); color: #04140a; }
+    .status-pill.holding { background: linear-gradient(90deg,#802020,#c44); color: #fff; }
+    .status-pill.patrol { background: linear-gradient(90deg,#1a4060,#2a80c0); color: #fff; }
+    .status-pill.rest { background: linear-gradient(90deg,#3a3060,#7060a0); color: #fff; }
+
+    .hero-meta {
+      display: flex; flex-wrap: wrap; gap: 6px 14px;
+      font-size: 12px; color: var(--muted);
+    }
+    .hero-meta b { color: var(--gold); font-weight: 400; }
+    .hero-meta .ok { color: var(--green); }
+    .hero-meta .bad { color: var(--red); }
+
+    .tier-badge {
+      align-self: stretch;
+      min-width: 70px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px; font-weight: 700; letter-spacing: 1px;
+      border-radius: 6px;
+      padding: 0 12px;
+      color: #111;
+      background: #ffe066;
+    }
+
+    /* Tabs — segmented RPG strip */
+    .tabs {
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid rgba(28,58,102,.8);
+      background:
+        linear-gradient(180deg, rgba(6,14,28,.9), rgba(4,10,20,.95));
+      box-shadow: inset 0 1px 0 rgba(120,180,255,.06);
+    }
+    .tab {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      padding: 11px 10px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--dim);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
+    }
+    .tab .ms { font-size: 18px; opacity: .85; }
+    .tab:hover {
+      color: var(--text);
+      background: rgba(30,60,110,.28);
+      border-color: rgba(40,80,140,.4);
+    }
+    .tab.on {
+      color: #0a1410;
+      background: linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 88%, #fff),
+        color-mix(in srgb, var(--accent) 65%, #1a4030));
+      border-color: color-mix(in srgb, var(--accent) 70%, #fff);
+      box-shadow:
+        0 0 18px color-mix(in srgb, var(--accent) 25%, transparent),
+        inset 0 1px 0 rgba(255,255,255,.25);
+      font-weight: 700;
+    }
+    .tab.on .ms { opacity: 1; color: inherit; }
+
+    .tab-body {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .tab-pane {
+      display: none;
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .tab-pane.on { display: flex; }
+    .tab-pane::-webkit-scrollbar { width: 6px; }
+    .tab-pane::-webkit-scrollbar-track { background: rgba(8,16,38,.35); }
+    .tab-pane::-webkit-scrollbar-thumb { background: rgba(80,170,255,.85); border-radius: 6px; }
+
+    /* Shared panels */
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+    .grid66 {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+    .panel {
+      min-width: 0; min-height: 0;
+      display: flex; flex-direction: column;
+      border-radius: 8px;
+      border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line));
+      background: rgba(8,16,36,.55);
+      overflow: hidden;
+    }
+    .panel.full { grid-column: 1 / -1; }
+    .panel-h {
+      flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+      background: color-mix(in srgb, var(--accent) 8%, rgba(10,25,55,.45));
+    }
+    .panel-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--accent);
+    }
+    .panel-sub { font-size: 11px; color: var(--dim); }
+    .panel-b {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .panel-b::-webkit-scrollbar { width: 6px; }
+    .panel-b::-webkit-scrollbar-thumb { background: rgba(80,170,255,.85); border-radius: 6px; }
+
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      color: var(--dim);
+    }
+    .field select, .field input {
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: rgba(6,14,32,.85);
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      outline: none;
+    }
+    .field select:focus, .field input:focus { border-color: var(--accent); }
+
+    /* RPG attribute blocks */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .stat-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    .stat {
+      position: relative;
+      padding: 14px 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(40,80,140,.55);
+      background: linear-gradient(165deg, rgba(20,40,75,.55) 0%, rgba(8,16,36,.9) 100%);
+      text-align: center;
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(140,190,255,.08);
+    }
+    .stat::before {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; top: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: .55;
+    }
+    .stat .ico {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 6px;
+      color: var(--accent);
+      opacity: .9;
+    }
+    .stat .ico .ms { font-size: 22px; }
+    .stat .l {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      color: #9eb6d0;
+      margin-bottom: 6px;
+    }
+    .stat .v {
+      font-size: 22px;
+      color: var(--gold);
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 12px rgba(255,224,102,.2);
+      line-height: 1.1;
+    }
+    .stat .bar {
+      margin-top: 8px;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(0,0,0,.55);
+      overflow: hidden;
+    }
+    .stat .bar > i {
+      display: block;
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, #1a4a80), var(--accent));
+      font-style: normal;
+    }
+
+    .kv {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 2px;
+      border-bottom: 1px solid rgba(26,58,110,.35);
+      font-size: 12px;
+    }
+    .kv:last-child { border-bottom: none; }
+    .kv .l { color: var(--muted); }
+    .kv .v { color: var(--gold); }
+    .kv .v.ok { color: var(--green); }
+    .kv .v.bad { color: var(--red); }
+
+    .hint {
+      padding: 9px 11px;
+      border-radius: 6px;
+      border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
+      background: rgba(8,16,36,.4);
+      color: #ffd966;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .alert {
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,214,102,.5);
+      background: rgba(70,55,8,.22);
+      color: #ffd966;
+      font-size: 12px;
+    }
+
+    /* ── Route planner (transport) ── */
+    .route-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+    }
+    .route-step {
+      display: grid;
+      grid-template-columns: 28px 72px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 7px;
+      border: 1px solid rgba(28,58,102,.75);
+      background: rgba(6,14,28,.55);
+    }
+    .route-step.pickup { border-left: 3px solid #5ed89a; }
+    .route-step.dropoff { border-left: 3px solid #80d0ff; }
+    .route-step.wait { border-left: 3px solid #ffe066; }
+    .step-num {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px;
+      color: var(--muted);
+      background: rgba(0,0,0,.3);
+    }
+    .step-action {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 1px;
+      padding: 3px 0;
+    }
+    .step-action.pickup { color: #5ed89a; }
+    .step-action.dropoff { color: #80d0ff; }
+    .step-action.wait { color: #ffe066; }
+    .step-body { min-width: 0; font-size: 12px; color: var(--text); line-height: 1.35; }
+    .step-body .sub { color: var(--muted); font-size: 11px; }
+    .step-body img {
+      width: 14px; height: 14px;
+      vertical-align: -2px;
+      margin-right: 3px;
+    }
+    .step-ops { display: flex; gap: 2px; }
+    .step-ops button {
+      width: 26px; height: 26px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: rgba(0,0,0,.25);
+      color: var(--dim);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .step-ops button:hover { color: var(--text); border-color: #2f5a96; }
+    .step-ops .ms { font-size: 15px; }
+
+    .route-add {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(28,58,102,.5);
+    }
+    .route-add button {
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 5px;
+      border: 1px dashed var(--line);
+      background: rgba(8,16,36,.4);
+      color: var(--muted);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .route-add button:hover {
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+    }
+
+    /* Inventory grid */
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+      gap: 6px;
+    }
+    .inv-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      padding: 8px 4px 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(28,58,102,.7);
+      background: rgba(6,14,28,.6);
+    }
+    .inv-cell img { width: 28px; height: 28px; object-fit: contain; }
+    .inv-cell .n { font-size: 11px; color: var(--muted); }
+    .inv-cell .a { font-size: 13px; color: var(--gold); }
+    .inv-empty {
+      grid-column: 1 / -1;
+      text-align: center;
+      color: var(--dim);
+      font-size: 12px;
+      padding: 20px;
+    }
+    .cargo-bar {
+      height: 5px; border-radius: 3px; background: #000; overflow: hidden;
+    }
+    .cargo-bar > i {
+      display: block; height: 100%;
+      background: linear-gradient(90deg, #1a6aff, #48f);
+      font-style: normal;
+    }
+
+    /* Assigned node (map-picked) */
+    .node-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(64,176,224,.35);
+      background:
+        linear-gradient(135deg, rgba(30,90,130,.28), rgba(6,14,28,.75));
+    }
+    .node-card .node-ico {
+      width: 48px; height: 48px;
+      border-radius: 10px;
+      border: 1px solid rgba(64,176,224,.4);
+      background: rgba(0,0,0,.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .node-card .node-ico img {
+      width: 32px; height: 32px;
+      object-fit: contain;
+      image-rendering: pixelated;
+    }
+    .node-card .node-meta { min-width: 0; flex: 1; }
+    .node-card .node-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      letter-spacing: 1px;
+      color: #e8eef8;
+    }
+    .node-card .node-sub {
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .node-card .node-sub b { color: #40b0e0; font-weight: 400; }
+    .node-card .node-pin {
+      color: var(--dim);
+      font-size: 18px;
+    }
+    .node-card.empty {
+      border-style: dashed;
+      border-color: var(--line);
+      background: rgba(6,14,28,.45);
+      opacity: .85;
+    }
+    .node-card.empty .node-name { color: var(--muted); }
+
+    /* Weapons — stacked horizontal rows */
+    .weapon-slots {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+    .weapon {
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(28,58,102,.75);
+      background: linear-gradient(90deg, rgba(14,28,52,.7), rgba(6,12,24,.9));
+      cursor: pointer;
+      transition: border-color .12s, background .12s;
+      min-height: 72px;
+    }
+    .weapon:hover {
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+      background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, rgba(14,28,52,.75)), rgba(6,12,24,.92));
+    }
+    .weapon.empty {
+      border-style: dashed;
+      opacity: .8;
+    }
+    .weapon .w-ico {
+      width: 56px; height: 56px;
+      border-radius: 10px;
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+      background:
+        radial-gradient(circle at 40% 30%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 65%),
+        rgba(0,0,0,.45);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .weapon .w-ico .ms { font-size: 30px; color: var(--accent); }
+    .weapon.empty .w-ico {
+      border-style: dashed;
+      border-color: var(--line);
+      background: rgba(0,0,0,.25);
+    }
+    .weapon.empty .w-ico .ms { color: var(--dim); font-size: 26px; }
+    .weapon .w-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+    .weapon .slot-lab {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      color: var(--dim);
+    }
+    .weapon .w-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      letter-spacing: 1.2px;
+      color: #e8eef8;
+    }
+    .weapon.empty .w-name { color: var(--muted); }
+    .weapon .w-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .weapon .w-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(40,70,110,.7);
+      background: rgba(0,0,0,.35);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .weapon .w-pill b {
+      color: var(--gold);
+      font-weight: 400;
+      font-variant-numeric: tabular-nums;
+    }
+    .weapon .w-pill.dps b { color: var(--red); }
+    .weapon .w-side {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .weapon .w-dps {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: .5px;
+      color: var(--muted);
+      text-align: right;
+    }
+    .weapon .w-dps strong {
+      display: block;
+      font-size: 16px;
+      color: var(--gold);
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+    .weapon .w-btn {
+      height: 28px;
+      min-width: 72px;
+      padding: 0 12px;
+      font-size: 10px;
+      color: var(--text);
+      border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+      background: color-mix(in srgb, var(--accent) 12%, rgba(0,0,0,.35));
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: 'Orbitron', sans-serif;
+      letter-spacing: 1px;
+    }
+    .weapon .w-btn:hover {
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .weapon.empty .w-btn {
+      border-color: var(--line);
+      background: rgba(0,0,0,.25);
+      color: var(--muted);
+    }
+
+    /* Targeting */
+    .radio-list { display: flex; flex-direction: column; gap: 5px; }
+    .radio {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(28,58,102,.7);
+      background: rgba(6,14,28,.5);
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .radio:hover { border-color: #2f5a96; }
+    .radio.on {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+      background: color-mix(in srgb, var(--accent) 8%, rgba(6,14,28,.6));
+    }
+    .radio .dot {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 2px solid var(--dim);
+      flex-shrink: 0;
+      position: relative;
+    }
+    .radio.on .dot {
+      border-color: var(--accent);
+    }
+    .radio.on .dot::after {
+      content: '';
+      position: absolute;
+      inset: 2px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .radio .t { color: var(--text); }
+    .radio .d { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    /* Upgrades (compact) */
+    .tier-up {
+      padding: 10px;
+      border-radius: 7px;
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+      background: rgba(8,18,42,.5);
+      text-align: center;
+    }
+    .tier-up .lab {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--dim);
+      margin-bottom: 4px;
+    }
+    .tier-up .path {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .tier-up .path span { color: var(--gold); }
+    .reqs { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin-bottom: 8px; }
+    .req {
+      font-size: 11px; padding: 2px 7px; border-radius: 4px;
+      border: 1px solid #2a6040; background: rgba(12,36,22,.5); color: var(--green);
+    }
+    .btn-tier {
+      width: 100%; height: 36px; border-radius: 6px;
+      border: 1px solid rgba(93,255,160,.45);
+      background: linear-gradient(180deg, rgba(45,150,90,.65), rgba(22,90,50,.8));
+      color: #eaffef;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+    }
+    .maxed {
+      text-align: center; padding: 12px; color: var(--gold);
+      font-family: 'Orbitron', sans-serif; font-size: 11px; letter-spacing: 1px;
+      border: 1px solid rgba(255,224,102,.25); border-radius: 6px;
+      background: rgba(50,40,8,.2);
+    }
+    /* ── Battle-pass tier track ── */
+    .bp-track-wrap {
+      flex: 0 0 auto;
+      padding: 14px 16px 16px;
+      border-radius: 10px;
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, rgba(10,22,44,.7)), rgba(6,12,24,.9));
+    }
+    .bp-track-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      gap: 10px;
+    }
+    .bp-track-head .lab {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--accent);
+    }
+    .bp-track-head .next {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .bp-track-head .next b { color: var(--gold); font-weight: 400; }
+    .bp-track {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 0 4px 4px;
+    }
+    .bp-track::before {
+      content: '';
+      position: absolute;
+      left: 18px; right: 18px;
+      top: 15px;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(20,40,70,.9);
+      z-index: 0;
+    }
+    .bp-track-fill {
+      position: absolute;
+      left: 18px;
+      top: 15px;
+      height: 4px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 50%, #1a6aff), var(--accent));
+      box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
+      z-index: 1;
+      transition: width .25s ease;
+    }
+    .bp-node {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      width: 36px;
+    }
+    .bp-dot {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      border: 2px solid #2a4a7a;
+      background: #0a1424;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      color: var(--dim);
+      box-shadow: 0 0 0 3px rgba(0,0,0,.25);
+    }
+    .bp-node.done .bp-dot {
+      border-color: color-mix(in srgb, var(--accent) 70%, #fff);
+      background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 80%, #fff), color-mix(in srgb, var(--accent) 50%, #1a4030));
+      color: #0a1410;
+      font-weight: 700;
+    }
+    .bp-node.current .bp-dot {
+      border-color: var(--gold);
+      background: linear-gradient(160deg, #ffe066, #c9a020);
+      color: #1a1200;
+      font-weight: 700;
+      box-shadow: 0 0 14px rgba(255,224,102,.35), 0 0 0 3px rgba(255,224,102,.12);
+    }
+    .bp-node.locked .bp-dot {
+      opacity: .55;
+    }
+    .bp-node .nm {
+      font-size: 9px;
+      font-family: 'Orbitron', sans-serif;
+      letter-spacing: .5px;
+      color: var(--dim);
+      white-space: nowrap;
+    }
+    .bp-node.done .nm,
+    .bp-node.current .nm { color: var(--text); }
+    .bp-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(28,58,102,.45);
+    }
+    .bp-cost {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+      justify-content: flex-start;
+    }
+    .bp-cost .cost-lab {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      color: var(--dim);
+      margin-right: 2px;
+    }
+    .bp-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 30px;
+      padding: 0 10px 0 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(40,90,60,.65);
+      background: rgba(8,28,18,.55);
+      color: var(--green);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    .bp-chip img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      flex-shrink: 0;
+    }
+    .bp-chip.cash {
+      border-color: rgba(180,140,40,.55);
+      background: rgba(40,32,8,.45);
+      color: var(--gold);
+    }
+    .bp-chip .cash-ico {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,224,102,.15);
+      color: var(--gold);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .bp-actions .btn-tier {
+      width: auto;
+      min-width: 168px;
+      height: 36px;
+      padding: 0 18px;
+      flex-shrink: 0;
+    }
+
+    /* Horizontal stat upgrade panels */
+    .stat-upg-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+    .stat-upg {
+      display: flex;
+      flex-direction: column;
+      border-radius: 10px;
+      border: 1px solid rgba(40,80,140,.5);
+      background:
+        linear-gradient(180deg, rgba(16,32,60,.55), rgba(6,12,24,.92));
+      overflow: hidden;
+    }
+    .stat-upg-h {
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid rgba(28,58,102,.55);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .stat-upg-h .ms { font-size: 20px; color: var(--accent); }
+    .stat-upg-h .t {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      color: #e8eef8;
+    }
+    .stat-upg-h .lv {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--gold);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-upg-b {
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .stat-upg-vals {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      min-width: 0;
+    }
+    .stat-upg-vals .cur {
+      font-size: 24px;
+      color: var(--gold);
+      text-shadow: 0 0 12px rgba(255,224,102,.2);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-upg-vals .arrow { color: var(--dim); font-size: 13px; }
+    .stat-upg-vals .next {
+      font-size: 16px;
+      color: var(--green);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-upg-vals .max {
+      font-size: 16px;
+      color: var(--muted);
+    }
+    .stat-upg-btn {
+      height: 34px;
+      min-width: 78px;
+      padding: 0 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(93,255,160,.4);
+      background: linear-gradient(180deg, rgba(40,130,80,.55), rgba(20,80,45,.75));
+      color: #eaffef;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: .5px;
+      cursor: pointer;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .stat-upg-btn:hover:not(:disabled) { filter: brightness(1.08); }
+    .stat-upg-btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+      filter: grayscale(.3);
+      border-color: #3a3a50;
+      background: rgba(30,30,45,.5);
+      color: #8a8a9a;
+    }
+    .bulk {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .bulk button {
+      height: 38px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: rgba(10,24,48,.55);
+      color: var(--muted);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: .5px;
+      cursor: pointer;
+      line-height: 1.25;
+    }
+    .bulk button:hover { color: var(--text); border-color: #2f5a96; }
+    .bulk button strong { display: block; color: var(--gold); font-weight: 400; font-size: 11px; }
+
+    /* Footer */
+    .footer {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+    .footer .btn {
+      min-width: 96px;
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: rgba(10,24,48,.65);
+      color: var(--muted);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .footer .btn:hover { color: var(--text); border-color: #2f5a96; }
+    .footer .btn.follow.on { border-color: #00b4ff; color: #00e5ff; background: rgba(0,180,255,.15); }
+    .footer .btn.sell { border-color: #604020; color: #c87; background: rgba(40,20,10,.5); }
+    .footer .btn.sell span { color: var(--green); }
+    .footer .btn.salvage { border-color: #4f6a32; color: #9fd28c; background: rgba(30,45,20,.5); }
+    .footer .btn.recall { border-color: #802020; color: #f88; background: rgba(50,12,12,.45); }
+
+    .note { font-size: 11px; color: #5a7594; text-align: center; max-width: 980px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="demo-switch">
+    <button type="button" class="on" data-ship="transport">TRANSPORT · Route planner</button>
+    <button type="button" data-ship="mining">MINING · Node + depot</button>
+    <button type="button" data-ship="combat">COMBAT · Weapons + targeting</button>
+    <button type="button" data-ship="garrison">GARRISON · Guard post</button>
+  </div>
+
+  <div class="win" id="win">
+    <header class="titlebar">
+      <h1 id="win-title">SHIP</h1>
+      <button class="xbtn" type="button">✕</button>
+    </header>
+    <div class="body" id="body"></div>
+  </div>
+
+  <p class="note">
+    Mock · floating modal · default tab: <b>Details</b> · role tab (Route / Assignment / Combat / Defense) · <b>Upgrades</b>
+  </p>
+
+  <script>
+    const R = (id) => `../assets/images/resources/${id}.png`;
+    let currentShip = 'transport';
+    let currentTab = 'details'; // details | primary | upgrades
+
+    const SHIPS = {
+      transport: {
+        accent: '#80d0ff',
+        title: 'SHIP',
+        name: 'Courier #13',
+        status: { cls: 'loading', text: 'ON ROUTE' },
+        tier: 'II', tierColor: '#6ad4ff',
+        meta: [['Role','Transport'],['Type','Courier'],['Range','At Base','ok']],
+        primaryLabel: 'ROUTE',
+        primaryIcon: 'route',
+      },
+      mining: {
+        accent: '#60d090',
+        title: 'SHIP',
+        name: 'Hauler #8',
+        status: { cls: 'holding', text: 'HOLDING' },
+        tier: 'V', tierColor: '#c98cff',
+        meta: [['Role','Mining'],['Type','Hauler'],['Node','Oxygen Node'],['Range','10 tiles']],
+        primaryLabel: 'ASSIGNMENT',
+        primaryIcon: 'flag',
+      },
+      combat: {
+        accent: '#ff7070',
+        title: 'SHIP',
+        name: 'Viper #3',
+        status: { cls: 'patrol', text: 'PATROL' },
+        tier: 'III', tierColor: '#ff7070',
+        meta: [['Role','Combat'],['Type','Viper'],['Range','4 tiles']],
+        primaryLabel: 'COMBAT',
+        primaryIcon: 'swords',
+      },
+      garrison: {
+        accent: '#ff9a4a',
+        title: 'SHIP',
+        name: 'Sentry #2',
+        status: { cls: 'rest', text: 'ON GUARD' },
+        tier: 'II', tierColor: '#ff9a4a',
+        meta: [['Role','Garrison'],['Type','Sentry'],['Post','Power Station #1','ok']],
+        primaryLabel: 'DEFENSE',
+        primaryIcon: 'fort',
+      },
+    };
+
+    function paint() {
+      const s = SHIPS[currentShip];
+      const win = document.getElementById('win');
+      win.style.setProperty('--accent', s.accent);
+      document.getElementById('win-title').textContent = s.title;
+
+      const meta = s.meta.map(([l,v,c]) =>
+        `<span>${l} <b class="${c||''}" style="${c==='ok'?'color:var(--green)':c==='bad'?'color:var(--red)':''}">${v}</b></span>`
+      ).join('');
+
+      const tabs = [
+        { id: 'details', label: 'DETAILS', icon: 'person' },
+        { id: 'primary', label: s.primaryLabel, icon: s.primaryIcon },
+        { id: 'upgrades', label: 'UPGRADES', icon: 'upgrade' },
+      ];
+
+      document.getElementById('body').innerHTML = `
+        <div class="hero">
+          <div class="hero-left">
+            <div class="hero-name-row">
+              <span class="hero-name">⬡ ${s.name}</span>
+              <button class="rename" type="button" title="Rename">✎</button>
+              <span class="status-pill ${s.status.cls}">${s.status.text}</span>
+            </div>
+            <div class="hero-meta">${meta}</div>
+          </div>
+          <div class="tier-badge" style="background:${s.tierColor}">TIER ${s.tier}</div>
+        </div>
+
+        <div class="tabs">
+          ${tabs.map(t => `
+            <button type="button" class="tab${currentTab===t.id?' on':''}" data-tab="${t.id}">
+              <span class="ms">${t.icon}</span>${t.label}
+            </button>`).join('')}
+        </div>
+
+        <div class="tab-body">
+          <div class="tab-pane${currentTab==='details'?' on':''}" data-pane="details">${renderDetails(currentShip)}</div>
+          <div class="tab-pane${currentTab==='primary'?' on':''}" data-pane="primary">${renderPrimary(currentShip)}</div>
+          <div class="tab-pane${currentTab==='upgrades'?' on':''}" data-pane="upgrades">${renderUpgrades(currentShip)}</div>
+        </div>
+
+        <div class="footer">
+          ${currentShip === 'mining' ? '<button class="btn recall" type="button"><span class="ms">undo</span> RECALL</button>' : ''}
+          <button class="btn follow" type="button"><span class="ms">filter_center_focus</span> FOLLOW</button>
+          <button class="btn" type="button"><span class="ms">edit</span> RENAME</button>
+          <button class="btn sell" type="button">SELL <span>$2.4k</span></button>
+          <button class="btn salvage" type="button"><span class="ms">recycling</span> SALVAGE</button>
+        </div>`;
+
+      document.querySelectorAll('.tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          currentTab = btn.dataset.tab;
+          paint();
+        });
+      });
+
+      // radio toggles in primary
+      document.querySelectorAll('.radio').forEach(r => {
+        r.addEventListener('click', () => {
+          r.parentElement.querySelectorAll('.radio').forEach(x => x.classList.remove('on'));
+          r.classList.add('on');
+        });
+      });
+    }
+
+    function statCard(icon, label, value, barPct) {
+      const bar = barPct != null
+        ? `<div class="bar"><i style="width:${Math.max(0, Math.min(100, barPct))}%"></i></div>`
+        : '';
+      return `<div class="stat">
+        <div class="ico"><span class="ms">${icon}</span></div>
+        <div class="l">${label}</div>
+        <div class="v">${value}</div>
+        ${bar}
+      </div>`;
+    }
+
+    function renderDetails(ship) {
+      if (ship === 'transport') {
+        return `
+          <div class="grid2">
+            <section class="panel">
+              <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
+              <div class="panel-b">
+                <div class="kv"><span class="l">Status</span><span class="v" style="color:#ffd966">On route · step 2/5</span></div>
+                <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#80d0ff">Transport</span></div>
+                <div class="kv"><span class="l">Ship Type</span><span class="v">Courier</span></div>
+                <div class="kv"><span class="l">Route loop</span><span class="v ok">Enabled</span></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
+              <div class="panel-b">
+                <div class="stat-grid cols-2">
+                  ${statCard('luggage', 'CARGO', '243/500', 48.6)}
+                  ${statCard('speed', 'FLY SPD', '25', 25)}
+                  ${statCard('download', 'LOAD SPD', '10/s', 40)}
+                  ${statCard('social_distance', 'RANGE', '0', 0)}
+                </div>
+              </div>
+            </section>
+          </div>`;
+      }
+      if (ship === 'mining') {
+        return `
+          <div class="grid2">
+            <section class="panel">
+              <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
+              <div class="panel-b">
+                <div class="kv"><span class="l">Status</span><span class="v bad">Holding Pattern</span></div>
+                <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#60d090">Mining</span></div>
+                <div class="kv"><span class="l">Ship Type</span><span class="v">Hauler</span></div>
+                <div class="kv"><span class="l">Assigned Node</span><span class="v">Oxygen Node</span></div>
+                <div class="kv"><span class="l">Mining Tier</span><span class="v">Tier V</span></div>
+                <div class="alert" style="margin-top:auto">Blocked: Storage Facility #1 is full</div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
+              <div class="panel-b">
+                <div class="stat-grid cols-2">
+                  ${statCard('luggage', 'CARGO', '700/700', 100)}
+                  ${statCard('speed', 'FLY SPD', '300', 100)}
+                  ${statCard('mining', 'MINE SPD', '300%', 100)}
+                  ${statCard('social_distance', 'RANGE', '10', 20)}
+                </div>
+              </div>
+            </section>
+          </div>`;
+      }
+      if (ship === 'combat') {
+        return `
+          <div class="grid2">
+            <section class="panel">
+              <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
+              <div class="panel-b">
+                <div class="kv"><span class="l">Status</span><span class="v" style="color:#80d0ff">Patrol</span></div>
+                <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#ff7070">Combat</span></div>
+                <div class="kv"><span class="l">Ship Type</span><span class="v">Viper</span></div>
+                <div class="kv"><span class="l">Target AI</span><span class="v">Lowest Health</span></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
+              <div class="panel-b">
+                <div class="stat-grid cols-2">
+                  ${statCard('favorite', 'HP', '1,240', 62)}
+                  ${statCard('swords', 'ATTACK', '72', 55)}
+                  ${statCard('bolt', 'ATK RATE', '210%', 70)}
+                  ${statCard('speed', 'FLY SPD', '320', 40)}
+                  ${statCard('apps', 'WEAPONS', '3/3', 100)}
+                  ${statCard('social_distance', 'RANGE', '4', 8)}
+                </div>
+              </div>
+            </section>
+          </div>`;
+      }
+      return `
+        <div class="grid2">
+          <section class="panel">
+            <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
+            <div class="panel-b">
+              <div class="kv"><span class="l">Status</span><span class="v" style="color:#c98cff">On Guard</span></div>
+              <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#ff9a4a">Garrison</span></div>
+              <div class="kv"><span class="l">Ship Type</span><span class="v">Sentry</span></div>
+              <div class="kv"><span class="l">Rest Post</span><span class="v ok">Power Station #1</span></div>
+              <div class="kv"><span class="l">Target AI</span><span class="v">Nearest Threat</span></div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
+            <div class="panel-b">
+              <div class="stat-grid cols-2">
+                ${statCard('favorite', 'HP', '4,200', 70)}
+                ${statCard('swords', 'ATTACK', '55', 40)}
+                ${statCard('bolt', 'ATK RATE', '140%', 45)}
+                ${statCard('social_distance', 'RANGE', '6', 12)}
+              </div>
+            </div>
+          </section>
+        </div>`;
+    }
+
+    function renderPrimary(ship) {
+      if (ship === 'transport') return renderTransportPrimary();
+      if (ship === 'mining') return renderMiningPrimary();
+      if (ship === 'combat') return renderCombatPrimary(true);
+      return renderCombatPrimary(false);
+    }
+
+    function renderTransportPrimary() {
+      const steps = [
+        { type:'pickup', action:'PICK UP', body:`<img src="${R('iron')}"> <b style="color:#c07040">Iron</b> × all available<br><span class="sub">from TRON (Base Station)</span>` },
+        { type:'pickup', action:'PICK UP', body:`<img src="${R('copper')}"> <b style="color:#e07030">Copper</b> × 200<br><span class="sub">from TRON (Base Station)</span>` },
+        { type:'dropoff', action:'DROP OFF', body:`<img src="${R('iron')}"> <b style="color:#c07040">Iron</b> × all held<br><span class="sub">to Power Station #1</span>` },
+        { type:'dropoff', action:'DROP OFF', body:`<img src="${R('copper')}"> <b style="color:#e07030">Copper</b> × all held<br><span class="sub">to Storage Facility #1</span>` },
+        { type:'wait', action:'WAIT', body:`Until cargo empty · then loop to step 1<br><span class="sub">Idle hold near dropoff if blocked</span>` },
+      ];
+      return `
+        <div class="grid2">
+          <section class="panel">
+            <div class="panel-h">
+              <span class="panel-title">◈ ROUTE PLANNER</span>
+              <span class="panel-sub">5 steps · looping</span>
+            </div>
+            <div class="panel-b">
+              <div class="route-list">
+                ${steps.map((s,i) => `
+                  <div class="route-step ${s.type}">
+                    <div class="step-num">${i+1}</div>
+                    <div class="step-action ${s.type}">${s.action}</div>
+                    <div class="step-body">${s.body}</div>
+                    <div class="step-ops">
+                      <button type="button" title="Move up"><span class="ms">arrow_upward</span></button>
+                      <button type="button" title="Move down"><span class="ms">arrow_downward</span></button>
+                      <button type="button" title="Edit"><span class="ms">edit</span></button>
+                      <button type="button" title="Remove"><span class="ms">close</span></button>
+                    </div>
+                  </div>`).join('')}
+              </div>
+              <div class="route-add">
+                <button type="button"><span class="ms">add</span> PICK UP</button>
+                <button type="button"><span class="ms">add</span> DROP OFF</button>
+                <button type="button"><span class="ms">add</span> WAIT / LOOP</button>
+                <button type="button"><span class="ms">playlist_add</span> CLEAR ROUTE</button>
+              </div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-h">
+              <span class="panel-title">◈ INVENTORY</span>
+              <span class="panel-sub">243 / 500</span>
+            </div>
+            <div class="panel-b">
+              <div class="cargo-bar"><i style="width:48.6%"></i></div>
+              <div class="inv-grid">
+                ${[
+                  ['iron','Iron',48],['copper','Copper',72],['oxygen','Oxygen',40],
+                  ['nickel','Nickel',35],['silicon','Silicon',48],
+                ].map(([id,n,a]) => `
+                  <div class="inv-cell">
+                    <img src="${R(id)}" alt="">
+                    <div class="n">${n}</div>
+                    <div class="a">${a}</div>
+                  </div>`).join('')}
+              </div>
+              <div class="hint">Manifest updates as load/unload steps run. Empty slots reserved until next pick-up step.</div>
+            </div>
+          </section>
+        </div>`;
+    }
+
+    function renderMiningPrimary() {
+      return `
+        <div class="grid2">
+          <section class="panel">
+            <div class="panel-h"><span class="panel-title">◈ NODE</span><span class="panel-sub">map assigned</span></div>
+            <div class="panel-b">
+              <div class="node-card">
+                <div class="node-ico"><img src="${R('oxygen')}" alt=""></div>
+                <div class="node-meta">
+                  <div class="node-name">Oxygen Node</div>
+                  <div class="node-sub"><b>Oxygen</b> · Tier II</div>
+                </div>
+                <span class="ms node-pin">location_on</span>
+              </div>
+              <div class="kv"><span class="l">Ship Mine Tier</span><span class="v">Tier V</span></div>
+              <div class="kv"><span class="l">Compatibility</span><span class="v ok">Can mine</span></div>
+              <div class="hint" style="margin-top:auto">
+                Assigned by clicking a node on the map with this ship selected.<br>
+                Dimmed nodes need a higher mine tier.
+              </div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-h"><span class="panel-title">◈ DROPOFF</span><span class="panel-sub">depot</span></div>
+            <div class="panel-b">
+              <div class="field">
+                <label>DELIVER TO</label>
+                <select>
+                  <option>Storage Facility #1</option>
+                  <option>TRON (Base)</option>
+                  <option>Power Station #1</option>
+                </select>
+              </div>
+              <div class="alert">Blocked: Storage Facility #1 is full</div>
+              <div class="kv"><span class="l">Cargo</span><span class="v">700 / 700</span></div>
+              <div class="kv"><span class="l">Holding</span><span class="v bad">Yes — depot full</span></div>
+              <div class="hint" style="margin-top:auto">Free space at dropoff or change depot to leave holding pattern.</div>
+            </div>
+          </section>
+        </div>`;
+    }
+
+    function renderCombatPrimary(isCombat) {
+      const assist = isCombat ? `
+        <div class="radio">
+          <div class="dot"></div>
+          <div><div class="t">Follow &amp; Assist Garrison</div><div class="d">Escort garrison, focus its targets</div></div>
+        </div>` : '';
+      return `
+        <div class="grid66">
+          <section class="panel">
+            <div class="panel-h"><span class="panel-title">◈ WEAPONS</span><span class="panel-sub">3 slots</span></div>
+            <div class="panel-b">
+              <div class="weapon-slots">
+                <div class="weapon">
+                  <div class="w-ico"><span class="ms fill">bolt</span></div>
+                  <div class="w-body">
+                    <div class="slot-lab">PORT WING</div>
+                    <div class="w-name">PULSE LASER</div>
+                    <div class="w-stats">
+                      <span class="w-pill">DMG <b>28</b></span>
+                      <span class="w-pill">RATE <b>High</b></span>
+                      <span class="w-pill">RANGE <b>4</b></span>
+                    </div>
+                  </div>
+                  <div class="w-side">
+                    <div class="w-dps">DPS<strong>~84</strong></div>
+                    <button class="w-btn" type="button">SWAP</button>
+                  </div>
+                </div>
+                <div class="weapon">
+                  <div class="w-ico"><span class="ms fill">rocket_launch</span></div>
+                  <div class="w-body">
+                    <div class="slot-lab">CENTER</div>
+                    <div class="w-name">TORPEDO BAY</div>
+                    <div class="w-stats">
+                      <span class="w-pill">DMG <b>90</b></span>
+                      <span class="w-pill">RATE <b>Low</b></span>
+                      <span class="w-pill">RANGE <b>6</b></span>
+                    </div>
+                  </div>
+                  <div class="w-side">
+                    <div class="w-dps">DPS<strong>~36</strong></div>
+                    <button class="w-btn" type="button">SWAP</button>
+                  </div>
+                </div>
+                <div class="weapon empty">
+                  <div class="w-ico"><span class="ms">add</span></div>
+                  <div class="w-body">
+                    <div class="slot-lab">STARBOARD</div>
+                    <div class="w-name">EMPTY SLOT</div>
+                    <div class="w-stats">
+                      <span class="w-pill">No weapon installed</span>
+                    </div>
+                  </div>
+                  <div class="w-side">
+                    <div class="w-dps">DPS<strong>—</strong></div>
+                    <button class="w-btn" type="button">INSTALL</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-h"><span class="panel-title">◈ TARGETING</span><span class="panel-sub">AI</span></div>
+            <div class="panel-b">
+              ${!isCombat ? `
+              <div class="field">
+                <label>REST POST</label>
+                <select>
+                  <option>Power Station #1</option>
+                  <option>Storage Facility #1</option>
+                  <option>Research Lab #1</option>
+                  <option>TRON (Base)</option>
+                </select>
+              </div>` : ''}
+              <div class="radio-list">
+                <div class="radio on">
+                  <div class="dot"></div>
+                  <div><div class="t">Lowest Health</div><div class="d">Finish wounded first</div></div>
+                </div>
+                <div class="radio">
+                  <div class="dot"></div>
+                  <div><div class="t">Highest Health</div><div class="d">Focus tanks</div></div>
+                </div>
+                <div class="radio">
+                  <div class="dot"></div>
+                  <div><div class="t">Fastest Ship</div><div class="d">Intercept runners</div></div>
+                </div>
+                <div class="radio">
+                  <div class="dot"></div>
+                  <div><div class="t">Nearest Threat</div><div class="d">Closest first</div></div>
+                </div>
+                ${assist}
+                ${!isCombat ? `
+                <div class="radio">
+                  <div class="dot"></div>
+                  <div><div class="t">Rest at Building</div><div class="d">Orbit / guard post</div></div>
+                </div>` : ''}
+              </div>
+            </div>
+          </section>
+        </div>`;
+    }
+
+    function renderUpgrades(ship) {
+      const maxed = ship === 'mining';
+      const tier = maxed ? 10 : (ship === 'transport' ? 2 : ship === 'combat' ? 3 : 2);
+      const nodes = [];
+      for (let i = 1; i <= 10; i++) {
+        let cls = 'locked';
+        if (i < tier) cls = 'done';
+        else if (i === tier) cls = 'current';
+        nodes.push(`<div class="bp-node ${cls}"><div class="bp-dot">${i === 10 ? 'X' : i}</div><div class="nm">T${i === 10 ? 'X' : i}</div></div>`);
+      }
+      const fillPct = ((Math.max(0, tier - 1)) / 9) * 100;
+
+      const stats = ship === 'combat' || ship === 'garrison'
+        ? [
+            { icon: 'favorite', lab: 'HULL HP', lv: maxed ? 100 : 12, cur: maxed ? '4,200' : '1,240', next: maxed ? null : '1,310', pct: maxed ? 100 : 12, cost: '$80' },
+            { icon: 'swords', lab: 'ATTACK', lv: maxed ? 100 : 8, cur: maxed ? '55' : '72', next: maxed ? null : '78', pct: maxed ? 100 : 8, cost: '$75' },
+            { icon: 'speed', lab: 'FLY SPD', lv: maxed ? 100 : 15, cur: maxed ? '180' : '320', next: maxed ? null : '335', pct: maxed ? 100 : 15, cost: '$60' },
+          ]
+        : ship === 'transport'
+        ? [
+            { icon: 'luggage', lab: 'CARGO', lv: 0, cur: '500', next: '515', pct: 0, cost: '$40' },
+            { icon: 'speed', lab: 'FLY SPD', lv: 0, cur: '25', next: '26', pct: 0, cost: '$60' },
+            { icon: 'download', lab: 'LOAD SPD', lv: 0, cur: '10/s', next: '12/s', pct: 0, cost: '$60' },
+          ]
+        : [
+            { icon: 'luggage', lab: 'CARGO', lv: maxed ? 100 : 0, cur: maxed ? '700' : '50', next: maxed ? null : '55', pct: maxed ? 100 : 0, cost: '$40' },
+            { icon: 'speed', lab: 'FLY SPD', lv: maxed ? 100 : 0, cur: maxed ? '300' : '60', next: maxed ? null : '64', pct: maxed ? 100 : 0, cost: '$60' },
+            { icon: 'mining', lab: 'MINE SPD', lv: maxed ? 100 : 0, cur: maxed ? '300%' : '25%', next: maxed ? null : '28%', pct: maxed ? 100 : 0, cost: '$60' },
+          ];
+
+      return `
+        <div style="display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;">
+          <div class="bp-track-wrap">
+            <div class="bp-track-head">
+              <span class="lab">◈ SHIP TIER TRACK</span>
+              <span class="next">${maxed ? 'Fully ascended' : `Next unlock · <b>Tier ${tier + 1 > 10 ? 'X' : tier + 1}</b>`}</span>
+            </div>
+            <div class="bp-track">
+              <div class="bp-track-fill" style="width:${fillPct}%"></div>
+              ${nodes.join('')}
+            </div>
+            <div class="bp-actions">
+              ${maxed
+                ? '<div class="maxed" style="flex:1;margin:0">★ MAX TIER REACHED</div>'
+                : `<div class="bp-cost">
+                    <span class="cost-lab">COST</span>
+                    <span class="bp-chip" title="Oxygen"><img src="../assets/images/resources/oxygen.png" alt="">200</span>
+                    <span class="bp-chip" title="Nickel"><img src="../assets/images/resources/nickel.png" alt="">200</span>
+                    <span class="bp-chip cash" title="Credits"><span class="cash-ico">$</span>2.5k</span>
+                  </div>
+                  <button class="btn-tier" type="button">ADVANCE TIER →</button>`}
+            </div>
+          </div>
+
+          <div class="stat-upg-row">
+            ${stats.map(u => `
+              <div class="stat-upg">
+                <div class="stat-upg-h">
+                  <span class="ms">${u.icon}</span>
+                  <span class="t">${u.lab}</span>
+                  <span class="lv">Lv ${u.lv}</span>
+                </div>
+                <div class="stat-upg-b">
+                  <div class="stat-upg-vals">
+                    <span class="cur">${u.cur}</span>
+                    ${u.next
+                      ? `<span class="arrow">→</span><span class="next">${u.next}</span>`
+                      : `<span class="arrow">·</span><span class="max">MAX</span>`}
+                  </div>
+                  <button class="stat-upg-btn" type="button" ${u.next ? '' : 'disabled'}>
+                    ${u.next ? `↑ ${u.cost}` : '★ MAX'}
+                  </button>
+                </div>
+              </div>`).join('')}
+          </div>
+
+          ${maxed ? '' : `<div class="bulk">
+            <button type="button">+5 ALL<strong>$971</strong></button>
+            <button type="button">+10 ALL<strong>$2.5k</strong></button>
+            <button type="button">MAX ALL<strong>$9.1k</strong></button>
+          </div>`}
+        </div>`;
+    }
+
+    document.querySelectorAll('.demo-switch button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.demo-switch button').forEach(b => b.classList.remove('on'));
+        btn.classList.add('on');
+        currentShip = btn.dataset.ship;
+        currentTab = 'details';
+        paint();
+      });
+    });
+
+    paint();
+  </script>
+</body>
+</html>

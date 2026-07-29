@@ -18,7 +18,8 @@ import { NPCS } from '../data/npcs.js';
 import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
 import { MODULE_DEFS, getModuleDef, getModuleStats, getPowerFuelOutput, POWER_DISABLED_RESOURCES, POWER_RESOURCE_CONSUMPTION, STORAGE_FACILITY_ID, DRONE_LAB_ID, isDroneLabModule } from '../data/modules.js';
-import { fmt, resourceIconHtml } from '../helpers.js';
+import { SYNTHESIS_RECIPES, SYNTHESIS_CRAFT_TIMES, getSynthesisCraftTime } from '../data/synthesis.js';
+import { fmt, fmtCompact, resourceIconHtml } from '../helpers.js';
 import { isTracked, refreshTrackButtons } from './craftTracker.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
@@ -94,6 +95,8 @@ let _focusedHdrPanel = null;
 let _codexTab = 'crew';
 let _craftTab = 'ships';
 let _craftShipRoleTab = 'mining';
+/** @type {{ kind: string, id: string } | null} */
+let _craftSelected = null;
 let _fleetCompSig = '';
 let _fleetSortKey = 'name';
 let _fleetSortDir = 1;
@@ -145,6 +148,17 @@ function ensureHdrModalWindow(type) {
   modal.dataset.panelType = type;
   if (type === 'fleet') modal.classList.add('hdr-modal-fleet');
   if (type === 'codex') modal.classList.add('hdr-modal-codex');
+  if (type === 'research') modal.classList.add('hdr-modal-research');
+  if (type === 'craft') modal.classList.add('hdr-modal-craft');
+  // Compact default open height for tall catalog panels (user can still resize)
+  if ((type === 'codex' || type === 'research') && !modal.dataset.height) {
+    modal.style.height = '500px';
+    modal.dataset.height = '500';
+  }
+  if (type === 'craft' && !modal.dataset.height) {
+    modal.style.height = '620px';
+    modal.dataset.height = '620';
+  }
   modal.innerHTML = `
     <div class="panel-shell-head hdr-modal-drag-handle">
       <div class="panel-shell-title hdr-modal-heading">${HDR_PANEL_TITLES[type] || type.toUpperCase()}</div>
@@ -549,15 +563,88 @@ function normalizeCraftTab(tab) {
 
 function switchCraftTab(tab) {
   _craftTab = normalizeCraftTab(tab);
+  _craftSelected = null;
   openHdrPanel('craft', { refresh: true, preserveScroll: true });
 }
 window.setCraftTab = switchCraftTab;
 
 function switchCraftShipRoleTab(tab) {
   _craftShipRoleTab = tab;
+  _craftSelected = null;
   openHdrPanel('craft', { refresh: true, preserveScroll: true });
 }
 window.setCraftShipRoleTab = switchCraftShipRoleTab;
+
+function selectCraftItem(kind, id) {
+  _craftSelected = { kind, id };
+  openHdrPanel('craft', { refresh: true, preserveScroll: true });
+}
+window.selectCraftItem = selectCraftItem;
+
+function craftRankClass(tier) {
+  const t = Math.max(1, Math.min(10, Number(tier) || 1));
+  return `rank-${t}`;
+}
+
+function craftTrackBtn(kind, id) {
+  const atMax = (state.trackedCrafts || []).length >= 3;
+  const tracked = isTracked(kind, id);
+  return `<button type="button" class="cf-track${tracked ? ' ct-tracked' : ''}" data-ct-kind="${kind}" data-ct-id="${id}" title="${tracked ? 'Untrack' : 'Track in craft queue'}" ${!tracked && atMax ? 'disabled' : ''} onclick="event.stopPropagation();toggleTrackCraft('${kind}','${id}')"><span class="ms-icon${tracked ? ' ms-icon-fill' : ''}" aria-hidden="true">bookmark</span></button>`;
+}
+
+function craftMatGridHtml(costCoins, reqs) {
+  const cells = [];
+  if (Number.isFinite(costCoins) && costCoins > 0) {
+    const met = state.coins >= costCoins;
+    cells.push(`<div class="cf-mat ${met ? 'ok' : 'bad'}" title="$${fmt(costCoins)}">
+      <span class="cf-mat-check">${met ? '✓' : '!'}</span>
+      <span class="cf-mat-icon cash">$</span>
+      <div class="cf-mat-name">Credits</div>
+      <div class="cf-mat-amt">${fmtCompact(costCoins)}</div>
+    </div>`);
+  }
+  for (const [r, n] of Object.entries(reqs || {})) {
+    const met = (state.resources[r] || 0) >= n;
+    const label = RESOURCE_DEFS[r]?.label || r;
+    cells.push(`<div class="cf-mat ${met ? 'ok' : 'bad'}" title="${label}: ${fmt(n)}">
+      <span class="cf-mat-check">${met ? '✓' : '!'}</span>
+      ${resourceIconHtml(r, 28, '') || `<span class="cf-mat-icon cash">?</span>`}
+      <div class="cf-mat-name">${label}</div>
+      <div class="cf-mat-amt">${fmtCompact(n)}</div>
+    </div>`);
+  }
+  if (!cells.length) return '<div class="cf-empty">No materials required.</div>';
+  return `<div class="cf-mat-grid">${cells.join('')}</div>`;
+}
+
+function craftBuildBtnHtml({ id, kind, label, can, timer, placeQueued, placeOnclick, buildOnclick, notice }) {
+  if (notice) {
+    return `<button class="cf-build" type="button" disabled><span class="bp-craft-btn-label">${notice}</span></button>`;
+  }
+  if (placeQueued > 0) {
+    return `<button class="cf-build place" type="button" onclick="${placeOnclick}">PLACE (${placeQueued})</button>`;
+  }
+  if (timer && Date.now() < timer.endsAt) {
+    const remainMs = Math.max(0, timer.endsAt - Date.now());
+    const remainSec = Math.ceil(remainMs / 1000);
+    const pct = Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100));
+    const fillId = kind === 'ship' ? `craft-fill-${id}`
+      : kind === 'turret' ? `craft-turret-fill-${id}`
+      : kind === 'drone' ? `craft-drone-fill-${id}`
+      : `craft-building-fill-${id}`;
+    const labelId = kind === 'ship' ? `craft-label-${id}`
+      : kind === 'turret' ? `craft-turret-label-${id}`
+      : kind === 'drone' ? `craft-drone-label-${id}`
+      : `craft-building-label-${id}`;
+    return `<button class="cf-build" type="button" disabled>
+      <span class="bp-craft-btn-fill" id="${fillId}" style="width:${pct}%;"></span>
+      <span class="bp-craft-btn-label" id="${labelId}">CRAFTING ${remainSec}s</span>
+    </button>`;
+  }
+  return `<button class="cf-build" type="button" ${can ? '' : 'disabled'} onclick="${buildOnclick}">
+    <span class="ms-icon ms-icon-fill" aria-hidden="true">build</span> ${label}
+  </button>`;
+}
 
 // ── Stats helpers ───────────────────────────────────────────
 function buildStatsData() {
@@ -784,6 +871,8 @@ export function openHdrPanel(type, options = {}) {
   if (!options.preserveScroll) body.scrollTop = 0;
   modal.classList.toggle('hdr-modal-fleet', type === 'fleet');
   modal.classList.toggle('hdr-modal-codex', type === 'codex');
+  modal.classList.toggle('hdr-modal-craft', type === 'craft');
+  modal.classList.toggle('hdr-modal-research', type === 'research');
   heading.textContent = HDR_PANEL_TITLES[type] || type.toUpperCase();
 
   if (type === 'research' && state.seenMsgs['dax_lv3_intro'] && state.seenMsgs['kai_lv3_intro']) {
@@ -868,8 +957,6 @@ export function openHdrPanel(type, options = {}) {
   // ── CRAFT ─────────────────────────────────────────────────
   else if (type === 'craft') {
     heading.textContent = 'CRAFTING & FABRICATION';
-
-    // Advance tutorial: step 5 (point at CRAFT button) → step 6 (point at SHIPS tab)
     if (state.tutStep === 5) { state.tutStep = 6; requestAnimationFrame(() => renderTutPointers()); }
 
     const bl = state.base.level;
@@ -879,12 +966,12 @@ export function openHdrPanel(type, options = {}) {
     const activeCraftTab = normalizeCraftTab(_craftTab || 'ships');
 
     const craftTabDefs = [
-      { id: 'ships',   label: 'SHIPS' },
-      { id: 'defense', label: 'DEFENSE' },
-      { id: 'storage', label: 'STORAGE' },
-      { id: 'power', label: 'POWER' },
-      { id: 'research', label: 'RESEARCH' },
-      { id: 'drones', label: 'DRONES' },
+      { id: 'ships', label: 'SHIPS', icon: 'rocket_launch' },
+      { id: 'defense', label: 'DEFENSE', icon: 'shield' },
+      { id: 'storage', label: 'STORAGE', icon: 'warehouse' },
+      { id: 'power', label: 'POWER', icon: 'bolt' },
+      { id: 'research', label: 'RESEARCH', icon: 'science' },
+      { id: 'drones', label: 'DRONES', icon: 'drone_2' },
     ];
     const moduleTabIds = {
       storage: new Set(['storage_facility']),
@@ -906,283 +993,300 @@ export function openHdrPanel(type, options = {}) {
       research: unplacedModuleQueue.some((id) => moduleTabIds.research.has(id)),
       drones: unplacedModuleQueue.some((id) => moduleTabIds.drones.has(id)),
     };
-    const navBar = `<div class="craft-nav">${craftTabDefs.map(t =>
-      `<button id="craft-tab-${t.id}" class="craft-nav-btn${activeCraftTab===t.id?' active':''}" onclick="setCraftTab('${t.id}')">${t.label}${tabHasPlaceable[t.id] ? '<span class="craft-nav-star" title="Ready to place">★</span>' : ''}</button>`
-    ).join('')}</div>`;
 
-    let tabContent = '';
+    const ROLE_META = {
+      mining: { label: 'MINING', color: '#60d090', icon: 'hardware', title: 'MINING FLEET' },
+      transport: { label: 'CARGO', color: '#80d0ff', icon: 'inventory_2', title: 'CARGO FLEET' },
+      combat: { label: 'COMBAT', color: '#ff6060', icon: 'swords', title: 'COMBAT FLEET' },
+      garrison: { label: 'GARRISON', color: '#ff8c40', icon: 'fort', title: 'GARRISON' },
+    };
+    const roleOrder = ['mining', 'transport', 'combat', 'garrison'];
+    const activeShipRoleTab = _craftShipRoleTab || 'mining';
+
+    /** @type {Array<{key:string,kind:string,id:string,name:string,tier:number,roleLabel:string,roleColor:string,iconHtml:string,statsHtml:string,blurb:string,cost:number,reqs:object,can:boolean,timer:any,placeQueued:number,placeOnclick:string,buildOnclick:string,notice:string,trackKind:string,meta?:string}>} */
+    const items = [];
 
     if (activeCraftTab === 'ships') {
-      const ROLE_META = {
-        mining:    { label: '⛏  MINING SHIPS',    color: '#60d090' },
-        transport: { label: '▲  CARGO TRANSPORT',  color: '#80d0ff' },
-        combat:    { label: '⚔  COMBAT SHIPS',     color: '#ff6060' },
-        garrison:  { label: '🛡  GARRISON',         color: '#ff8c40' },
-      };
-
-      const roleOrder = ['mining', 'transport', 'combat', 'garrison'];
-      const activeShipRoleTab = _craftShipRoleTab || 'mining';
-      const shipRoleTabs = `<div class="craft-subtabs">${roleOrder.map((role) => {
-        const meta = ROLE_META[role];
-        return `<button class="craft-subtab${activeShipRoleTab===role?' active':''}" onclick="setCraftShipRoleTab('${role}')" style="${activeShipRoleTab===role ? `border-color:${meta.color};color:${meta.color};background:${meta.color}12;` : ''}">${meta.label}</button>`;
-      }).join('')}</div>`;
-      let items = atCap
-        ? `<div class="craft-cap-warning">⚠ Ship capacity full (${state.ships.length + activeCraftCount}/${maxShips}).<br>Upgrade the Base or sell a ship.</div>`
-        : '';
-
-      const activeRoleMeta = ROLE_META[activeShipRoleTab];
-      const groupRecipes = CRAFT_RECIPES.filter(r => {
+      const groupRecipes = CRAFT_RECIPES.filter((r) => {
         const s = SHIP_DEFS[r.id];
         return s && (s.role || 'mining') === activeShipRoleTab && s.mineTier <= bl;
       });
-
-      if (groupRecipes.length) {
-        items += `<div class="craft-role-header" style="color:${activeRoleMeta.color};border-bottom:1px solid ${activeRoleMeta.color}33;">${activeRoleMeta.label}</div>`;
-
-        const atMaxTracked = (state.trackedCrafts || []).length >= 3;
-        for (const recipe of groupRecipes) {
-          const stats     = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
-          const sc        = activeRoleMeta.color;
-          const tierColor = MINE_TIERS[stats.mineTier]?.color || '#fff';
-          const reqsMet   = Object.entries(recipe.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-          const shipTracked = isTracked('ship', recipe.id);
-          const shipTrackBtn = `<button class="craft-item-track-btn${shipTracked ? ' ct-tracked' : ''}" data-ct-kind="ship" data-ct-id="${recipe.id}" ${!shipTracked && atMaxTracked ? 'disabled' : ''} onclick="toggleTrackCraft('ship','${recipe.id}')">${shipTracked ? 'UNTRACK' : 'TRACK'}</button>`;
-          const canCraft  = reqsMet && !atCap;
-
-          let reqsHtml = '';
-          for (const [r, n] of Object.entries(recipe.reqs)) {
-            const met = (state.resources[r] || 0) >= n;
-            reqsHtml += `<span class="bp-craft-req ${met?'met':'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`;
-          }
-
-          let statsHtml = '';
-          if (stats.role === 'combat' || stats.role === 'garrison') {
-            statsHtml = `
-              <span class="craft-stat">HP <span style="color:#ffe066;">${(stats.hp||0).toLocaleString()}</span></span>
-              <span class="craft-stat">DAMAGE <span style="color:#ffe066;">${stats.attack||0}</span></span>`;
-          } else if (stats.role === 'transport') {
-            statsHtml = `
-              <span class="craft-stat">CAPACITY <span style="color:#ffe066;">${stats.capacity}u</span></span>
-              <span class="craft-stat">SPEED <span style="color:#ffe066;">${formatFlySpeed(stats.flySpeed)}</span></span>
-              <span class="craft-stat">LOAD SPD <span style="color:#ffe066;">${formatLoadSpeed(stats.loadSpeed || 0)}</span></span>`;
-          } else {
-            statsHtml = `
-              <span class="craft-stat">CAPACITY <span style="color:#ffe066;">${stats.capacity}u</span></span>
-              <span class="craft-stat">SPEED <span style="color:#ffe066;">${formatFlySpeed(stats.flySpeed)}</span></span>
-              <span class="craft-stat">MINE RATE <span style="color:#ffe066;">${formatMineSpeedPercent(stats.mineSpeed)}</span></span>`;
-          }
-
-          const craftTimer = state.shipCraftTimers?.[recipe.id];
-          const timerActive = !!(craftTimer && Date.now() < craftTimer.endsAt);
-          const remainMs  = timerActive ? Math.max(0, craftTimer.endsAt - Date.now()) : 0;
-          const remainSec = Math.ceil(remainMs / 1000);
-          const pct = timerActive ? Math.max(0, Math.min(100, ((craftTimer.durationMs - remainMs) / craftTimer.durationMs) * 100)) : 0;
-          const builtNoticeUntil  = state.shipCraftNotices?.[recipe.id] || 0;
-          const builtNoticeActive = Date.now() < builtNoticeUntil;
-
-          const buildBtn = builtNoticeActive
-            ? `<button class="btn bp-craft-btn bp-craft-btn-ready craft-btn-full" disabled><span class="bp-craft-btn-label">SHIP BUILT AND DEPLOYED!</span></button>`
-            : timerActive
-            ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-btn-full" disabled><span class="bp-craft-btn-fill" id="craft-fill-${recipe.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-label-${recipe.id}">CRAFTING ${remainSec}s</span></button>`
-            : `<button class="btn ${atCap?'danger':'primary'} craft-btn-full" ${!canCraft?'disabled':''} onclick="startCraftShip('${recipe.id}')">BUILD SHIP</button>`;
-
-          items += `<div class="bp-craft-item">
-            <div class="craft-item-head">
-              <span class="craft-item-role-icon" style="color:${sc};filter:drop-shadow(0 0 5px ${sc}66);">▲</span>
-              <div class="craft-item-title-wrap">
-                <span class="craft-item-title">${recipe.name}</span>
-              </div>
-              <span class="craft-item-tier-pill" style="border:1px solid ${tierColor}44;background:${tierColor}18;color:${tierColor};">${toRoman(stats.mineTier)}</span>
-              <span class="craft-item-role-pill" style="border:1px solid ${sc}33;background:${sc}12;color:${sc};">${stats.role||'mining'}</span>
-              ${shipTrackBtn}
-            </div>
-            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">${statsHtml}</div>
-            <div class="bp-craft-reqs" style="margin:0 0 8px 0;">${reqsHtml}</div>
-            ${buildBtn}
-          </div>`;
+      for (const recipe of groupRecipes) {
+        const stats = SHIP_DEFS[recipe.id] || SHIP_DEFS.scout;
+        const role = stats.role || 'mining';
+        const sc = ROLE_META[role]?.color || '#60d090';
+        let statsHtml = '';
+        if (role === 'combat' || role === 'garrison') {
+          statsHtml = `<span><i>HP</i><b>${(stats.hp || 0).toLocaleString()}</b></span><span><i>Dmg</i><b>${stats.attack || 0}</b></span>`;
+        } else if (role === 'transport') {
+          statsHtml = `<span><i>Cap</i><b>${stats.capacity}u</b></span><span><i>Speed</i><b>${formatFlySpeed(stats.flySpeed)}</b></span><span><i>Load</i><b>${formatLoadSpeed(stats.loadSpeed || 0)}</b></span>`;
+        } else {
+          statsHtml = `<span><i>Cap</i><b>${stats.capacity}u</b></span><span><i>Speed</i><b>${formatFlySpeed(stats.flySpeed)}</b></span><span><i>Mine</i><b>${formatMineSpeedPercent(stats.mineSpeed)}</b></span>`;
         }
-      }
-
-      if (!groupRecipes.length) {
-        items += `<div class="craft-empty">No ships available at current base tier.</div>`;
-      }
-
-      tabContent = `${shipRoleTabs}<div class="bp-craft-grid">${items}</div>`;
-
-      // Tutorial scroll-to
-      if (state.tutStep === 7) {
-        requestAnimationFrame(() => {
-          const btn = document.querySelector('.hdr-modal-window[data-panel-type="craft"] .bp-craft-item .btn');
-          if (btn?.scrollIntoView) btn.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const reqsMet = Object.entries(recipe.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
+        const builtNoticeUntil = state.shipCraftNotices?.[recipe.id] || 0;
+        items.push({
+          key: `ship:${recipe.id}`,
+          kind: 'ship',
+          id: recipe.id,
+          name: recipe.name,
+          tier: stats.mineTier || 1,
+          roleLabel: role,
+          roleColor: sc,
+          iconHtml: '<span class="ms-icon ms-icon-fill" aria-hidden="true">rocket</span>',
+          statsHtml,
+          blurb: recipe.desc || `${role} vessel for fleet operations.`,
+          cost: 0,
+          reqs: recipe.reqs || {},
+          can: reqsMet && !atCap,
+          timer: state.shipCraftTimers?.[recipe.id],
+          placeQueued: 0,
+          placeOnclick: '',
+          buildOnclick: `startCraftShip('${recipe.id}')`,
+          notice: Date.now() < builtNoticeUntil ? 'SHIP BUILT AND DEPLOYED!' : '',
+          trackKind: 'ship',
         });
       }
-
     } else if (activeCraftTab === 'defense') {
-      const turretsUnlocked = state.researchUnlocks['turrets'];
-      const turretCount = (state.turrets || []).length;
-      let defHtml = '';
-
-      if (!turretsUnlocked) {
-        defHtml = `<div class="craft-defense-empty">
-          No defense systems unlocked yet.<br><br>
-          <span style="font-size:13px;">Visit the <strong style="color:#8ab">Research panel</strong> to unlock Automatic Turret.</span>
-        </div>`;
-      }
-
-      if (turretsUnlocked) {
-        const queue = Array.isArray(state.unplacedTurretQueue) ? state.unplacedTurretQueue : Array.from({ length: state.unplacedTurrets || 0 }, () => 'turret');
-        const queuedCount = (id) => queue.filter(t => t === id).length;
-        const pill = (met, label) => `<span class="bp-craft-req ${met?'met':'unmet'}">${label}</span>`;
+      if (state.researchUnlocks['turrets']) {
+        const queue = unplacedTurretQueue;
         const turretCards = [
-          { id: 'turret', unlocked: true, desc: 'Build automatic turrets on free map tiles to defend your base.', stats: ['5,000 -> 10,000 HP', '100', '1/s -> 5/s', '2 tiles (MAX 5)'] },
-          { id: 'laser_turret', unlocked: !!state.researchUnlocks['laser_turrets'], desc: 'Fires a single heavy beam burst for big damage, then must recharge before firing again.', stats: ['8,000 -> 16,000 HP', '500', '15s -> 5s', '4 tiles (MAX 12)'] },
-          { id: 'emp_turret', unlocked: !!state.researchUnlocks['emp_turrets'], desc: 'Stuns enemy ships so they cannot move or fire, while also dropping their defenses.', stats: ['15,000 -> 30,000 HP', 'STUN 2s', '60s -> 45s', '3 tiles (MAX 15)'] },
+          { id: 'turret', unlocked: true, blurb: 'Build automatic turrets on free map tiles to defend your base.', stats: 'HP 5k→10k · Dmg 100 · Rate 1–5/s · Range 2' },
+          { id: 'laser_turret', unlocked: !!state.researchUnlocks['laser_turrets'], blurb: 'Heavy beam burst with long recharge.', stats: 'HP 8k→16k · Dmg 500 · Rate 15s→5s · Range 4' },
+          { id: 'emp_turret', unlocked: !!state.researchUnlocks['emp_turrets'], blurb: 'Stuns enemy ships and drops defenses.', stats: 'HP 15k→30k · Stun 2s · Rate 60s→45s · Range 3' },
         ];
-        const atMaxTracked = (state.trackedCrafts || []).length >= 3;
         for (const card of turretCards) {
           if (!card.unlocked) continue;
           const craft = getCraft('turrets', card.id);
           if (!craft) continue;
           const canCoins = state.coins >= craft.cost;
-          const reqsMet = Object.entries(craft.reqs).map(([r, n]) => [(state.resources[r] || 0) >= n, r, n]);
-          const canBuild = canCoins && reqsMet.every(([met]) => met);
-          const tTracked = isTracked('turret', card.id);
-          const tTrackBtn = `<button class="craft-item-track-btn${tTracked ? ' ct-tracked' : ''}" data-ct-kind="turret" data-ct-id="${card.id}" ${!tTracked && atMaxTracked ? 'disabled' : ''} onclick="toggleTrackCraft('turret','${card.id}')">${tTracked ? 'UNTRACK' : 'TRACK'}</button>`;
-          const resPills = reqsMet.map(([met, r, n]) => pill(met, `${r[0].toUpperCase() + r.slice(1)}: ${fmt(n)}`)).join('');
-          const queued = queuedCount(card.id);
-          const craftTimer = state.turretCraftTimers?.[card.id];
-          const timerActive = !!(craftTimer && Date.now() < craftTimer.endsAt);
-          const remainMs = timerActive ? Math.max(0, craftTimer.endsAt - Date.now()) : 0;
-          const remainSec = Math.ceil(remainMs / 1000);
-          const pct = timerActive ? Math.max(0, Math.min(100, ((craftTimer.durationMs - remainMs) / craftTimer.durationMs) * 100)) : 0;
-          const builtCount = (state.turrets || []).filter(t => t.type === card.id).length;
-          defHtml += `<div class="craft-defense-card">
-            <div class="craft-defense-head">
-              <div class="craft-defense-title">${craft.name.toUpperCase()}</div>
-              <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
-              ${tTrackBtn}
-            </div>
-            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
-              <span class="craft-stat">HP <span style="color:#ffe066;">${card.stats[0]}</span></span>
-              <span class="craft-stat">DAMAGE <span style="color:#ffe066;">${card.stats[1]}</span></span>
-              <span class="craft-stat">FIRE RATE <span style="color:#ffe066;">${card.stats[2]}</span></span>
-              <span class="craft-stat">RANGE <span style="color:#ffe066;">${card.stats[3]}</span></span>
-            </div>
-            <div class="bp-craft-reqs" style="margin-bottom:8px;">${pill(canCoins, '$' + fmt(craft.cost))}${resPills}</div>
-            ${queued > 0
-              ? `<button class="btn place craft-defense-btn" onclick="beginPlacingTurret('${card.id}')">PLACE ${craft.name.toUpperCase()} (${queued})</button>`
-              : timerActive
-              ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-turret-fill-${card.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-turret-label-${card.id}">CRAFTING ${remainSec}s</span></button>`
-              : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startPlaceTurret('${card.id}')">BUILD ${craft.name.toUpperCase()}</button>`}
-          </div>`;
+          const reqsMet = Object.entries(craft.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
+          const queued = queue.filter((t) => t === card.id).length;
+          const builtCount = (state.turrets || []).filter((t) => t.type === card.id).length;
+          items.push({
+            key: `turret:${card.id}`,
+            kind: 'turret',
+            id: card.id,
+            name: craft.name,
+            tier: card.id === 'emp_turret' ? 3 : card.id === 'laser_turret' ? 2 : 1,
+            roleLabel: 'defense',
+            roleColor: '#ff8c40',
+            iconHtml: '<span class="ms-icon ms-icon-fill" aria-hidden="true">shield</span>',
+            statsHtml: card.stats.split(' · ').map((s) => {
+              const [lab, ...rest] = s.split(' ');
+              return `<span><i>${lab}</i><b>${rest.join(' ')}</b></span>`;
+            }).join(''),
+            blurb: card.blurb,
+            cost: craft.cost,
+            reqs: craft.reqs || {},
+            can: canCoins && reqsMet,
+            timer: state.turretCraftTimers?.[card.id],
+            placeQueued: queued,
+            placeOnclick: `beginPlacingTurret('${card.id}')`,
+            buildOnclick: `startPlaceTurret('${card.id}')`,
+            notice: '',
+            trackKind: 'turret',
+            meta: `${builtCount} built`,
+          });
         }
       }
-
-      tabContent = defHtml;
-
     } else if (activeCraftTab === 'storage' || activeCraftTab === 'power' || activeCraftTab === 'research' || activeCraftTab === 'drones') {
-      const queue = unplacedModuleQueue;
-      const tabLabel = activeCraftTab.charAt(0).toUpperCase() + activeCraftTab.slice(1);
-      const unlockedBuildings = Object.values(MODULE_DEFS).filter(module => state.researchUnlocks[module.unlockId] && moduleTabIds[activeCraftTab].has(module.id));
-      if (!unlockedBuildings.length) {
-        tabContent = `<div class="craft-defense-empty">
-            ${tabLabel} fabrication is still locked.<br><br>
-            <span style="font-size:13px;">Unlock placeable <strong style="color:#8ab">${tabLabel}</strong> modules in the Research panel first.</span>
-          </div>`;
-      } else {
-        tabContent = unlockedBuildings.map((moduleConfig) => {
-          const moduleDef = getCraft('buildings', moduleConfig.id);
-          const queued = queue.filter(t => t === moduleConfig.id).length;
-          const builtCount = (state.modules || []).filter(module => module.type === moduleConfig.id).length;
-          const timer = state.buildingCraftTimers?.[moduleConfig.id];
-          const timerActive = !!(timer && Date.now() < timer.endsAt);
-          const remainMs = timerActive ? Math.max(0, timer.endsAt - Date.now()) : 0;
-          const remainSec = Math.ceil(remainMs / 1000);
-          const pct = timerActive ? Math.max(0, Math.min(100, ((timer.durationMs - remainMs) / timer.durationMs) * 100)) : 0;
-          const canCoins = state.coins >= (moduleDef?.cost || 0);
-          const reqPills = moduleDef
-            ? Object.entries(moduleDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`).join('')
-            : '';
-          const canBuild = !!moduleDef && canCoins && Object.entries(moduleDef.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-          const statsHtml = moduleConfig.cardStats(1).map(([label, value]) => `<span class="craft-stat">${label} <span style="color:#ffe066;">${value}</span></span>`).join('');
-          const buildLabel = moduleConfig.id === 'storage_facility' ? 'BUILD STORAGE' : `BUILD ${moduleDef?.name?.toUpperCase() || getModuleDef(moduleConfig.id).name.toUpperCase()}`;
-          const placeLabel = moduleConfig.id === 'storage_facility' ? 'PLACE STORAGE' : `PLACE ${moduleDef?.name?.toUpperCase() || getModuleDef(moduleConfig.id).name.toUpperCase()}`;
-          const bldAtMax = (state.trackedCrafts || []).length >= 3;
-          const bldTracked = isTracked('building', moduleConfig.id);
-          const bldTrackBtn = `<button class="craft-item-track-btn${bldTracked ? ' ct-tracked' : ''}" data-ct-kind="building" data-ct-id="${moduleConfig.id}" ${!bldTracked && bldAtMax ? 'disabled' : ''} onclick="toggleTrackCraft('building','${moduleConfig.id}')">${bldTracked ? 'UNTRACK' : 'TRACK'}</button>`;
-          return `<div class="craft-defense-card">
-              <div class="craft-defense-head">
-                <div class="craft-defense-title">${moduleDef?.name?.toUpperCase() || moduleConfig.name.toUpperCase()}</div>
-                <span class="craft-defense-meta" style="color:#ffe066;">${builtCount} built</span>
-                ${bldTrackBtn}
-              </div>
-              <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">${statsHtml}</div>
-              <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${canCoins ? 'met' : 'unmet'}">$${fmt(moduleDef?.cost || 0)}</span>${reqPills}</div>
-              ${queued > 0
-                ? `<button class="btn place craft-defense-btn" onclick="beginPlacingBuilding('${moduleConfig.id}')">${placeLabel} (${queued})</button>`
-                : timerActive
-                ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-building-fill-${moduleConfig.id}" style="width:${pct}%;"></span><span class="bp-craft-btn-label" id="craft-building-label-${moduleConfig.id}">CRAFTING ${remainSec}s</span></button>`
-                : `<button class="btn primary craft-defense-btn" ${canBuild ? '' : 'disabled'} onclick="startCraftBuilding('${moduleConfig.id}')">${buildLabel}</button>`}
-            </div>`;
-        }).join('');
-
-      // Drone crafting section — shown below drone lab building card on the drones tab
+      const unlockedBuildings = Object.values(MODULE_DEFS).filter((module) => state.researchUnlocks[module.unlockId] && moduleTabIds[activeCraftTab].has(module.id));
+      for (const moduleConfig of unlockedBuildings) {
+        const moduleDef = getCraft('buildings', moduleConfig.id);
+        const queued = unplacedModuleQueue.filter((t) => t === moduleConfig.id).length;
+        const builtCount = (state.modules || []).filter((module) => module.type === moduleConfig.id).length;
+        const canCoins = state.coins >= (moduleDef?.cost || 0);
+        const reqs = moduleDef?.reqs || {};
+        const canBuild = !!moduleDef && canCoins && Object.entries(reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
+        const statsHtml = moduleConfig.cardStats(1).map(([label, value]) => `<span><i>${label}</i><b>${value}</b></span>`).join('');
+        const iconMap = {
+          storage_facility: 'warehouse',
+          power_station: 'bolt',
+          power_pole: 'electrical_services',
+          research_lab: 'science',
+          lab_tower: 'cell_tower',
+          drone_lab: 'drone_2',
+        };
+        items.push({
+          key: `building:${moduleConfig.id}`,
+          kind: 'building',
+          id: moduleConfig.id,
+          name: moduleDef?.name || moduleConfig.name,
+          tier: 1,
+          roleLabel: activeCraftTab,
+          roleColor: activeCraftTab === 'power' ? '#ffe066' : activeCraftTab === 'research' ? '#6fff9a' : activeCraftTab === 'drones' ? '#5af0ff' : '#ff9a4a',
+          iconHtml: `<span class="ms-icon ms-icon-fill" aria-hidden="true">${iconMap[moduleConfig.id] || 'apartment'}</span>`,
+          statsHtml,
+          blurb: moduleDef?.desc || moduleConfig.desc || 'Placeable base module.',
+          cost: moduleDef?.cost || 0,
+          reqs,
+          can: canBuild,
+          timer: state.buildingCraftTimers?.[moduleConfig.id],
+          placeQueued: queued,
+          placeOnclick: `beginPlacingBuilding('${moduleConfig.id}')`,
+          buildOnclick: `startCraftBuilding('${moduleConfig.id}')`,
+          notice: '',
+          trackKind: 'building',
+          meta: `${builtCount} built`,
+        });
+      }
       if (activeCraftTab === 'drones') {
         const droneDef = getCraft('drones', 'drone');
-        const droneLabsBuilt = (state.modules || []).filter(m => m.type === DRONE_LAB_ID);
-        const droneTimer = state.droneCraftTimers?.['drone'];
-        const droneTimerActive = !!(droneTimer && Date.now() < droneTimer.endsAt);
-        const droneRemainMs = droneTimerActive ? Math.max(0, droneTimer.endsAt - Date.now()) : 0;
-        const droneRemainSec = Math.ceil(droneRemainMs / 1000);
-        const dronePct = droneTimerActive ? Math.max(0, Math.min(100, ((droneTimer.durationMs - droneRemainMs) / droneTimer.durationMs) * 100)) : 0;
-        const droneCanCoins = state.coins >= (droneDef?.cost || 0);
-        const droneReqPills = droneDef
-          ? Object.entries(droneDef.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`).join('')
-          : '';
-        const droneCanBuild = !!droneDef && droneCanCoins && Object.entries(droneDef?.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
-        const totalDroneCount = (state.drones || []).length;
-        const totalDroneCapacity = droneLabsBuilt.reduce((sum, m) => sum + (m.droneCapacity || 2), 0);
-        const dronesFull = totalDroneCount >= totalDroneCapacity && droneLabsBuilt.length > 0;
-
-        const droneCraftingUnlocked = !!state.researchUnlocks['drone_crafting'];
+        const droneLabsBuilt = (state.modules || []).filter((m) => m.type === DRONE_LAB_ID);
         if (droneDef && droneLabsBuilt.length > 0) {
-          const droneStatusHtml = `<div style="font-size:12px;color:#8ab;margin-bottom:8px;">Drone capacity across ${droneLabsBuilt.length} lab${droneLabsBuilt.length > 1 ? 's' : ''}: <span style="color:#ffe066;">${totalDroneCount} / ${totalDroneCapacity}</span></div>`;
-          const droneAtMax = (state.trackedCrafts || []).length >= 3;
-          const droneIsTracked = isTracked('drone', 'drone');
-          const droneTrackBtn = `<button class="craft-item-track-btn${droneIsTracked ? ' ct-tracked' : ''}" data-ct-kind="drone" data-ct-id="drone" ${!droneIsTracked && droneAtMax ? 'disabled' : ''} onclick="toggleTrackCraft('drone','drone')">${droneIsTracked ? 'UNTRACK' : 'TRACK'}</button>`;
-          tabContent += `<div class="craft-defense-card" style="margin-top:12px;border-color:#2a5090;">
-            <div class="craft-defense-head">
-              <div class="craft-defense-title">◬ DRONE</div>
-              <span class="craft-defense-meta" style="color:#ffe066;">${totalDroneCount} active</span>
-              ${droneTrackBtn}
-            </div>
-            ${droneStatusHtml}
-            <div class="craft-stats-row craft-ships-stats-row" style="margin:0 0 8px 0;gap:8px;">
-              <span class="craft-stat">CRAFT TIME <span style="color:#ffe066;">1s</span></span>
-              <span class="craft-stat">POWER <span style="color:#ffe066;">1/s each</span></span>
-            </div>
-            <div class="bp-craft-reqs" style="margin-bottom:8px;"><span class="bp-craft-req ${droneCanCoins ? 'met' : 'unmet'}">$${fmt(droneDef.cost)}</span>${droneReqPills}</div>
-            ${!droneCraftingUnlocked
-              ? `<button class="btn craft-defense-btn" disabled>UNLOCK DRONE IN RESEARCH</button>`
-              : dronesFull
-              ? `<button class="btn craft-defense-btn" disabled>◬ ALL LABS AT CAPACITY</button>`
-              : droneTimerActive
-              ? `<button class="btn bp-craft-btn bp-craft-btn-crafting craft-defense-btn" disabled><span class="bp-craft-btn-fill" id="craft-drone-fill-drone" style="width:${dronePct}%;"></span><span class="bp-craft-btn-label" id="craft-drone-label-drone">CRAFTING ${droneRemainSec}s</span></button>`
-              : `<button class="btn primary craft-defense-btn" ${droneCanBuild ? '' : 'disabled'} onclick="startCraftDrone()">◬ BUILD DRONE</button>`}
-          </div>`;
+          const totalDroneCount = (state.drones || []).length;
+          const totalDroneCapacity = droneLabsBuilt.reduce((sum, m) => sum + (m.droneCapacity || 2), 0);
+          const dronesFull = totalDroneCount >= totalDroneCapacity;
+          const droneCraftingUnlocked = !!state.researchUnlocks['drone_crafting'];
+          const droneCanCoins = state.coins >= droneDef.cost;
+          const droneCanBuild = droneCraftingUnlocked && !dronesFull && droneCanCoins
+            && Object.entries(droneDef.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
+          items.push({
+            key: 'drone:drone',
+            kind: 'drone',
+            id: 'drone',
+            name: droneDef.name || 'Drone',
+            tier: 1,
+            roleLabel: 'drone',
+            roleColor: '#5af0ff',
+            iconHtml: '<span class="ms-icon ms-icon-fill" aria-hidden="true">drone_2</span>',
+            statsHtml: `<span><i>Power</i><b>1/s</b></span><span><i>Cap</i><b>${totalDroneCount}/${totalDroneCapacity}</b></span>`,
+            blurb: 'Autonomous unit deployable from a Drone Lab for salvage and recon.',
+            cost: droneDef.cost,
+            reqs: droneDef.reqs || {},
+            can: droneCanBuild,
+            timer: state.droneCraftTimers?.drone,
+            placeQueued: 0,
+            placeOnclick: '',
+            buildOnclick: 'startCraftDrone()',
+            notice: !droneCraftingUnlocked ? 'UNLOCK IN RESEARCH' : (dronesFull ? 'ALL LABS AT CAPACITY' : ''),
+            trackKind: 'drone',
+            meta: `${totalDroneCount} active`,
+          });
         }
       }
-      }
-    } else {
-      tabContent = `<div class="craft-placeholder">
-        <div class="craft-placeholder-icon">⬡</div>
-        <div class="craft-placeholder-title">COMING SOON</div>
-        <div class="craft-placeholder-desc">More fabrication options will be available in a future update.</div>
-      </div>`;
     }
 
-    body.innerHTML = `<div class="craft-layout">${navBar}<div class="craft-content">${tabContent}</div></div>`;
+    // Preserve / auto-select
+    if (!_craftSelected || !items.some((it) => it.kind === _craftSelected.kind && it.id === _craftSelected.id)) {
+      _craftSelected = items[0] ? { kind: items[0].kind, id: items[0].id } : null;
+    }
+    const selected = items.find((it) => _craftSelected && it.kind === _craftSelected.kind && it.id === _craftSelected.id) || null;
+
+    const railHtml = craftTabDefs.map((t) => `
+      <button type="button" id="craft-tab-${t.id}" class="cf-rail-btn${activeCraftTab === t.id ? ' active' : ''}" onclick="setCraftTab('${t.id}')">
+        <span class="ms-icon" aria-hidden="true">${t.icon}</span>
+        <span>${t.label}</span>
+        ${tabHasPlaceable[t.id] ? '<span class="cf-rail-dot" title="Ready to place"></span>' : ''}
+      </button>`).join('');
+
+    let mainTop = '';
+    let listHtml = '';
+    if (activeCraftTab === 'ships') {
+      const roleMeta = ROLE_META[activeShipRoleTab];
+      mainTop = `
+        <div class="cf-main-row">
+          <div class="cf-main-title" style="color:${roleMeta.color};">${roleMeta.title}</div>
+          <div class="cf-cap">Fleet <strong>${state.ships.length + activeCraftCount} / ${maxShips}</strong></div>
+        </div>
+        <div class="cf-chips">
+          ${roleOrder.map((role) => {
+            const m = ROLE_META[role];
+            return `<button type="button" class="cf-chip${activeShipRoleTab === role ? ' active' : ''}" style="--cf-chip:${m.color}" onclick="setCraftShipRoleTab('${role}')">
+              <span class="ms-icon" aria-hidden="true">${m.icon}</span>${m.label}
+            </button>`;
+          }).join('')}
+        </div>`;
+      if (atCap) listHtml += `<div class="cf-cap-warn">Ship capacity full (${state.ships.length + activeCraftCount}/${maxShips}). Upgrade the Base or sell a ship.</div>`;
+    } else {
+      const titles = { defense: 'DEFENSE SYSTEMS', storage: 'STORAGE MODULES', power: 'POWER GRID', research: 'LAB NETWORK', drones: 'DRONE OPS' };
+      const colors = { defense: '#ff8c40', storage: '#ff9a4a', power: '#ffe066', research: '#6fff9a', drones: '#5af0ff' };
+      mainTop = `<div class="cf-main-row"><div class="cf-main-title" style="color:${colors[activeCraftTab] || '#4ab0ff'};">${titles[activeCraftTab] || activeCraftTab.toUpperCase()}</div></div>`;
+    }
+
+    if (!items.length) {
+      const emptyMsg = activeCraftTab === 'ships'
+        ? 'No ships available at current base tier.'
+        : activeCraftTab === 'defense'
+          ? 'No defense systems unlocked yet. Visit Research to unlock turrets.'
+          : `${activeCraftTab.charAt(0).toUpperCase() + activeCraftTab.slice(1)} fabrication is locked. Unlock modules in Research first.`;
+      listHtml += `<div class="cf-empty">${emptyMsg}</div>`;
+    } else {
+      listHtml += items.map((it) => {
+        const selectedCls = selected && selected.key === it.key ? ' selected' : '';
+        return `<div class="cf-card ${craftRankClass(it.tier)}${selectedCls}" style="--rank:${it.roleColor}" onclick="selectCraftItem('${it.kind}','${it.id}')">
+          <div class="cf-ico">${it.iconHtml}<span class="cf-tier">${toRoman(it.tier)}</span></div>
+          <div class="cf-meta">
+            <div class="cf-name-line">
+              <span class="cf-name">${it.name}</span>
+              <span class="cf-tag">${it.roleLabel}</span>
+            </div>
+            <div class="cf-stats">${it.statsHtml}</div>
+          </div>
+          <div class="cf-side">${craftTrackBtn(it.trackKind, it.id)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    let detailHtml = '<div class="cf-empty">Select an item to craft.</div>';
+    if (selected) {
+      const buildLabel = selected.kind === 'ship' ? 'BUILD SHIP'
+        : selected.kind === 'drone' ? 'BUILD DRONE'
+        : selected.kind === 'turret' ? `BUILD ${selected.name.toUpperCase()}`
+        : `BUILD ${selected.name.toUpperCase()}`;
+      detailHtml = `
+        <div class="cf-hero" style="--rank:${selected.roleColor}">
+          <div class="cf-portrait">
+            <span class="cf-portrait-tier">TIER ${toRoman(selected.tier)}</span>
+            ${selected.iconHtml}
+          </div>
+          <div class="cf-hero-name">${selected.name.toUpperCase()}</div>
+          <div class="cf-hero-role">${selected.roleLabel.toUpperCase()}${selected.meta ? ` · ${selected.meta}` : ''}</div>
+          <div class="cf-hero-blurb">${selected.blurb}</div>
+        </div>
+        <div class="cf-sec">◈ MATERIALS REQUIRED</div>
+        ${craftMatGridHtml(selected.cost, selected.reqs)}
+        <div class="cf-actions">
+          ${craftBuildBtnHtml({
+            id: selected.id,
+            kind: selected.kind,
+            label: buildLabel,
+            can: selected.can,
+            timer: selected.timer,
+            placeQueued: selected.placeQueued,
+            placeOnclick: selected.placeOnclick,
+            buildOnclick: selected.buildOnclick,
+            notice: selected.notice,
+          })}
+          <div class="cf-row2">
+            ${(() => {
+              const atMax = (state.trackedCrafts || []).length >= 3;
+              const tracked = isTracked(selected.trackKind, selected.id);
+              return `<button type="button" class="cf-ghost${tracked ? ' ct-tracked' : ''}" data-ct-kind="${selected.trackKind}" data-ct-id="${selected.id}" ${!tracked && atMax ? 'disabled' : ''} onclick="toggleTrackCraft('${selected.trackKind}','${selected.id}')"><span class="ms-icon${tracked ? ' ms-icon-fill' : ''}" aria-hidden="true" style="font-size:16px">bookmark</span> ${tracked ? 'UNTRACK' : 'TRACK'}</button>`;
+            })()}
+            <button type="button" class="cf-ghost" onclick="openHdrPanel('codex')"><span class="ms-icon" aria-hidden="true" style="font-size:16px">info</span> CODEX</button>
+          </div>
+        </div>`;
+    }
+
+    body.innerHTML = `
+      <div class="cf-layout">
+        <nav class="cf-rail">${railHtml}</nav>
+        <section class="cf-main">
+          <div class="cf-main-top">${mainTop}</div>
+          <div class="cf-list">${listHtml}</div>
+        </section>
+        <aside class="cf-detail">${detailHtml}</aside>
+      </div>`;
+
     if (activeCraftTab === 'ships' && state.tutStep === 6) { state.tutStep = 7; }
+    if (state.tutStep === 7) {
+      requestAnimationFrame(() => {
+        const btn = document.querySelector('.hdr-modal-window[data-panel-type="craft"] .cf-build');
+        if (btn?.scrollIntoView) btn.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    }
     requestAnimationFrame(refreshTrackButtons);
   }
 
@@ -1389,6 +1493,7 @@ export function openHdrPanel(type, options = {}) {
       { id: 'events',   label: 'Events' },
       { id: 'discoveries', label: 'Discoveries' },
       { id: 'resources',label: 'Resources' },
+      { id: 'materials',label: 'Advanced Materials' },
       { id: 'ships',    label: 'Ships' },
       { id: 'turrets',  label: 'Turrets' },
       { id: 'storage',  label: 'Storage' },
@@ -1482,6 +1587,56 @@ export function openHdrPanel(type, options = {}) {
           </div>
         </div>`;
       }).join('');
+
+    } else if (_codexTab === 'materials') {
+      const rarityColor = {
+        common: '#8ab',
+        uncommon: '#6fff9a',
+        rare: '#6ad4ff',
+        epic: '#c98cff',
+        legendary: '#ffe066',
+      };
+      const advancedCards = SYNTHESIS_RECIPES.map((recipe) => {
+        const rColor = rarityColor[recipe.rarity] || '#8ab';
+        const craft = SYNTHESIS_CRAFT_TIMES[recipe.rarity] || SYNTHESIS_CRAFT_TIMES.common;
+        const craftLabel = `${craft.base}s → ${craft.min}s`;
+        const inputsHtml = recipe.inputs.map((input) => {
+          const def = RESOURCE_DEFS[input.id];
+          const label = def?.label || input.id;
+          const color = def?.color || '#cde';
+          return `<span class="codex-adv-input" style="color:${color};">${resourceIconHtml(input.id, 14)}<span>${label}</span><span class="codex-adv-amt">${fmtCompact(input.amount)}</span></span>`;
+        }).join('');
+        return `<div class="codex-resources-card codex-adv-card" style="border-left: 5px solid ${recipe.color};">
+          <div class="codex-resources-header">
+            <div class="codex-resources-icon-wrap">${resourceIconHtml(recipe.icon || recipe.id, 64)}</div>
+            <div class="codex-resources-copy">
+              <div class="codex-resources-title-row">
+                <div class="codex-resources-name" style="color:${recipe.color};">${recipe.name}</div>
+                <span class="codex-resources-tier-pill" style="border:1px solid ${rColor}44;background:${rColor}18;color:${rColor};">${(recipe.rarity || 'common').toUpperCase()}</span>
+              </div>
+              <div class="codex-resources-blurb">Synthesized in a Research Lab from linked belt resources via Lab Towers.</div>
+              <div class="codex-adv-inputs">${inputsHtml}</div>
+            </div>
+          </div>
+          <div class="codex-resources-stats">
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">SOURCE</span><br><span class="codex-resources-stat-value">Research Lab</span></div>
+            <div class="codex-resources-divider"></div>
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">RARITY</span><br><span class="codex-resources-stat-value" style="color:${rColor};">${(recipe.rarity || 'common').toUpperCase()}</span></div>
+            <div class="codex-resources-divider"></div>
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">CRAFT TIME</span><br><span class="codex-resources-stat-value">${craftLabel}</span></div>
+            <div class="codex-resources-divider"></div>
+            <div class="codex-resources-stat"><span class="codex-resources-stat-label">INPUTS</span><br><span class="codex-resources-stat-value">${recipe.inputs.length} resources</span></div>
+          </div>
+        </div>`;
+      }).join('');
+
+      tabContent = `
+        <div class="codex-group-label codex-section-title">◈ ADVANCED MATERIALS</div>
+        <div class="codex-info-card" style="margin-bottom:10px;">
+          <div class="codex-info-body">Composite materials produced at a <strong style="color:#6fff9a;">Research Lab</strong> when ingredient nodes are linked through <strong style="color:#6fff9a;">Lab Towers</strong>. Craft time scales down as the lab tiers up.</div>
+        </div>
+        ${advancedCards}
+      `;
 
     } else if (_codexTab === 'ships') {
       const UNIQUE_NAMES = {

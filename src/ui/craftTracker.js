@@ -4,7 +4,7 @@
 import { state } from '../state.js';
 import { getCraft, CRAFT_SHIPS } from '../data/crafts.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
-import { fmt } from '../helpers.js';
+import { fmt, fmtCompact, resourceIconHtml } from '../helpers.js';
 
 const MAX_TRACKED = 3;
 
@@ -28,13 +28,24 @@ export function toggleTrackCraft(kind, id) {
 export function refreshTrackButtons() {
   const tracked = state.trackedCrafts || [];
   const atMax = tracked.length >= MAX_TRACKED;
-  document.querySelectorAll('.craft-item-track-btn').forEach(btn => {
+  document.querySelectorAll('.craft-item-track-btn, .cf-track, .cf-ghost[data-ct-kind]').forEach(btn => {
     const kind = btn.dataset.ctKind;
     const id   = btn.dataset.ctId;
+    if (!kind || !id) return;
     const on   = isTracked(kind, id);
-    btn.textContent = on ? 'UNTRACK' : 'TRACK';
     btn.classList.toggle('ct-tracked', on);
     btn.disabled = !on && atMax;
+    btn.title = on ? 'Untrack' : 'Track in craft queue';
+    if (btn.classList.contains('craft-item-track-btn') || btn.classList.contains('cf-ghost')) {
+      const icon = btn.querySelector('.ms-icon');
+      if (icon) {
+        btn.innerHTML = `<span class="ms-icon${on ? ' ms-icon-fill' : ''}" aria-hidden="true" style="font-size:16px">bookmark</span> ${on ? 'UNTRACK' : 'TRACK'}`;
+      } else {
+        btn.textContent = on ? 'UNTRACK' : 'TRACK';
+      }
+    } else if (btn.classList.contains('cf-track')) {
+      btn.innerHTML = `<span class="ms-icon${on ? ' ms-icon-fill' : ''}" aria-hidden="true">bookmark</span>`;
+    }
   });
 }
 
@@ -49,8 +60,32 @@ function getCraftData(kind, id) {
 }
 
 const KIND_LABELS = { ship: 'SHIP', turret: 'TURRET', building: 'BUILDING', drone: 'DRONE' };
+const KIND_ICONS = { ship: 'rocket', turret: 'shield', building: 'apartment', drone: 'drone_2' };
 
 let _lastTrackerSig = '';
+
+function readiness(data) {
+  let total = 0;
+  let met = 0;
+  if (data.cost > 0) {
+    total += 1;
+    if ((state.coins || 0) >= data.cost) met += 1;
+  }
+  for (const [r, n] of Object.entries(data.reqs || {})) {
+    total += 1;
+    if ((state.resources[r] || 0) >= n) met += 1;
+  }
+  return { met, total, pct: total > 0 ? Math.round((met / total) * 100) : 100 };
+}
+
+function matCellHtml(label, amount, have, iconHtml) {
+  const ok = have >= amount;
+  return `<div class="ct-mat ${ok ? 'ok' : 'bad'}" title="${label}: ${fmt(have)} / ${fmt(amount)}">
+    <span class="ct-mat-check">${ok ? '✓' : '!'}</span>
+    ${iconHtml}
+    <div class="ct-mat-amt">${fmtCompact(amount)}</div>
+  </div>`;
+}
 
 export function renderCraftTracker() {
   const el = document.getElementById('craft-tracker');
@@ -62,7 +97,6 @@ export function renderCraftTracker() {
     return;
   }
 
-  // Build sig from coins + relevant resource amounts — skip DOM update if unchanged
   const sig = JSON.stringify(tracked) + '|' + state.coins + '|' +
     tracked.flatMap(({ kind, id }) => {
       const d = getCraftData(kind, id);
@@ -77,27 +111,43 @@ export function renderCraftTracker() {
     const data = getCraftData(kind, id);
     if (!data) return '';
     const kindLabel = KIND_LABELS[kind] || kind.toUpperCase();
-    let reqs = '';
+    const kindIcon = KIND_ICONS[kind] || 'bookmark';
+    const ready = readiness(data);
+    const readyAll = ready.met === ready.total && ready.total > 0;
+
+    const mats = [];
     if (data.cost > 0) {
-      const have = state.coins || 0;
-      const met = have >= data.cost;
-      reqs += `<div class="ct-req ${met ? 'ct-met' : 'ct-unmet'}"><span class="ct-check">${met ? '✓' : '✗'}</span>$${fmt(have)}/$${fmt(data.cost)}</div>`;
+      mats.push(matCellHtml('Credits', data.cost, state.coins || 0,
+        '<span class="ct-mat-cash">$</span>'));
     }
     for (const [r, n] of Object.entries(data.reqs)) {
-      const have = state.resources[r] || 0;
-      const met = have >= n;
       const label = RESOURCE_DEFS[r]?.label || r;
-      reqs += `<div class="ct-req ${met ? 'ct-met' : 'ct-unmet'}"><span class="ct-check">${met ? '✓' : '✗'}</span>${label}: ${fmt(have)}/${fmt(n)}</div>`;
+      const icon = resourceIconHtml(r, 22) || `<span class="ct-mat-cash">?</span>`;
+      mats.push(matCellHtml(label, n, state.resources[r] || 0, icon));
     }
-    return `<div class="ct-card">
+
+    return `<div class="ct-card${readyAll ? ' ready' : ''}">
       <div class="ct-card-head">
-        <span class="ct-card-name">${data.name}</span>
-        <span class="ct-card-kind">${kindLabel}</span>
+        <span class="ms-icon ct-kind-icon" aria-hidden="true">${kindIcon}</span>
+        <div class="ct-card-titles">
+          <div class="ct-card-name">${data.name}</div>
+          <div class="ct-card-sub">
+            <span class="ct-card-kind">${kindLabel}</span>
+            <span class="ct-ready-label ${readyAll ? 'ok' : ''}">${ready.met}/${ready.total}</span>
+          </div>
+        </div>
         <button class="ct-remove-btn" onclick="toggleTrackCraft('${kind}','${id}')" title="Untrack">✕</button>
       </div>
-      <div class="ct-card-reqs">${reqs}</div>
+      <div class="ct-progress"><div class="ct-progress-fill" style="width:${ready.pct}%"></div></div>
+      <div class="ct-mat-grid">${mats.join('') || '<div class="ct-empty">No materials</div>'}</div>
     </div>`;
   }).join('');
 
-  el.innerHTML = `<div class="ct-title">◈ TRACKED</div>${cards}`;
+  el.innerHTML = `
+    <div class="ct-title">
+      <span class="ms-icon ms-icon-fill" aria-hidden="true">bookmark</span>
+      TRACKED
+      <span class="ct-count">${tracked.length}/${MAX_TRACKED}</span>
+    </div>
+    ${cards}`;
 }

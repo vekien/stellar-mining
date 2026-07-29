@@ -163,14 +163,26 @@ export function addLog(msg) {
 // ── Tooltip ──
 export const tooltipEl = () => document.getElementById('tooltip');
 
+const MATERIAL_ICON_IDS = new Set([
+  'oxy_copper', 'sil_steel', 'nick_alloy', 'cobaltic', 'titan_alloy',
+  'alum_bronze', 'auric_matrix', 'chrome_plate', 'argent_flux', 'plat_catalyst',
+  'irid_core', 'radiant_alloy', 'stellar_matrix',
+]);
+
 export function getResourceIconPath(resourceType) {
+  if (MATERIAL_ICON_IDS.has(resourceType)) return `assets/images/materials/${resourceType}.png`;
+  if (resourceType === 'crashed_ship') return 'assets/images/crashed_ships/crashed_ship_1.png';
   return `assets/images/resources/${resourceType}.png`;
 }
 
 export function resourceIconHtml(resourceType, size = 14, extraStyle = '') {
   const def = RESOURCE_DEFS[resourceType];
-  if (!def) return '';
-  return `<img class="resource-icon" src="${getResourceIconPath(resourceType)}" alt="${def.label}" style="width:${size}px;height:${size}px;${extraStyle}">`;
+  const isMaterial = MATERIAL_ICON_IDS.has(resourceType);
+  if (!def && !isMaterial) return '';
+  // Special map nodes (e.g. crashed ships) are not mineable resource icons
+  if (def?.noIcon || def?.special) return '';
+  const label = def?.label || resourceType;
+  return `<img class="resource-icon" src="${getResourceIconPath(resourceType)}" alt="${label}" style="width:${size}px;height:${size}px;${extraStyle}">`;
 }
 
 export function showTooltip(e, resourceType, options = {}) {

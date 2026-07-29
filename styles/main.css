@@ -187,6 +187,10 @@
   }
   .hdr-modal-window.hdr-modal-codex {
     width: min(1200px, 94%);
+    height: 500px;
+  }
+  .hdr-modal-window.hdr-modal-research {
+    height: 500px;
   }
   .hdr-modal-window .panel-shell-title {
     color: #4af;
@@ -628,6 +632,33 @@
   .codex-resources-stat-label { color: #3a6a9a; font-size: 12px; letter-spacing: 0.5px; }
   .codex-resources-stat-value { font-family: 'Share Tech Mono',monospace; font-size: 14px; color: #cde; }
   .codex-resources-sell { color: #4d8; }
+  .codex-adv-card .codex-resources-header { margin-bottom: 8px; }
+  .codex-adv-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin-top: 8px;
+  }
+  .codex-adv-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    padding: 3px 7px 3px 5px;
+    border-radius: 4px;
+    border: 1px solid rgba(42, 74, 122, 0.7);
+    background: rgba(8, 16, 36, 0.55);
+  }
+  .codex-adv-input .resource-icon {
+    width: 14px !important;
+    height: 14px !important;
+  }
+  .codex-adv-amt {
+    color: #ffe066;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    margin-left: 2px;
+  }
 
   /* codex > ships */
   .codex-ships-group-header { font-family: 'Orbitron',sans-serif; font-size: 10px; letter-spacing: 2px; margin: 14px 0 7px; padding-bottom: 5px; }
@@ -747,83 +778,478 @@
   .trade-summary-label { font-size: 13px; color: #7fa4c8; margin-top: 4px; letter-spacing: 0.8px; }
   .trade-section-title { margin-bottom: 8px; }
 
-  /* craft */
-  .craft-layout { display: flex; gap: 14px; align-items: flex-start; }
-  .craft-content { flex: 1; min-width: 0; }
-  .craft-nav { width: 190px; flex-shrink: 0; border-right: 1px solid #1a3a6e; padding-right: 10px; }
-  .craft-nav-star {
-    color: #ffe066;
-    margin-left: 6px;
+  /* craft — MMO-style rail + list + inspect */
+  .hdr-modal-window.hdr-modal-craft {
+    width: min(1040px, 96%);
+    height: 620px;
+  }
+  .cf-layout {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr) 300px;
+    height: 100%;
+    min-height: 0;
+    margin: -16px;
+  }
+  .cf-rail {
+    border-right: 1px solid #1c3a66;
+    background: rgba(4,10,20,0.75);
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+  }
+  .cf-rail-btn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 68px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #4f6f90;
+    cursor: pointer;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+  .cf-rail-btn .ms-icon { font-size: 26px; }
+  .cf-rail-btn:hover {
+    color: #d5e2f2;
+    background: rgba(30,70,130,0.22);
+    border-color: rgba(40,80,140,0.5);
+  }
+  .cf-rail-btn.active {
+    color: #4ab0ff;
+    background: linear-gradient(180deg, rgba(40,100,180,0.3), rgba(20,50,100,0.18));
+    border-color: rgba(74,176,255,0.45);
+  }
+  .cf-rail-dot {
+    position: absolute;
+    top: 7px; right: 8px;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #ffe066;
+    box-shadow: 0 0 8px #ffe066;
+  }
+  .cf-main {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #1c3a66;
+  }
+  .cf-main-top {
+    flex: 0 0 auto;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid rgba(28,58,102,0.7);
+  }
+  .cf-main-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 10px;
+  }
+  .cf-main-title {
+    font-family: 'Orbitron', sans-serif;
     font-size: 12px;
-    text-shadow: 0 0 8px rgba(255,224,102,0.55);
-    vertical-align: 1px;
+    letter-spacing: 2px;
+    color: #5ed89a;
+    font-weight: 700;
   }
-  .craft-nav-btn {
-    width: 100%; text-align: left; padding: 9px 10px; margin-bottom: 6px;
-    font-family: 'Orbitron',monospace; font-size: 13px; font-weight: 600; letter-spacing: 1.3px;
-    border: 1px solid #1a3458; border-left: 3px solid #24466f; border-radius: 4px;
-    background: rgba(8,18,40,0.4); color: #5f7fa0; cursor: pointer;
-    transition: all 0.15s; text-transform: uppercase;
-  }
-  .craft-nav-btn.active {
-    border-color: #2f6fb8; border-left-color: #4af;
-    background: rgba(16,48,90,0.45); color: #8fd0ff;
-  }
-  .craft-subtabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
-  .craft-subtab {
-    padding: 7px 10px;
-    border: 1px solid #1a3a6e;
-    border-radius: 4px;
-    background: rgba(10,20,50,0.35);
-    color: #6a8aaa;
-    font-family: 'Orbitron',sans-serif;
+  .cf-cap {
     font-size: 11px;
+    color: #7a96b4;
+    border: 1px solid #1c3a66;
+    border-radius: 999px;
+    padding: 4px 10px;
+    background: rgba(0,0,0,0.25);
+  }
+  .cf-cap strong { color: #ffe066; font-weight: 400; }
+  .cf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cf-chip {
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 6px;
+    border: 1px solid #1c3a66;
+    background: rgba(0,0,0,0.2);
+    color: #7a96b4;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
     letter-spacing: 1px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
-  .craft-subtab.active {
-    color: #cde;
-    background: rgba(30,60,120,0.25);
+  .cf-chip .ms-icon { font-size: 16px; }
+  .cf-chip:hover { color: #d5e2f2; border-color: #2f5a96; }
+  .cf-chip.active {
+    color: var(--cf-chip, #5ed89a);
+    border-color: color-mix(in srgb, var(--cf-chip, #5ed89a) 50%, transparent);
+    background: color-mix(in srgb, var(--cf-chip, #5ed89a) 10%, transparent);
   }
-  .craft-cap-warning { font-size: 16px; color: #f88; background: rgba(60,10,10,0.4); border: 1px solid #803020; border-radius: 3px; padding: 6px 8px; margin-bottom: 8px; text-align: center; }
-  .craft-role-header { font-family: 'Orbitron',sans-serif; font-size: 10px; letter-spacing: 2px; margin: 12px 0 8px; padding-bottom: 5px; }
-  .craft-stats-row { display: flex; gap: 10px; font-size: 14px; flex-wrap: wrap; }
-  .craft-stat { color: #cde; }
-  .craft-stat-icon { color: #4a7aaa; }
-  .craft-ships-stats-row .craft-stat + .craft-stat::before {
-    content: '\2022';
-    color: #4a7aaa;
-    margin-right: 8px;
+  .cf-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 10px 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
-  .craft-btn-full { width: 100%; margin-top: 6px; }
-  .craft-item-head { display: flex; align-items: center; gap: 8px; }
-  .craft-item-role-icon { font-size: 15px; }
-  .craft-item-title-wrap { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-  .craft-item-title { font-family: 'Orbitron',sans-serif; font-size: 15px; font-weight: 700; color: #e8eef8; letter-spacing: 1px; text-transform: uppercase; }
-  .craft-item-desc { font-size: 13px; color: #5a7a9a; font-style: italic; }
-  .craft-item-tier-pill { font-size: 12px; line-height: 1.5; padding: 2px 8px; border-radius: 3px; font-family: 'Cinzel',serif; font-weight: 600; flex-shrink: 0; }
-  .craft-item-role-pill { font-size: 12px; line-height: 1.5; padding: 2px 8px; border-radius: 3px; font-family: 'Orbitron',sans-serif; letter-spacing: 1px; flex-shrink: 0; text-transform: uppercase; }
-  .craft-item-table { width: 100%; border-collapse: collapse; border: 1px solid #1a3a6e; border-radius: 4px; }
-  .craft-item-th { padding: 6px 10px; color: #3a6a9a; font-size: 11px; letter-spacing: 1px; text-align: left; border-bottom: 1px solid #1a3a6e; font-family: 'Orbitron',sans-serif; font-weight: 600; background: rgba(6,14,38,0.6); }
-  .craft-item-th-left { border-right: 1px solid #1a3a6e; }
-  .craft-item-td-left { padding: 8px 0; vertical-align: top; border-right: 1px solid #1a3a6e; width: 50%; }
-  .craft-item-td-right { padding: 8px 10px; vertical-align: middle; width: 50%; }
-  .craft-empty { font-size: 14px; color: #4a6a8a; text-align: center; padding: 20px; }
-  .craft-ships-summary { font-size: 12px; color: #3a6a9a; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-  .craft-ships-summary strong { color: #cde; }
-  .craft-defense-empty { padding: 16px; background: rgba(20,50,100,0.2); border: 1px solid #1a3a6e; border-radius: 4px; text-align: center; color: #4a6a8a; font-size: 15px; }
-  .craft-defense-card { background: rgba(10,30,60,0.5); border: 1px solid #2a4a7a; border-radius: 5px; padding: 10px; margin-bottom: 8px; }
-  .craft-defense-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .craft-defense-icon { font-size: 20px; }
-  .craft-defense-title { font-family: 'Orbitron',sans-serif; font-size: 13px; color: #cde; letter-spacing: 1px; }
-  .craft-defense-meta { margin-left: auto; font-size: 13px; color: #8ab; }
-  .craft-defense-active { margin-left: auto; font-size: 12px; color: #4d8; background: rgba(20,60,30,0.4); border: 1px solid #2a6040; border-radius: 3px; padding: 1px 6px; }
-  .craft-defense-desc { font-size: 14px; color: #5a7a9a; margin-bottom: 8px; }
-  .craft-defense-btn { width: 100%; font-size: 14px; }
-  .craft-placeholder { background: rgba(10,20,50,0.5); border: 1px solid #1a3a6e; border-radius: 5px; padding: 24px; text-align: center; opacity: 0.6; margin-top: 8px; }
-  .craft-placeholder-icon { font-size: 22px; margin-bottom: 8px; }
-  .craft-placeholder-title { font-family: 'Orbitron',sans-serif; font-size: 11px; letter-spacing: 2px; color: #4af; margin-bottom: 8px; }
-  .craft-placeholder-desc { font-size: 12px; color: #4a6a8a; }
+  .cf-list::-webkit-scrollbar,
+  .cf-mat-grid::-webkit-scrollbar { width: 6px; }
+  .cf-list::-webkit-scrollbar-track,
+  .cf-mat-grid::-webkit-scrollbar-track { background: rgba(8,16,38,0.35); }
+  .cf-list::-webkit-scrollbar-thumb,
+  .cf-mat-grid::-webkit-scrollbar-thumb { background: rgba(80,170,255,0.85); border-radius: 6px; }
+  .cf-list::-webkit-scrollbar-thumb:hover,
+  .cf-mat-grid::-webkit-scrollbar-thumb:hover { background: rgba(130,205,255,0.95); }
+
+  .cf-card {
+    --rank: #5ed89a;
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr) 44px;
+    column-gap: 12px;
+    align-items: center;
+    min-height: 72px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--rank) 22%, rgba(28,58,102,0.75));
+    background:
+      linear-gradient(105deg,
+        color-mix(in srgb, var(--rank) 16%, transparent) 0%,
+        color-mix(in srgb, var(--rank) 5%, transparent) 42%,
+        rgba(8,14,28,0.92) 78%),
+      linear-gradient(135deg, rgba(14,26,48,0.92), rgba(8,14,28,0.96));
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--rank) 55%, transparent);
+    cursor: pointer;
+    transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s;
+  }
+  .cf-card.rank-1 { --rank: #6fff9a; }
+  .cf-card.rank-2 { --rank: #6ad4ff; }
+  .cf-card.rank-3 { --rank: #c98cff; }
+  .cf-card.rank-4 { --rank: #ffe066; }
+  .cf-card.rank-5,
+  .cf-card.rank-6,
+  .cf-card.rank-7,
+  .cf-card.rank-8,
+  .cf-card.rank-9,
+  .cf-card.rank-10 { --rank: #ff9a4a; }
+  .cf-card:hover {
+    border-color: color-mix(in srgb, var(--rank) 45%, rgba(74,176,255,0.35));
+    transform: translateX(2px);
+  }
+  .cf-card.selected {
+    border-color: color-mix(in srgb, var(--rank) 55%, rgba(94,216,154,0.4));
+    background:
+      linear-gradient(105deg,
+        color-mix(in srgb, var(--rank) 22%, transparent) 0%,
+        color-mix(in srgb, var(--rank) 8%, transparent) 48%,
+        rgba(10,20,36,0.95) 80%),
+      linear-gradient(135deg, rgba(16,36,28,0.45), rgba(10,20,36,0.96));
+    box-shadow:
+      inset 3px 0 0 color-mix(in srgb, var(--rank) 85%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--rank) 14%, transparent);
+  }
+  .cf-ico {
+    width: 58px; height: 58px;
+    border-radius: 8px;
+    border: 1px solid #1c3a66;
+    background: radial-gradient(circle at 40% 30%, color-mix(in srgb, var(--rank) 18%, transparent), transparent 60%), #071018;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .cf-ico .ms-icon { font-size: 30px; color: var(--rank); }
+  .cf-ico img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; }
+  .cf-tier {
+    position: absolute;
+    right: -5px; bottom: -5px;
+    min-width: 20px; height: 18px;
+    padding: 0 5px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--rank) 55%, #2a4a30);
+    background: rgba(10,16,28,0.92);
+    color: var(--rank);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cf-meta { min-width: 0; }
+  .cf-name-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+    flex-wrap: wrap;
+  }
+  .cf-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
+    letter-spacing: 1.5px;
+    color: #f0f6ff;
+    font-weight: 700;
+  }
+  .cf-tag {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--rank);
+    border: 1px solid color-mix(in srgb, var(--rank) 35%, transparent);
+    background: color-mix(in srgb, var(--rank) 8%, transparent);
+    border-radius: 3px;
+    padding: 2px 6px;
+  }
+  .cf-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #7a96b4;
+  }
+  .cf-stats i { font-style: normal; color: #e8eef8; margin-right: 4px; }
+  .cf-stats b { color: #ffe066; font-weight: 400; }
+  .cf-side {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cf-track {
+    width: 34px; height: 34px;
+    border-radius: 6px;
+    border: 1px solid #1c3a66;
+    background: rgba(0,0,0,0.25);
+    color: #4f6f90;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .cf-track:hover { color: #4ab0ff; border-color: #4ab0ff; }
+  .cf-track.ct-tracked {
+    color: #ffe066;
+    border-color: rgba(255,224,102,0.45);
+    background: rgba(60,50,8,0.35);
+  }
+  .cf-track:disabled { opacity: 0.45; cursor: not-allowed; }
+  .cf-track .ms-icon { font-size: 18px; }
+
+  .cf-detail {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    gap: 10px;
+    background: linear-gradient(180deg, rgba(14,28,52,0.55), rgba(8,14,26,0.9));
+    overflow: hidden;
+  }
+  .cf-hero { text-align: center; flex: 0 0 auto; }
+  .cf-portrait {
+    width: 84px; height: 84px;
+    margin: 0 auto 8px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--rank, #5ed89a) 40%, #1a3a6e);
+    background:
+      radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--rank, #5ed89a) 22%, transparent), transparent 62%),
+      linear-gradient(160deg, #0e2438, #071018);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .cf-portrait .ms-icon { font-size: 44px; color: var(--rank, #5ed89a); }
+  .cf-portrait img { width: 52px; height: 52px; object-fit: contain; }
+  .cf-portrait-tier {
+    position: absolute;
+    top: 6px; left: 6px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 8px;
+    letter-spacing: 1px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    border: 1px solid color-mix(in srgb, var(--rank, #5ed89a) 50%, #2a4a30);
+    background: rgba(0,0,0,0.45);
+    color: var(--rank, #5ed89a);
+  }
+  .cf-hero-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 16px;
+    letter-spacing: 2px;
+    color: #fff;
+    margin-bottom: 2px;
+  }
+  .cf-hero-role {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--rank, #5ed89a);
+    margin-bottom: 6px;
+  }
+  .cf-hero-blurb {
+    font-size: 11px;
+    line-height: 1.4;
+    color: #7a96b4;
+  }
+  .cf-sec {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: #4ab0ff;
+    flex: 0 0 auto;
+  }
+  .cf-mat-grid {
+    flex: 1 1 auto;
+    min-height: 100px;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    align-content: start;
+    padding: 2px 4px 4px 2px;
+  }
+  .cf-mat {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 4px 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(28,58,102,0.7);
+    background: linear-gradient(180deg, rgba(14,28,52,0.5), rgba(6,12,24,0.85));
+  }
+  .cf-mat.ok { border-color: rgba(50,130,80,0.4); }
+  .cf-mat.bad {
+    border-color: rgba(140,50,50,0.45);
+    background: linear-gradient(180deg, rgba(50,16,20,0.35), rgba(18,8,12,0.85));
+  }
+  .cf-mat-icon { width: 28px; height: 28px; object-fit: contain; }
+  .cf-mat .resource-icon { width: 28px !important; height: 28px !important; object-fit: contain; }
+  .cf-mat-icon.cash {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: #ffe066;
+  }
+  .cf-mat-name {
+    font-size: 12px;
+    color: #c5d4e8;
+    text-align: center;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cf-mat-amt {
+    font-size: 12px;
+    color: #ffe066;
+    font-variant-numeric: tabular-nums;
+  }
+  .cf-mat.bad .cf-mat-amt { color: #ff7a7a; }
+  .cf-mat-check {
+    position: absolute;
+    top: 3px; right: 4px;
+    font-size: 10px;
+    color: #5dffa0;
+    line-height: 1;
+  }
+  .cf-mat.bad .cf-mat-check { color: #ff7a7a; }
+  .cf-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .cf-build {
+    height: 44px;
+    border-radius: 7px;
+    border: 1px solid rgba(93,255,160,0.45);
+    background: linear-gradient(180deg, rgba(45,150,90,0.65), rgba(22,90,50,0.8));
+    color: #eaffef;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 0 18px rgba(80,220,120,0.16);
+    position: relative;
+    overflow: hidden;
+  }
+  .cf-build:hover:not(:disabled) { filter: brightness(1.08); }
+  .cf-build:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.35);
+    box-shadow: none;
+  }
+  .cf-build.place {
+    border-color: rgba(74,176,255,0.5);
+    background: linear-gradient(180deg, rgba(40,100,180,0.65), rgba(20,50,100,0.8));
+    box-shadow: 0 0 18px rgba(74,176,255,0.16);
+  }
+  .cf-build .bp-craft-btn-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: linear-gradient(90deg, rgba(130,130,145,0.85), rgba(175,175,190,0.85));
+    z-index: 1;
+  }
+  .cf-build .bp-craft-btn-label { position: relative; z-index: 2; }
+  .cf-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .cf-ghost {
+    height: 34px;
+    border-radius: 6px;
+    border: 1px solid #1c3a66;
+    background: rgba(0,0,0,0.22);
+    color: #7a96b4;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+  .cf-ghost:hover { color: #d5e2f2; border-color: #2f5a96; }
+  .cf-ghost.ct-tracked {
+    color: #ffe066;
+    border-color: rgba(255,224,102,0.45);
+    background: rgba(60,50,8,0.35);
+  }
+  .cf-empty {
+    padding: 28px 16px;
+    text-align: center;
+    color: #4a6a8a;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .cf-cap-warn {
+    font-size: 12px;
+    color: #f88;
+    background: rgba(60,10,10,0.35);
+    border: 1px solid #803020;
+    border-radius: 6px;
+    padding: 8px 10px;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  /* legacy craft timer bits still used by fill bars */
+  .bp-craft-btn-fill { display: block; }
+  .bp-craft-btn-label { display: inline; }
 
   #header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
@@ -1553,83 +1979,176 @@
     position: absolute;
     top: 14px;
     right: 12px;
-    width: 290px;
-    background: linear-gradient(180deg, rgba(6,14,40,0.96) 0%, rgba(8,20,55,0.96) 100%);
-    border: 1px solid #2a5090;
-    border-radius: 8px;
+    width: 280px;
+    background: linear-gradient(165deg, rgba(10,20,40,0.97), rgba(6,12,24,0.98));
+    border: 1px solid color-mix(in srgb, #4ab0ff 40%, #1a3a6e);
+    border-radius: 10px;
     padding: 10px;
     z-index: 20;
     pointer-events: all;
     max-height: calc(100% - 28px);
     overflow-y: auto;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.55), 0 0 24px rgba(40,120,255,0.08);
   }
+  #craft-tracker::-webkit-scrollbar { width: 6px; }
+  #craft-tracker::-webkit-scrollbar-track { background: rgba(8,16,38,0.35); }
+  #craft-tracker::-webkit-scrollbar-thumb { background: rgba(80,170,255,0.85); border-radius: 6px; }
   #craft-tracker.ct-hidden { display: none; }
   .ct-title {
     font-family: 'Orbitron', sans-serif;
     font-size: 11px;
     letter-spacing: 2px;
-    color: #4af;
-    margin-bottom: 8px;
-  }
-  .ct-card {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid #1a3060;
-    border-radius: 4px;
-    padding: 8px;
-    margin-bottom: 6px;
-  }
-  .ct-card:last-child { margin-bottom: 0; }
-  .ct-card-head {
+    color: #4ab0ff;
+    margin-bottom: 10px;
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 6px;
   }
+  .ct-title .ms-icon { font-size: 16px; color: #ffe066; }
+  .ct-count {
+    margin-left: auto;
+    font-size: 10px;
+    color: #6a8aaa;
+    letter-spacing: 1px;
+  }
+  .ct-card {
+    background: linear-gradient(135deg, rgba(14,26,48,0.85), rgba(8,14,28,0.9));
+    border: 1px solid rgba(28,58,102,0.75);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+  .ct-card:last-child { margin-bottom: 0; }
+  .ct-card.ready {
+    border-color: rgba(93,255,160,0.35);
+    box-shadow: inset 0 0 16px rgba(80,220,120,0.06);
+  }
+  .ct-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+  }
+  .ct-kind-icon {
+    font-size: 20px !important;
+    color: #4ab0ff;
+    flex-shrink: 0;
+  }
+  .ct-card-titles { flex: 1; min-width: 0; }
   .ct-card-name {
     font-family: 'Orbitron', sans-serif;
-    font-size: 10px;
+    font-size: 12px;
     letter-spacing: 1px;
-    color: #cde;
-    flex: 1;
-    min-width: 0;
+    color: #e8eef8;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .ct-remove-btn {
-    margin-left: auto;
-    background: none;
-    border: none;
-    color: #4a6a8a;
-    font-size: 11px;
-    cursor: pointer;
-    padding: 0 2px;
-    line-height: 1;
-    flex-shrink: 0;
-    transition: color 0.15s;
+  .ct-card-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
   }
-  .ct-remove-btn:hover { color: #ff6060; }
   .ct-card-kind {
     font-size: 9px;
-    color: #4af;
-    border: 1px solid #2a5090;
+    font-family: 'Orbitron', sans-serif;
+    color: #7a96b4;
+    border: 1px solid #2a4a7a;
     border-radius: 3px;
     padding: 1px 5px;
     letter-spacing: 1px;
-    flex-shrink: 0;
   }
-  .ct-card-reqs { display: flex; flex-wrap: wrap; gap: 4px; }
-  .ct-req {
+  .ct-ready-label {
     font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
+    color: #6a8aaa;
+    font-variant-numeric: tabular-nums;
+  }
+  .ct-ready-label.ok { color: #5dffa0; }
+  .ct-remove-btn {
+    background: none;
+    border: none;
+    color: #4a6a8a;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 4px;
+    line-height: 1;
+    flex-shrink: 0;
+    border-radius: 4px;
+  }
+  .ct-remove-btn:hover { color: #ff7a7a; background: rgba(120,30,30,0.25); }
+  .ct-progress {
+    height: 3px;
+    border-radius: 2px;
+    background: #000;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .ct-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #1a6aff, #5dffa0);
+    transition: width 0.2s ease;
+  }
+  .ct-mat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+  }
+  .ct-mat {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 2px 5px;
+    border-radius: 6px;
+    border: 1px solid rgba(28,58,102,0.7);
+    background: rgba(6,14,28,0.65);
+  }
+  .ct-mat.ok { border-color: rgba(50,130,80,0.4); }
+  .ct-mat.bad {
+    border-color: rgba(140,50,50,0.45);
+    background: rgba(40,12,12,0.3);
+  }
+  .ct-mat .resource-icon {
+    width: 22px !important;
+    height: 22px !important;
+    object-fit: contain;
+  }
+  .ct-mat-cash {
+    width: 22px;
+    height: 22px;
     display: flex;
     align-items: center;
-    gap: 3px;
+    justify-content: center;
+    font-size: 15px;
+    color: #ffe066;
+    font-weight: bold;
   }
-  .ct-met  { color: #6fff9a; background: rgba(111,255,154,0.08); border: 1px solid rgba(111,255,154,0.2); }
-  .ct-unmet{ color: #ff6060; background: rgba(255,96,96,0.08);   border: 1px solid rgba(255,96,96,0.2);   }
-  .ct-check { font-size: 9px; font-weight: bold; }
+  .ct-mat-amt {
+    font-size: 11px;
+    color: #ffe066;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .ct-mat.bad .ct-mat-amt { color: #ff7a7a; }
+  .ct-mat-check {
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    font-size: 9px;
+    color: #5dffa0;
+    line-height: 1;
+  }
+  .ct-mat.bad .ct-mat-check { color: #ff7a7a; }
+  .ct-empty {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    color: #4a6a8a;
+    text-align: center;
+    padding: 6px;
+  }
 
   /* ── Track toggle button (inside craft cards) ───────────────── */
   .craft-item-track-btn {
@@ -2487,6 +3006,7 @@
       linear-gradient(135deg, color-mix(in srgb, var(--modal-accent, #6eb6ff) 12%, rgba(8,16,36,0.75)), rgba(6,12,24,0.9));
     box-shadow: inset 0 0 14px color-mix(in srgb, var(--modal-accent, #6eb6ff) 8%, transparent);
     min-height: 58px;
+    cursor: help;
     transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s;
   }
   .bp-perk-card:hover {
@@ -4125,6 +4645,41 @@
     font-variant-numeric: tabular-nums;
   }
   .ps-fuel-stores .lab-res-badge:empty { display: none; }
+
+  /* ── Power Pole / Lab Tower redesign (50/50) ── */
+  .pp-main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 10px;
+    min-height: 0;
+    flex: 1;
+    align-items: stretch;
+  }
+  .pp-range-block {
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--modal-accent, #ffe066) 28%, #1a3a6e);
+    background: rgba(8, 16, 36, 0.45);
+  }
+  .pp-range-blocks {
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: #ffe066;
+    font-variant-numeric: tabular-nums;
+  }
+  .lt-range-blocks {
+    color: #6fff9a;
+  }
+  .lt-range-note {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #6a8aaa;
+    line-height: 1.35;
+  }
+  .lt-res-list {
+    max-height: none;
+  }
 
   /* ── Drone Lab redesign ── */
   .dl-drone-list {

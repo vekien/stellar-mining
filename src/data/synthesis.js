@@ -29,7 +29,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'oxy_copper',
     name: 'Oxidized Copper',
     color: '#40a090',
-    icon: 'copper',
+    icon: 'oxy_copper',
     rarity: 'common',
     inputs: [
       { id: 'copper', amount: 600 },
@@ -40,7 +40,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'sil_steel',
     name: 'Silicate Steel',
     color: '#90b0c8',
-    icon: 'silicon',
+    icon: 'sil_steel',
     rarity: 'common',
     inputs: [
       { id: 'iron', amount: 800 },
@@ -52,7 +52,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'nick_alloy',
     name: 'Ferro-Nickel',
     color: '#80c090',
-    icon: 'nickel',
+    icon: 'nick_alloy',
     rarity: 'uncommon',
     inputs: [
       { id: 'iron', amount: 1500 },
@@ -63,7 +63,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'cobaltic',
     name: 'Cobaltic Lattice',
     color: '#7090ff',
-    icon: 'cobalt',
+    icon: 'cobaltic',
     rarity: 'uncommon',
     inputs: [
       { id: 'cobalt', amount: 1400 },
@@ -76,7 +76,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'titan_alloy',
     name: 'Titanium Alloy',
     color: '#b0c8e0',
-    icon: 'titanium',
+    icon: 'titan_alloy',
     rarity: 'uncommon',
     inputs: [
       { id: 'titanium', amount: 3500 },
@@ -88,7 +88,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'alum_bronze',
     name: 'Alum-Bronze',
     color: '#d0a060',
-    icon: 'aluminum',
+    icon: 'alum_bronze',
     rarity: 'uncommon',
     inputs: [
       { id: 'copper', amount: 4000 },
@@ -100,7 +100,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'auric_matrix',
     name: 'Auric Matrix',
     color: '#ffe066',
-    icon: 'gold',
+    icon: 'auric_matrix',
     rarity: 'rare',
     inputs: [
       { id: 'gold', amount: 5000 },
@@ -112,7 +112,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'chrome_plate',
     name: 'Chrome Plate',
     color: '#87a7af',
-    icon: 'chromium',
+    icon: 'chrome_plate',
     rarity: 'rare',
     inputs: [
       { id: 'chromium', amount: 7000 },
@@ -125,7 +125,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'argent_flux',
     name: 'Argent Flux',
     color: '#c8ccd4',
-    icon: 'silver',
+    icon: 'argent_flux',
     rarity: 'rare',
     inputs: [
       { id: 'silver', amount: 9000 },
@@ -139,7 +139,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'plat_catalyst',
     name: 'Platinum Catalyst',
     color: '#d8d8e8',
-    icon: 'platinum',
+    icon: 'plat_catalyst',
     rarity: 'epic',
     inputs: [
       { id: 'platinum', amount: 18000 },
@@ -153,7 +153,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'irid_core',
     name: 'Iridium Core',
     color: '#8ea0bc',
-    icon: 'iridium',
+    icon: 'irid_core',
     rarity: 'epic',
     inputs: [
       { id: 'iridium', amount: 35000 },
@@ -167,7 +167,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'radiant_alloy',
     name: 'Radiant Alloy',
     color: '#78d94a',
-    icon: 'uranium',
+    icon: 'radiant_alloy',
     rarity: 'epic',
     inputs: [
       { id: 'uranium', amount: 50000 },
@@ -182,7 +182,7 @@ export const SYNTHESIS_RECIPES = [
     id: 'stellar_matrix',
     name: 'Stellar Matrix',
     color: '#ffffff',
-    icon: 'hafnium',
+    icon: 'stellar_matrix',
     rarity: 'legendary',
     inputs: [
       { id: 'hafnium', amount: 100000 },

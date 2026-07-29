@@ -16,6 +16,7 @@ import {
   SHIELD_REGEN_INTERVAL_S,
   SHIELD_REGEN_PER_PURCHASE_PER_TICK,
   getResearchPointCap,
+  RESEARCH_TREE,
 } from '../data/research.js';
 import { getMaxShield } from '../systems/research.js';
 import {
@@ -26,6 +27,35 @@ import {
   initFloatingResize,
   placeFloatingWindow,
 } from './floatingWindow.js';
+import { bindTippyIn, destroyTippiesIn, setHtmlDestroyingTippies } from './tippy.js';
+
+const RESEARCH_DESC_BY_ID = (() => {
+  const map = Object.create(null);
+  for (const tier of RESEARCH_TREE || []) {
+    for (const item of tier.items || []) {
+      if (item?.id) map[item.id] = item.desc || '';
+    }
+  }
+  return map;
+})();
+
+function escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function researchTip(id, name, detail) {
+  const desc = RESEARCH_DESC_BY_ID[id] || '';
+  const title = `<strong style="color:#8fd2ff;">${escapeHtml(name)}</strong>`;
+  if (desc) return `${title}<br><span style="color:#cde;line-height:1.35;">${escapeHtml(desc)}</span>`;
+  if (detail && detail !== 'Unlocked') {
+    return `${title}<br><span style="color:#cde;">${escapeHtml(detail)}</span>`;
+  }
+  return title;
+}
 
 let _bpWasOpen = false;
 let _basePanelDragInit = false;
@@ -61,15 +91,18 @@ function renderPerkCards(items, emptyText) {
   if (!items.length) {
     return `<div class="bp-empty">${emptyText}</div>`;
   }
-  return `<div class="bp-perk-grid">${items.map((item) => `
-    <div class="bp-perk-card${item.qty ? ' stacked' : ''}">
+  return `<div class="bp-perk-grid">${items.map((item) => {
+    const tip = item.tip || researchTip(item.id, item.name, item.detail);
+    return `
+    <div class="bp-perk-card${item.qty ? ' stacked' : ''}" data-tippy-content="${tip.replace(/"/g, '&quot;')}">
       <div class="bp-perk-icon"><span class="ms-icon ms-icon-sm" aria-hidden="true">${item.icon || 'bolt'}</span></div>
       <div class="bp-perk-body">
-        <div class="bp-perk-name">${item.name}</div>
+        <div class="bp-perk-name">${escapeHtml(item.name)}</div>
         <div class="bp-perk-detail">${formatUpgradeDetail(item.detail)}</div>
       </div>
       ${item.qty ? `<div class="bp-perk-qty">×${item.qty}</div>` : '<div class="bp-perk-badge" title="Active"><span class="ms-icon ms-icon-sm ms-icon-fill" aria-hidden="true">check</span></div>'}
-    </div>`).join('')}</div>`;
+    </div>`;
+  }).join('')}</div>`;
 }
 
 function setText(el, text) {
@@ -98,24 +131,24 @@ function collectInstallations() {
   const unlockedPerks = [];
 
   if (hpBoostCount > 0)
-    installedUpgrades.push({ name: 'Health Increase', detail: `+${fmt(hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE)} max HP total`, qty: hpBoostCount, icon: 'favorite' });
+    installedUpgrades.push({ id: 'health_increase', name: 'Health Increase', detail: `+${fmt(hpBoostCount * HEALTH_INCREASE_HP_PER_PURCHASE)} max HP total`, qty: hpBoostCount, icon: 'favorite' });
   if (shieldBoostCount > 0)
-    installedUpgrades.push({ name: 'Shield Increase', detail: `${fmt(maxShield)} max shield · +${fmt(Math.round(shieldPerSec))}/s`, qty: shieldBoostCount, icon: 'shield' });
+    installedUpgrades.push({ id: 'shield_increase', name: 'Shield Increase', detail: `${fmt(maxShield)} max shield · +${fmt(Math.round(shieldPerSec))}/s`, qty: shieldBoostCount, icon: 'shield' });
   if (antiCometCount > 0)
-    installedUpgrades.push({ name: 'Anti-Comet Defenses', detail: `${Math.round(antiCometCount * ANTI_COMET_CHANCE_PER_PURCHASE * 100)}% intercept chance`, qty: antiCometCount, icon: 'flare' });
+    installedUpgrades.push({ id: 'anti_comet', name: 'Anti-Comet Defenses', detail: `${Math.round(antiCometCount * ANTI_COMET_CHANCE_PER_PURCHASE * 100)}% intercept chance`, qty: antiCometCount, icon: 'flare' });
   if (solarShieldCount > 0)
-    installedUpgrades.push({ name: 'Solar Radiation Shielding', detail: `${Math.round(solarShieldCount * SOLAR_SHIELD_REDUCTION_PER_PURCHASE * 100)}% flare reduction`, qty: solarShieldCount, icon: 'wb_sunny' });
+    installedUpgrades.push({ id: 'solar_shield', name: 'Solar Radiation Shielding', detail: `${Math.round(solarShieldCount * SOLAR_SHIELD_REDUCTION_PER_PURCHASE * 100)}% flare reduction`, qty: solarShieldCount, icon: 'wb_sunny' });
   if (autoRegenCount > 0)
-    installedUpgrades.push({ name: 'Auto Regeneration', detail: `${autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE} HP/s`, qty: autoRegenCount, icon: 'healing' });
+    installedUpgrades.push({ id: 'auto_regen', name: 'Auto Regeneration', detail: `${autoRegenCount * AUTO_REGEN_HP_PER_PURCHASE} HP/s`, qty: autoRegenCount, icon: 'healing' });
 
   if (state.researchUnlocks['armor_plating'])
-    combatUpgrades.push({ name: 'Armor Plating', detail: 'Combat ship armor +10%', icon: 'security' });
+    combatUpgrades.push({ id: 'armor_plating', name: 'Armor Plating', detail: 'Combat ship armor +10%', icon: 'security' });
   if (state.researchUnlocks['turrets'])
-    combatUpgrades.push({ name: 'Automatic Turret', detail: 'Defensive turrets unlocked', icon: 'crisis_alert' });
+    combatUpgrades.push({ id: 'turrets', name: 'Automatic Turret', detail: 'Defensive turrets unlocked', icon: 'crisis_alert' });
   if (state.researchUnlocks['laser_turrets'])
-    combatUpgrades.push({ name: 'Laser Turrets', detail: 'Unlocked', icon: 'flashlight_on' });
+    combatUpgrades.push({ id: 'laser_turrets', name: 'Laser Turrets', detail: 'Unlocked', icon: 'flashlight_on' });
   if (state.researchUnlocks['emp_turrets'])
-    combatUpgrades.push({ name: 'EMP Turrets', detail: 'Unlocked', icon: 'electric_bolt' });
+    combatUpgrades.push({ id: 'emp_turrets', name: 'EMP Turrets', detail: 'Unlocked', icon: 'electric_bolt' });
 
   const perkDefs = [
     ['resource_synthesis', 'Resource Synthesis', 'Unlocked', 'science'],
@@ -134,7 +167,7 @@ function collectInstallations() {
     ['multi_demand', 'Multi-Demand', 'Up to 3 resources in demand per SOL', 'analytics'],
   ];
   for (const [id, name, detail, icon] of perkDefs) {
-    if (state.researchUnlocks[id]) unlockedPerks.push({ name, detail, icon });
+    if (state.researchUnlocks[id]) unlockedPerks.push({ id, name, detail, icon });
   }
 
   return {
@@ -454,7 +487,8 @@ export function renderBasePanel() {
     const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
     const bodyScroll = bpBodyEl.scrollTop;
     _basePanelStructSig = structSig;
-    bpBodyEl.innerHTML = buildStructureHtml({
+    destroyTippiesIn(bpBodyEl);
+    setHtmlDestroyingTippies(bpBodyEl, buildStructureHtml({
       bl,
       maxShips,
       nextCost,
@@ -465,7 +499,8 @@ export function renderBasePanel() {
       combatUpgrades,
       unlockedPerks,
       shieldPerSec,
-    });
+    }));
+    bindTippyIn(bpBodyEl);
     const nextScroll = bpBodyEl.querySelector('.bp-install-body');
     if (nextScroll) nextScroll.scrollTop = scrollTop;
     bpBodyEl.scrollTop = bodyScroll;
