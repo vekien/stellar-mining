@@ -432,6 +432,7 @@ function getShipSellValue(ship) {
   for (let i = 0; i < ship.capacityLevel;  i++) upgradeCost += Math.floor(40  * Math.pow(1.10, i));
   for (let i = 0; i < ship.flySpeedLevel;  i++) upgradeCost += Math.floor(60  * Math.pow(1.10, i));
   for (let i = 0; i < ship.mineSpeedLevel; i++) upgradeCost += Math.floor(60  * Math.pow(1.10, i));
+  for (let i = 0; i < (ship.mineBonusLevel || 0); i++) upgradeCost += Math.floor(70 * Math.pow(1.10, i));
   for (let t = stats.mineTier + 1; t <= ship.mineTier; t++) upgradeCost += SHIP_TIER_COSTS[t] || 0;
   return Math.max(10, upgradeCost);
 }
@@ -445,7 +446,7 @@ function getFleetSortValue(ship, key) {
   if (key === 'depot') return getShipDepotLabel(ship);
   if (key === 'status') return getShipStatusLabel(ship);
   if (key === 'cargo') return ship.cargo || 0;
-  if (key === 'level') return (ship.capacityLevel || 0) + (ship.flySpeedLevel || 0) + (ship.mineSpeedLevel || 0);
+  if (key === 'level') return (ship.capacityLevel || 0) + (ship.flySpeedLevel || 0) + (ship.mineSpeedLevel || 0) + (ship.mineBonusLevel || 0);
   if (key === 'sell') return getShipSellValue(ship);
   return ship.name || '';
 }

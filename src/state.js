@@ -5,7 +5,7 @@ import { SAVE_KEY } from './constants.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
 import { gridToWorld } from './render/camera.js';
 import { RESOURCE_DEFS } from './data/resources.js';
-import { SHIP_DEFS, normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel, loadSpeedFromLevel } from './data/ships.js';
+import { SHIP_DEFS, normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel, loadSpeedFromLevel, mineBonusFromLevel } from './data/ships.js';
 import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
 import { TURRET_MAX_LEVEL, getTurretTypeDef, getTurretStats, getTurretPowerCapacity, getTurretPowerUsage } from './data/turrets.js';
 import { normalizeModule, STORAGE_FACILITY_ID, invalidateNetworkCache } from './data/modules.js';
@@ -180,8 +180,10 @@ export function saveGame() {
         ships: state.ships.map(s => ({
           id:s.id, name:s.name, type:s.type,
           capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
+          mineBonus: s.mineBonus ?? 0.1,
           loadSpeed: s.loadSpeed ?? 0,
           capacityLevel:s.capacityLevel, flySpeedLevel:s.flySpeedLevel, mineSpeedLevel:s.mineSpeedLevel,
+          mineBonusLevel: s.mineBonusLevel ?? 0,
           loadSpeedLevel: s.loadSpeedLevel ?? 0,
           targetNode: s.targetNode,
           depotType: s.depotType,
@@ -315,6 +317,8 @@ export function loadGame() {
           capacity: capacityFromTierAndLevel(sd.type, sd.mineTier ?? 1, sd.capacityLevel ?? 0, sd.capacity ?? 10),
           flySpeed: normalizeFlySpeed(rawFlySpeed, saveVersion),
           mineSpeed: normalizeMineSpeed(rawMineSpeed, saveVersion),
+          mineBonusLevel: sd.mineBonusLevel ?? 0,
+          mineBonus: mineBonusFromLevel(sd.mineBonusLevel ?? 0),
           loadSpeed:   sd.loadSpeed   ?? defaultLoadSpeed,
           hp:          sd.hp          ?? 0,
           attack:      sd.attack      ?? 0,

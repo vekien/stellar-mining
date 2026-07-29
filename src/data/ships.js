@@ -28,6 +28,10 @@ export function formatLoadSpeed(speed) {
 export function formatAtkRatePercent(rate) {
   return `${Math.round((rate || 0) * 100)}%`;
 }
+/** Mine bonus chance 0–1 displayed as percent (e.g. 0.1 → 10%). */
+export function formatMineBonusPercent(chance) {
+  return `${Math.round((chance || 0) * 100)}%`;
+}
 
 export function normalizeFlySpeed(speed, saveVersion = 1) {
   if (!Number.isFinite(speed)) return 0;
@@ -134,6 +138,24 @@ export function attackFromLevel(shipType, level) {
 export function atkRateFromLevel(shipType, level) {
   const raw = profileStat(ATK_RATE_PROFILE, shipType, level);
   return raw !== null ? parseFloat(raw.toFixed(2)) : 1.0;
+}
+
+/** Double-yield chance: 10% at Lv0 → 100% at Lv10 (always 2×). */
+export const MINE_BONUS_MIN = 0.10;
+export const MINE_BONUS_MAX = 1.00;
+export const MINE_BONUS_MAX_LEVEL = 10;
+
+export function mineBonusFromLevel(level) {
+  const t = Math.max(0, Math.min(MINE_BONUS_MAX_LEVEL, level || 0));
+  if (t <= 0) return MINE_BONUS_MIN;
+  if (t >= MINE_BONUS_MAX_LEVEL) return MINE_BONUS_MAX;
+  return parseFloat((MINE_BONUS_MIN + (MINE_BONUS_MAX - MINE_BONUS_MIN) * (t / MINE_BONUS_MAX_LEVEL)).toFixed(4));
+}
+
+/** Effective upgrade cap for mine bonus (rank 0–10). */
+export function mineBonusUpgradeCap(shipMineTier) {
+  const tierCap = TIER_UPGRADE_CAP[shipMineTier] || 10;
+  return Math.min(MINE_BONUS_MAX_LEVEL, tierCap);
 }
 
 export function getShipSalvageRewards(ship) {
@@ -351,6 +373,7 @@ export const TIER_COLORS = {
 export const UPGRADE_CAP_COST      = s => Math.floor(40  * Math.pow(1.10, s.capacityLevel  || 0));
 export const UPGRADE_FLY_COST      = s => Math.floor(60  * Math.pow(1.10, s.flySpeedLevel  || 0));
 export const UPGRADE_MINE_COST     = s => Math.floor(60  * Math.pow(1.10, s.mineSpeedLevel || 0));
+export const UPGRADE_MINE_BONUS_COST = s => Math.floor(70 * Math.pow(1.10, s.mineBonusLevel || 0));
 export const UPGRADE_LOAD_COST     = s => Math.floor(60  * Math.pow(1.10, s.loadSpeedLevel || 0));
 export const UPGRADE_HP_COST       = s => Math.floor(80  * Math.pow(1.10, s.hpLevel        || 0));
 export const UPGRADE_ATTACK_COST   = s => Math.floor(80  * Math.pow(1.10, s.attackLevel    || 0));

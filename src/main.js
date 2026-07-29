@@ -27,7 +27,7 @@ import { getMaxShield } from './systems/research.js';
 import { SHIELD_REGEN_INTERVAL_S, SHIELD_REGEN_PER_PURCHASE_PER_TICK, AUTO_REGEN_HP_PER_PURCHASE } from './data/research.js';
 import { refresh } from './ui/refresh.js';
 import { renderUI, updateHeader, updateHeaderCraft, initRefresh } from './ui/ui.js';
-import { renderActionPanel, getShipHoldingReason, getShipRouteError, getShipStatusMeta, getShipTransportSummary, getShipTransportStatusHtml } from './ui/fleet.js';
+import { renderActionPanel, patchSelectedShipModal, getShipStatusMeta } from './ui/fleet.js';
 import { renderBasePanel } from './ui/basePanel.js';
 import { openHdrPanel, closeHdrPanel, dismissHdrModal, handleBasePanelOverlayClick, refreshHdrPanelIfOpen, patchStatsPanel } from './ui/panels.js';
 import { removeReassignTooltip, renderTutPointers } from './ui/tutorial.js';
@@ -202,7 +202,7 @@ document.getElementById('base-panel-overlay').addEventListener('mouseleave', () 
 // hdr windows are pointer-events:all; overlay itself is non-blocking
 
 document.getElementById('sidebar').addEventListener('mousedown', e => {
-  const interactive = e.target.closest('.ship-card, button, input, select, .tab, .sell-btn-s, .filter-btn, .upgrade-row, #tab-content, #action-panel, label');
+  const interactive = e.target.closest('.ship-card, button, input, select, .tab, .sell-btn-s, .filter-btn, .upgrade-row, #tab-content, #action-panel, #ship-modal, label');
   if (interactive) {
     dismissHdrModal();
     window.dismissBasePanel && window.dismissBasePanel();
@@ -443,13 +443,30 @@ function getSelectedActionSig(ship) {
     ship.type,
     ship.status,
     ship.unloadingDepot ? 1 : 0,
+    ship.loadingPickup ? 1 : 0,
     ship.capacity,
+    ship.flySpeed,
+    ship.mineSpeed,
+    ship.mineBonus,
+    ship.loadSpeed,
+    ship.hp,
+    ship.attack,
+    ship.attackSpeed,
     ship.mineTier,
+    ship.capacityLevel,
+    ship.flySpeedLevel,
+    ship.mineSpeedLevel,
+    ship.mineBonusLevel,
+    ship.loadSpeedLevel,
+    ship.hpLevel,
+    ship.attackLevel,
+    ship.atkRateLevel,
     ship.targetNode ?? '',
     ship.pickupType ?? '',
     ship.pickupId ?? '',
     ship.depotType ?? '',
     ship.depotId ?? '',
+    state.followShip === ship.id ? 1 : 0,
     getDepotOptionsSig(),
   ].join('\0');
 }
@@ -463,45 +480,7 @@ function setHtmlIfChanged(el, html) {
 }
 
 function patchShipActionPanel(ship) {
-  const cargoEl = document.getElementById('action-panel-cargo');
-  setTextIfChanged(cargoEl, `${ship.cargo} / ${ship.capacity}`);
-
-  const transportSummary = getShipTransportSummary(ship);
-  const transportingEl = document.getElementById('action-panel-transporting');
-  setHtmlIfChanged(transportingEl, getShipTransportStatusHtml(ship));
-  const transportingLabelEl = document.getElementById('action-panel-transporting-label');
-  setTextIfChanged(transportingLabelEl, transportSummary.label);
-
-  const statusEl = document.getElementById('action-panel-status');
-  if (statusEl) {
-    const statusMeta = getShipStatusMeta(ship);
-    const msg = statusMeta.message;
-    if (statusEl.textContent !== msg) {
-      statusEl.textContent = msg;
-      statusEl.style.color = statusMeta.color;
-    }
-  }
-
-  const distEl = document.getElementById('action-panel-dist');
-  if (distEl) {
-    const d = getDistanceToBaseTiles(ship);
-    const distHtml = d === 0 ? '<span style="color:#6fff9a">At Base</span>' : `${d} tiles`;
-    setHtmlIfChanged(distEl, distHtml);
-  }
-
-  const routeErrorEl = document.getElementById('action-panel-route-error');
-  if (routeErrorEl) {
-    const routeError = getShipRouteError(ship);
-    routeErrorEl.style.display = routeError ? 'block' : 'none';
-    setTextIfChanged(routeErrorEl, routeError);
-  }
-
-  const holdingReasonEl = document.getElementById('action-panel-holding-reason');
-  if (holdingReasonEl) {
-    const holdingReason = getShipHoldingReason(ship);
-    holdingReasonEl.style.display = holdingReason ? 'block' : 'none';
-    setTextIfChanged(holdingReasonEl, holdingReason);
-  }
+  patchSelectedShipModal(ship);
 }
 
 function patchShipCards() {

@@ -72,11 +72,16 @@
       <div id="zoom-pct">200%</div>
       <div id="fps-readout">FPS 60</div>
     </div>
-    <div id="ship-upgrade-drawer">
-    <div id="ship-upgrade-title">◈ SHIP UPGRADES</div>
-      <div id="ship-upgrade-content"></div>
-    </div>
     <div id="craft-tracker" class="ct-hidden"></div>
+    <div id="ship-modal-overlay">
+      <div id="ship-modal" class="ship-modal-window" onclick="event.stopPropagation()">
+        <div class="panel-shell-head ship-modal-drag-handle">
+          <div id="ship-modal-title" class="panel-shell-title">SHIP</div>
+          <button class="panel-shell-close" onclick="closeShipModal()">✕</button>
+        </div>
+        <div id="ship-modal-body" class="ship-modal-body"></div>
+      </div>
+    </div>
     <div id="turret-modal-overlay">
       <div id="turret-modal" onclick="event.stopPropagation()">
         <div class="panel-shell-head turret-modal-drag-handle">

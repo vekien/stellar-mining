@@ -16,6 +16,7 @@ import { cancelStoragePlacement, canPlaceModuleAt, getModuleAtCell, getModuleAtW
 import { renderBasePanel } from './ui/basePanel.js';
 import { closeRenameOverlay } from './ui/rename.js';
 import { openTurretModal, closeTurretModalIfOpen } from './ui/turretUI.js';
+import { closeShipModalIfOpen } from './ui/fleet.js';
 import { assignShip } from './systems/ships.js';
 import { getStoragePowerUsage } from './data/storage.js';
 import { TURRET_BASE_STATS, getTurretPowerCapacity, getTurretPowerUsage, getTurretTypeDef, getTurretStats } from './data/turrets.js';
@@ -374,6 +375,7 @@ export function initInput(canvas) {
       }
       if (closeTurretModalIfOpen()) return;
       if (closeTopStorageModal()) return;
+      if (closeShipModalIfOpen()) return;
       if (state.placingTurret) { cancelTurretPlacement(); return; }
       if (state.placingModule) { cancelStoragePlacement(); return; }
       if (state.basePanelOpen) {

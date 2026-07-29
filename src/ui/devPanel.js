@@ -9,7 +9,7 @@ import { BASE_UPGRADE_COSTS, BASE_TIER_REQS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import {
   SHIP_DEFS, TIER_UPGRADE_CAP, capacityFromTierAndLevel,
-  flySpeedFromLevel, mineSpeedFromLevel, loadSpeedFromLevel,
+  flySpeedFromLevel, mineSpeedFromLevel, mineBonusFromLevel, mineBonusUpgradeCap, loadSpeedFromLevel,
   hpFromLevel, attackFromLevel, atkRateFromLevel,
 } from '../data/ships.js';
 import {
@@ -125,6 +125,8 @@ function devMaxUpgrades() {
       ship.capacity       = capacityFromTierAndLevel(ship.type, 10, cap, ship.capacity);
       ship.mineSpeedLevel = cap;
       ship.mineSpeed      = mineSpeedFromLevel(ship.type, cap);
+      ship.mineBonusLevel = mineBonusUpgradeCap(10);
+      ship.mineBonus      = mineBonusFromLevel(ship.mineBonusLevel);
     } else if (role === 'transport') {
       ship.capacityLevel  = cap;
       ship.capacity       = capacityFromTierAndLevel(ship.type, 10, cap, ship.capacity);

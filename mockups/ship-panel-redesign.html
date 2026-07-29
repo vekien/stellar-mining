@@ -307,7 +307,147 @@
     }
     .field select:focus, .field input:focus { border-color: var(--accent); }
 
-    /* RPG attribute blocks */
+    /* ── Details tab ── */
+    .details {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+    .details-vitals {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+    .details-vitals.cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .vital {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 110px;
+      padding: 16px 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(40,80,140,.5);
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+        linear-gradient(165deg, rgba(16,32,60,.7), rgba(6,12,24,.95));
+      box-shadow: inset 0 1px 0 rgba(140,190,255,.08);
+      overflow: hidden;
+    }
+    .vital::before {
+      content: '';
+      position: absolute;
+      left: 20%; right: 20%; top: 0;
+      height: 2px;
+      border-radius: 0 0 2px 2px;
+      background: var(--accent);
+      opacity: .7;
+      box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent);
+    }
+    .vital .ico {
+      color: var(--accent);
+      line-height: 1;
+    }
+    .vital .ico .ms { font-size: 26px; }
+    .vital .lab {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: #8aa8c4;
+    }
+    .vital .val {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 26px;
+      color: var(--gold);
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 14px rgba(255,224,102,.22);
+      line-height: 1;
+    }
+    .vital .val .unit {
+      font-size: 13px;
+      color: var(--muted);
+      margin-left: 2px;
+    }
+
+    .details-info {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 10px;
+    }
+    .info-block {
+      border-radius: 10px;
+      border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+      background: rgba(8,16,36,.55);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .info-block .blk-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--accent);
+      margin-bottom: 12px;
+      flex: 0 0 auto;
+    }
+    .info-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(28,58,102,.4);
+      font-size: 13px;
+    }
+    .info-row:last-of-type { border-bottom: none; }
+    .info-row .k {
+      color: var(--muted);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+    }
+    .info-row .val {
+      color: var(--gold);
+      text-align: right;
+      font-family: 'Share Tech Mono', monospace;
+    }
+    .info-row .val.ok { color: var(--green); }
+    .info-row .val.bad { color: var(--red); }
+    .info-row .val.accent { color: var(--accent); }
+
+    .details-alert {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,214,102,.45);
+      background: linear-gradient(90deg, rgba(70,55,8,.28), rgba(40,30,6,.18));
+      color: #ffd966;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .details-alert .ms { font-size: 20px; color: #ffd966; flex-shrink: 0; }
+    .details-alert.err {
+      border-color: rgba(255,120,120,.45);
+      background: linear-gradient(90deg, rgba(70,15,15,.3), rgba(40,8,8,.18));
+      color: #ff9a9a;
+    }
+    .details-alert.err .ms { color: #ff9a9a; }
+
+    /* legacy aliases used by other tabs */
     .stat-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -322,23 +462,8 @@
       background: linear-gradient(165deg, rgba(20,40,75,.55) 0%, rgba(8,16,36,.9) 100%);
       text-align: center;
       overflow: hidden;
-      box-shadow: inset 0 1px 0 rgba(140,190,255,.08);
     }
-    .stat::before {
-      content: '';
-      position: absolute;
-      left: 0; right: 0; top: 0;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, var(--accent), transparent);
-      opacity: .55;
-    }
-    .stat .ico {
-      display: flex;
-      justify-content: center;
-      margin-bottom: 6px;
-      color: var(--accent);
-      opacity: .9;
-    }
+    .stat .ico { display: flex; justify-content: center; margin-bottom: 6px; color: var(--accent); }
     .stat .ico .ms { font-size: 22px; }
     .stat .l {
       font-family: 'Orbitron', sans-serif;
@@ -351,7 +476,6 @@
       font-size: 22px;
       color: var(--gold);
       font-variant-numeric: tabular-nums;
-      text-shadow: 0 0 12px rgba(255,224,102,.2);
       line-height: 1.1;
     }
     .stat .bar {
@@ -368,7 +492,6 @@
       background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, #1a4a80), var(--accent));
       font-style: normal;
     }
-
     .kv {
       display: flex;
       justify-content: space-between;
@@ -1234,121 +1357,129 @@
       });
     }
 
-    function statCard(icon, label, value, barPct) {
-      const bar = barPct != null
-        ? `<div class="bar"><i style="width:${Math.max(0, Math.min(100, barPct))}%"></i></div>`
-        : '';
-      return `<div class="stat">
+    function vital(icon, label, value) {
+      return `<div class="vital">
         <div class="ico"><span class="ms">${icon}</span></div>
-        <div class="l">${label}</div>
-        <div class="v">${value}</div>
-        ${bar}
+        <div class="lab">${label}</div>
+        <div class="val">${value}</div>
       </div>`;
+    }
+
+    function infoRow(k, v, cls = '') {
+      return `<div class="info-row"><span class="k">${k}</span><span class="val ${cls}">${v}</span></div>`;
     }
 
     function renderDetails(ship) {
       if (ship === 'transport') {
         return `
-          <div class="grid2">
-            <section class="panel">
-              <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
-              <div class="panel-b">
-                <div class="kv"><span class="l">Status</span><span class="v" style="color:#ffd966">On route · step 2/5</span></div>
-                <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#80d0ff">Transport</span></div>
-                <div class="kv"><span class="l">Ship Type</span><span class="v">Courier</span></div>
-                <div class="kv"><span class="l">Route loop</span><span class="v ok">Enabled</span></div>
+          <div class="details">
+            <div class="details-vitals">
+              ${vital('luggage', 'CARGO', '243<span class="unit">/500</span>')}
+              ${vital('speed', 'FLY SPD', '25')}
+              ${vital('download', 'LOAD SPD', '10<span class="unit">/s</span>')}
+              ${vital('social_distance', 'RANGE', '0<span class="unit"> tiles</span>')}
+            </div>
+            <div class="details-info">
+              <div class="info-block">
+                <div class="blk-title">◈ OPERATIONS</div>
+                ${infoRow('STATUS', 'On route · step 2/5')}
+                ${infoRow('ROLE', 'Transport', 'accent')}
+                ${infoRow('TYPE', 'Courier')}
+                ${infoRow('ROUTE LOOP', 'Enabled', 'ok')}
               </div>
-            </section>
-            <section class="panel">
-              <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
-              <div class="panel-b">
-                <div class="stat-grid cols-2">
-                  ${statCard('luggage', 'CARGO', '243/500', 48.6)}
-                  ${statCard('speed', 'FLY SPD', '25', 25)}
-                  ${statCard('download', 'LOAD SPD', '10/s', 40)}
-                  ${statCard('social_distance', 'RANGE', '0', 0)}
-                </div>
+              <div class="info-block">
+                <div class="blk-title">◈ ASSIGNMENT</div>
+                ${infoRow('PICKUP', 'Storage Facility #1')}
+                ${infoRow('DROPOFF', 'Power Station #1')}
+                ${infoRow('MANIFEST', 'Iron · Copper')}
+                ${infoRow('HOLD', '243 / 500')}
               </div>
-            </section>
+            </div>
           </div>`;
       }
       if (ship === 'mining') {
         return `
-          <div class="grid2">
-            <section class="panel">
-              <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
-              <div class="panel-b">
-                <div class="kv"><span class="l">Status</span><span class="v bad">Holding Pattern</span></div>
-                <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#60d090">Mining</span></div>
-                <div class="kv"><span class="l">Ship Type</span><span class="v">Hauler</span></div>
-                <div class="kv"><span class="l">Assigned Node</span><span class="v">Oxygen Node</span></div>
-                <div class="kv"><span class="l">Mining Tier</span><span class="v">Tier V</span></div>
-                <div class="alert" style="margin-top:auto">Blocked: Storage Facility #1 is full</div>
+          <div class="details">
+            <div class="details-vitals">
+              ${vital('luggage', 'CARGO', '700<span class="unit">/700</span>')}
+              ${vital('speed', 'FLY SPD', '300')}
+              ${vital('hardware', 'MINE SPD', '300<span class="unit">%</span>')}
+              ${vital('social_distance', 'RANGE', '10<span class="unit"> tiles</span>')}
+            </div>
+            <div class="details-info">
+              <div class="info-block">
+                <div class="blk-title">◈ OPERATIONS</div>
+                ${infoRow('STATUS', 'Holding Pattern', 'bad')}
+                ${infoRow('ROLE', 'Mining', 'accent')}
+                ${infoRow('TYPE', 'Hauler')}
+                ${infoRow('MINE TIER', 'Tier V')}
               </div>
-            </section>
-            <section class="panel">
-              <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
-              <div class="panel-b">
-                <div class="stat-grid cols-2">
-                  ${statCard('luggage', 'CARGO', '700/700', 100)}
-                  ${statCard('speed', 'FLY SPD', '300', 100)}
-                  ${statCard('mining', 'MINE SPD', '300%', 100)}
-                  ${statCard('social_distance', 'RANGE', '10', 20)}
-                </div>
+              <div class="info-block">
+                <div class="blk-title">◈ ASSIGNMENT</div>
+                ${infoRow('NODE', 'Oxygen Node')}
+                ${infoRow('RESOURCE', 'Oxygen', 'accent')}
+                ${infoRow('DROPOFF', 'Storage Facility #1')}
+                ${infoRow('HOLDING', 'Yes — depot full', 'bad')}
               </div>
-            </section>
+            </div>
+            <div class="details-alert">
+              <span class="ms">warning</span>
+              <span>Blocked: Storage Facility #1 is full — free space or change depot to resume.</span>
+            </div>
           </div>`;
       }
       if (ship === 'combat') {
         return `
-          <div class="grid2">
-            <section class="panel">
-              <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
-              <div class="panel-b">
-                <div class="kv"><span class="l">Status</span><span class="v" style="color:#80d0ff">Patrol</span></div>
-                <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#ff7070">Combat</span></div>
-                <div class="kv"><span class="l">Ship Type</span><span class="v">Viper</span></div>
-                <div class="kv"><span class="l">Target AI</span><span class="v">Lowest Health</span></div>
+          <div class="details">
+            <div class="details-vitals cols-5">
+              ${vital('favorite', 'HULL HP', '1,240')}
+              ${vital('swords', 'ATTACK', '72')}
+              ${vital('bolt', 'ATK RATE', '210<span class="unit">%</span>')}
+              ${vital('speed', 'FLY SPD', '320')}
+              ${vital('social_distance', 'RANGE', '4<span class="unit"> tiles</span>')}
+            </div>
+            <div class="details-info">
+              <div class="info-block">
+                <div class="blk-title">◈ OPERATIONS</div>
+                ${infoRow('STATUS', 'Patrol', 'accent')}
+                ${infoRow('ROLE', 'Combat', 'accent')}
+                ${infoRow('TYPE', 'Viper')}
+                ${infoRow('SHIP TIER', 'Tier III')}
               </div>
-            </section>
-            <section class="panel">
-              <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
-              <div class="panel-b">
-                <div class="stat-grid cols-2">
-                  ${statCard('favorite', 'HP', '1,240', 62)}
-                  ${statCard('swords', 'ATTACK', '72', 55)}
-                  ${statCard('bolt', 'ATK RATE', '210%', 70)}
-                  ${statCard('speed', 'FLY SPD', '320', 40)}
-                  ${statCard('apps', 'WEAPONS', '3/3', 100)}
-                  ${statCard('social_distance', 'RANGE', '4', 8)}
-                </div>
+              <div class="info-block">
+                <div class="blk-title">◈ COMBAT</div>
+                ${infoRow('TARGET AI', 'Lowest Health')}
+                ${infoRow('WEAPONS', '2 / 3 fitted')}
+                ${infoRow('DPS', '~120')}
+                ${infoRow('SLOTS', 'Port · Center')}
               </div>
-            </section>
+            </div>
           </div>`;
       }
       return `
-        <div class="grid2">
-          <section class="panel">
-            <div class="panel-h"><span class="panel-title">◈ STATUS</span></div>
-            <div class="panel-b">
-              <div class="kv"><span class="l">Status</span><span class="v" style="color:#c98cff">On Guard</span></div>
-              <div class="kv"><span class="l">Ship Role</span><span class="v" style="color:#ff9a4a">Garrison</span></div>
-              <div class="kv"><span class="l">Ship Type</span><span class="v">Sentry</span></div>
-              <div class="kv"><span class="l">Rest Post</span><span class="v ok">Power Station #1</span></div>
-              <div class="kv"><span class="l">Target AI</span><span class="v">Nearest Threat</span></div>
+        <div class="details">
+          <div class="details-vitals">
+            ${vital('favorite', 'HULL HP', '4,200')}
+            ${vital('swords', 'ATTACK', '55')}
+            ${vital('bolt', 'ATK RATE', '140<span class="unit">%</span>')}
+            ${vital('social_distance', 'RANGE', '6<span class="unit"> tiles</span>')}
+          </div>
+          <div class="details-info">
+            <div class="info-block">
+              <div class="blk-title">◈ OPERATIONS</div>
+              ${infoRow('STATUS', 'On Guard', 'accent')}
+              ${infoRow('ROLE', 'Garrison', 'accent')}
+              ${infoRow('TYPE', 'Sentry')}
+              ${infoRow('SHIP TIER', 'Tier II')}
             </div>
-          </section>
-          <section class="panel">
-            <div class="panel-h"><span class="panel-title">◈ ATTRIBUTES</span></div>
-            <div class="panel-b">
-              <div class="stat-grid cols-2">
-                ${statCard('favorite', 'HP', '4,200', 70)}
-                ${statCard('swords', 'ATTACK', '55', 40)}
-                ${statCard('bolt', 'ATK RATE', '140%', 45)}
-                ${statCard('social_distance', 'RANGE', '6', 12)}
-              </div>
+            <div class="info-block">
+              <div class="blk-title">◈ DEFENSE</div>
+              ${infoRow('REST POST', 'Power Station #1', 'ok')}
+              ${infoRow('TARGET AI', 'Nearest Threat')}
+              ${infoRow('WEAPONS', '1 / 3 fitted')}
+              ${infoRow('POSTURE', 'Hold perimeter')}
             </div>
-          </section>
+          </div>
         </div>`;
     }
 
