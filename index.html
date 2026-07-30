@@ -244,10 +244,13 @@
 
 <div id="sell-overlay">
   <div id="sell-box">
-    <div id="sell-overlay-title" class="rename-title">♻ Salvage Ship</div>
+    <div id="sell-overlay-title" class="sell-overlay-title">
+      <span class="ms-icon sell-overlay-title-icon" aria-hidden="true">recycling</span>
+      <span id="sell-overlay-title-text">Salvage Ship</span>
+    </div>
     <div id="sell-ship-name" class="sell-overlay-name"></div>
     <div id="sell-ship-value" class="sell-overlay-value"></div>
-    <div id="sell-overlay-hint" class="rename-hint sell-overlay-hint">This cannot be undone.</div>
+    <div id="sell-overlay-hint" class="sell-overlay-hint">This cannot be undone.</div>
     <div class="sell-overlay-actions">
       <button id="sell-overlay-confirm" class="btn danger" onclick="confirmSellOverlay()">CONFIRM SALVAGE</button>
       <button class="btn" onclick="closeSellOverlay()">CANCEL</button>

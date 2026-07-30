@@ -3,7 +3,7 @@
 // ============================================================
 import { TILE_H, BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS, BASE_FOOTPRINT_RADIUS, isBaseFootprintCell } from '../constants.js';
 import { state, bumpShipIdCounter } from '../state.js';
-import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
+import { RESOURCE_DEFS, MINE_TIERS, isStorableResource } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
           UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST, UPGRADE_MINE_BONUS_COST,
@@ -362,6 +362,10 @@ function applyDepositMilestones(ev) {
 }
 
 function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, countTrip = true, checkMilestones = true } = {}) {
+  // Special map nodes (crashed ships, etc.) are never cargo
+  if (!isStorableResource(ev.cargoResource)) {
+    return { deposited: 0, depotLabel: state.base.name || 'Base Station', depositBlocked: true };
+  }
   let deposited = ev.amount;
   let depotLabel = state.base.name || 'Base Station';
   let depositBlocked = false;

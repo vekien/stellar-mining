@@ -1,7 +1,7 @@
 // ============================================================
 // PLACEABLE MODULES — shared helpers + network solvers
 // ============================================================
-import { getResourceTier } from '../../data/resources.js';
+import { getResourceTier, isStorableResource } from '../../data/resources.js';
 import {
   BUILDING_DEFS,
   DRONE_LAB_ID,
@@ -23,6 +23,7 @@ import {
   getPowerStationEffectiveOutput,
   hasPowerStationFuel,
   makeEmptyInventory,
+  scrubModuleInventory,
   normalizeBuilding,
 } from './definitions.js';
 
@@ -44,6 +45,7 @@ export {
   getPowerStationEffectiveOutput,
   hasPowerStationFuel,
   makeEmptyInventory,
+  scrubModuleInventory,
 };
 
 export const MODULE_DEFS = BUILDING_DEFS;
@@ -85,7 +87,9 @@ export function isDroneLabModule(moduleOrType) {
 }
 
 export function getModuleInventoryTotal(module) {
-  return Object.values(module?.inventory || {}).reduce((sum, n) => sum + (n || 0), 0);
+  return Object.entries(module?.inventory || {})
+    .filter(([type]) => isStorableResource(type))
+    .reduce((sum, [, n]) => sum + (n || 0), 0);
 }
 
 export function getModuleFreeCapacity(module) {

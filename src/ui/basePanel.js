@@ -95,7 +95,7 @@ function renderPerkCards(items, emptyText) {
     const tip = item.tip || researchTip(item.id, item.name, item.detail);
     return `
     <div class="bp-perk-card${item.qty ? ' stacked' : ''}" data-tippy-content="${tip.replace(/"/g, '&quot;')}">
-      <div class="bp-perk-icon"><span class="ms-icon ms-icon-sm" aria-hidden="true">${item.icon || 'bolt'}</span></div>
+      <div class="bp-perk-icon"><span class="ms-icon" aria-hidden="true">${item.icon || 'bolt'}</span></div>
       <div class="bp-perk-body">
         <div class="bp-perk-name">${escapeHtml(item.name)}</div>
         <div class="bp-perk-detail">${formatUpgradeDetail(item.detail)}</div>
@@ -184,11 +184,27 @@ function collectInstallations() {
   };
 }
 
+let _basePanelTab = 'details'; // details | installations
+
+window.setBasePanelTab = function(tab) {
+  _basePanelTab = tab === 'installations' ? 'installations' : 'details';
+  const root = document.getElementById('bp-body');
+  if (!root) return;
+  root.querySelectorAll('.bp-tab').forEach((btn) => {
+    btn.classList.toggle('on', btn.dataset.tab === _basePanelTab);
+  });
+  root.querySelectorAll('.bp-tab-pane').forEach((pane) => {
+    pane.classList.toggle('on', pane.dataset.pane === _basePanelTab);
+  });
+};
+
 function buildStructureHtml(ctx) {
   const {
     bl, maxShips, nextCost, nextResReqs, tierColor, hasShield,
     installedUpgrades, combatUpgrades, unlockedPerks, shieldPerSec,
   } = ctx;
+  const tab = _basePanelTab;
+  const installCount = installedUpgrades.length + combatUpgrades.length + unlockedPerks.length;
 
   const upgradeFooter = nextCost ? (() => {
     const ntColor = MINE_TIERS[bl + 1]?.color || '#8ab';
@@ -234,83 +250,62 @@ function buildStructureHtml(ctx) {
         <div id="bp-tier-badge" class="lab-tier-badge" style="color:${isLightColor(tierColor) ? '#111' : '#fff'};background:${tierColor};">TIER ${toRoman(bl)}</div>
       </div>
 
-      <div class="st-main-grid bp-main-grid">
-        <section class="lab-panel">
-          <div class="lab-panel-h">
-            <span class="lab-panel-title">◈ SYSTEMS</span>
-            <span class="lab-panel-sub">command</span>
-          </div>
-          <div class="lab-panel-body">
-            <div class="lab-stat-cards bp-stat-cards">
-              <div class="lab-stat-card">
-                <div class="lab-stat-label">Fleet Cap</div>
-                <div id="bp-stat-fleet" class="lab-stat-value"></div>
-              </div>
-              <div class="lab-stat-card">
-                <div class="lab-stat-label">Tile Range</div>
-                <div id="bp-stat-range" class="lab-stat-value">◎ ${BASE_RANGE[bl - 1]}</div>
-              </div>
-              <div class="lab-stat-card">
-                <div class="lab-stat-label">Research</div>
-                <div id="bp-stat-rp" class="lab-stat-value green"></div>
-              </div>
-              <div class="lab-stat-card">
-                <div class="lab-stat-label">Hull</div>
-                <div id="bp-stat-hull" class="lab-stat-value green"></div>
+      <div class="bp-tabs sm-tabs">
+        <button type="button" class="bp-tab sm-tab${tab === 'details' ? ' on' : ''}" data-tab="details" onclick="setBasePanelTab('details')">
+          <span class="ms-icon">circles</span> DETAILS
+        </button>
+        <button type="button" class="bp-tab sm-tab${tab === 'installations' ? ' on' : ''}" data-tab="installations" onclick="setBasePanelTab('installations')">
+          <span class="ms-icon">construction</span> INSTALLATIONS
+          <span class="bp-tab-count" id="bp-install-count">${installCount}</span>
+        </button>
+      </div>
+
+      <div class="bp-tab-body">
+        <div class="bp-tab-pane${tab === 'details' ? ' on' : ''}" data-pane="details">
+          <div class="bp-details-grid">
+            <div class="sm-info-block sm-info-block-fill">
+              <div class="blk-title">◈ SYSTEMS</div>
+              <div class="sm-info-row"><span class="k">FLEET CAP</span><span class="val" id="bp-stat-fleet"></span></div>
+              <div class="sm-info-row"><span class="k">TILE RANGE</span><span class="val" id="bp-stat-range">◎ ${BASE_RANGE[bl - 1]}</span></div>
+              <div class="sm-info-row"><span class="k">RESEARCH</span><span class="val green" id="bp-stat-rp"></span></div>
+              <div class="sm-info-row"><span class="k">HULL</span><span class="val green" id="bp-stat-hull"></span></div>
+              <div id="bp-repair-wrap">
+                <div class="bp-systems-note">All primary systems nominal.</div>
               </div>
             </div>
 
-            <div id="bp-repair-wrap">
-              <div class="bp-systems-note">All primary systems nominal.</div>
+            <div class="sm-info-block sm-info-block-fill">
+              <div class="blk-title">◈ STATION PROFILE</div>
+              <div class="sm-info-row"><span class="k">UPGRADES</span><span class="val" id="bp-count-upgrades">${installedUpgrades.length}</span></div>
+              <div class="sm-info-row"><span class="k">COMBAT</span><span class="val" id="bp-count-combat">${combatUpgrades.length}</span></div>
+              <div class="sm-info-row"><span class="k">UNLOCKS</span><span class="val" id="bp-count-unlocks">${unlockedPerks.length}</span></div>
             </div>
 
-            <div class="lab-network-block">
-              <div class="lab-network-label">◈ Station Profile</div>
-              <div class="lab-network-tiles bp-profile-tiles">
-                <div class="lab-net-tile" data-tippy-content="Installed tower upgrades">
-                  <span class="ms-icon ms-icon-md lab-net-ms" aria-hidden="true">upgrade</span>
-                  <div>
-                    <div id="bp-count-upgrades" class="lab-net-count">${installedUpgrades.length}</div>
-                    <div class="lab-net-name">Upgrades</div>
-                  </div>
-                </div>
-                <div class="lab-net-tile" data-tippy-content="Combat systems unlocked">
-                  <span class="ms-icon ms-icon-md lab-net-ms" aria-hidden="true">shield</span>
-                  <div>
-                    <div id="bp-count-combat" class="lab-net-count">${combatUpgrades.length}</div>
-                    <div class="lab-net-name">Combat</div>
-                  </div>
-                </div>
-                <div class="lab-net-tile" data-tippy-content="Research unlocks active">
-                  <span class="ms-icon ms-icon-md lab-net-ms" aria-hidden="true">science</span>
-                  <div>
-                    <div id="bp-count-unlocks" class="lab-net-count">${unlockedPerks.length}</div>
-                    <div class="lab-net-name">Unlocks</div>
-                  </div>
-                </div>
+            <div class="sm-info-block sm-info-block-fill">
+              <div class="blk-title">◈ BASE TIER</div>
+              <div class="bp-tier-block">${upgradeFooter}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bp-tab-pane${tab === 'installations' ? ' on' : ''}" data-pane="installations">
+          <div class="sm-info-block sm-info-block-fill bp-install-panel">
+            <div class="bp-install-scroll">
+              <div class="bp-section">
+                <div class="bp-section-label">Tower Upgrades</div>
+                ${renderPerkCards(installedUpgrades, 'No tower upgrades installed yet.')}
+              </div>
+              <div class="bp-section">
+                <div class="bp-section-label">Combat Systems</div>
+                ${renderPerkCards(combatUpgrades, 'No combat upgrades unlocked yet.')}
+              </div>
+              <div class="bp-section">
+                <div class="bp-section-label">Research Unlocks</div>
+                ${renderPerkCards(unlockedPerks, 'No research unlocks yet.')}
               </div>
             </div>
-
-            <div class="bp-tier-block">
-              ${upgradeFooter}
-            </div>
           </div>
-        </section>
-
-        <section class="lab-panel st-inv-panel">
-          <div class="lab-panel-h">
-            <span class="lab-panel-title">◈ INSTALLATIONS</span>
-            <span id="bp-install-count" class="lab-panel-sub">${installedUpgrades.length + combatUpgrades.length + unlockedPerks.length} active</span>
-          </div>
-          <div class="lab-panel-body bp-install-body">
-            <div class="bp-section-label">Tower Upgrades</div>
-            ${renderPerkCards(installedUpgrades, 'No tower upgrades installed yet.')}
-            <div class="bp-section-label">Combat Systems</div>
-            ${renderPerkCards(combatUpgrades, 'No combat upgrades unlocked yet.')}
-            <div class="bp-section-label">Research Unlocks</div>
-            ${renderPerkCards(unlockedPerks, 'No research unlocks yet.')}
-          </div>
-        </section>
+        </div>
       </div>
     </div>
   `;
@@ -365,8 +360,8 @@ function patchLiveValues(root, ctx) {
   const hullStat = root.querySelector('#bp-stat-hull');
   if (hullStat) {
     setText(hullStat, `${hpPct}%`);
-    hullStat.className = `lab-stat-value${hpPct < 25 ? '' : ' green'}`;
-    hullStat.style.color = hpPct < 25 ? '#f88' : '';
+    hullStat.className = `val${hpPct < 25 ? ' bad' : ' ok'}`;
+    hullStat.style.color = '';
   }
 
   const repairWrap = root.querySelector('#bp-repair-wrap');
@@ -483,7 +478,7 @@ export function renderBasePanel() {
   });
 
   if (_basePanelStructSig !== structSig || !bpBodyEl.querySelector('.bp-layout')) {
-    const scrollEl = bpBodyEl.querySelector('.bp-install-body');
+    const scrollEl = bpBodyEl.querySelector('.bp-install-scroll');
     const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
     const bodyScroll = bpBodyEl.scrollTop;
     _basePanelStructSig = structSig;
@@ -501,7 +496,7 @@ export function renderBasePanel() {
       shieldPerSec,
     }));
     bindTippyIn(bpBodyEl);
-    const nextScroll = bpBodyEl.querySelector('.bp-install-body');
+    const nextScroll = bpBodyEl.querySelector('.bp-install-scroll');
     if (nextScroll) nextScroll.scrollTop = scrollTop;
     bpBodyEl.scrollTop = bodyScroll;
   }

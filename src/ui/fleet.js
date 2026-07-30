@@ -1314,7 +1314,7 @@ function buildShipModalContent(ship) {
       <div class="sm-tier-badge" id="ship-modal-tier-badge" style="background:${tierColor};color:#111">${tierDef?.label || `TIER ${toRoman(safeTier)}`}</div>
     </div>
     <div class="sm-tabs">
-      <button type="button" class="sm-tab${tab === 'details' ? ' on' : ''}" onclick="setShipModalTab('details')">${msIcon('info')} DETAILS</button>
+      <button type="button" class="sm-tab${tab === 'details' ? ' on' : ''}" onclick="setShipModalTab('details')">${msIcon('circles')} DETAILS</button>
       <button type="button" class="sm-tab${tab === 'primary' ? ' on' : ''}" onclick="setShipModalTab('primary')">${msIcon(primary.icon)} ${primary.label}</button>
       <button type="button" class="sm-tab${tab === 'upgrades' ? ' on' : ''}" id="upgrades-section-header" onclick="setShipModalTab('upgrades')">${msIcon('upgrade')} UPGRADES</button>
     </div>
@@ -1512,17 +1512,47 @@ window.goHome = function() {
 function getShipDispositionWarning(ship) {
   const role = SHIP_DEFS[ship.type]?.role || 'mining';
   if (role !== 'transport' || (ship.cargo || 0) <= 0) return 'This cannot be undone.';
-  return 'This cannot be undone.<br><span style="color:#ff9a9a;">Warning: loaded transport cargo will be lost.</span>';
+  return 'This cannot be undone.<span class="sell-warn">Warning: loaded transport cargo will be lost.</span>';
 }
 
-function showSellOverlay({ kind, id, mode = 'sell', value = 0, title, name, valueHtml, hint, confirmLabel, refundIron = 0, refundCopper = 0 }) {
+function sellRewardChipHtml({ type, amount, label, color, iconHtml }) {
+  const accent = color || RESOURCE_DEFS[type]?.color || '#6fff9a';
+  const name = label || RESOURCE_DEFS[type]?.label || type || 'Reward';
+  const icon = iconHtml || (type ? resourceIconHtml(type, 20) : '');
+  return `<div class="sell-reward-chip${type === 'coins' ? ' coins' : ''}" style="--sell-accent:${accent};">
+    <span class="sell-reward-icon">${icon}</span>
+    <span class="sell-reward-meta">
+      <span class="sell-reward-amt">${type === 'coins' ? `$${fmt(amount)}` : fmt(amount)}</span>
+      <span class="sell-reward-name">${name}</span>
+    </span>
+  </div>`;
+}
+
+function sellRewardsHtml(rewards = []) {
+  if (!rewards.length) return '';
+  return `<div class="sell-reward-list">${rewards.map(sellRewardChipHtml).join('')}</div>`;
+}
+
+function coinsReward(amount) {
+  return {
+    type: 'coins',
+    amount,
+    label: 'Credits',
+    color: '#ffe066',
+    iconHtml: '<span class="ms-icon" aria-hidden="true">paid</span>',
+  };
+}
+
+function showSellOverlay({ kind, id, mode = 'sell', value = 0, title, titleIcon = 'sell', name, valueHtml, hint, confirmLabel, refundIron = 0, refundCopper = 0 }) {
   _sellOverlayCtx = { kind, id, mode, value, refundIron, refundCopper };
-  const titleEl = document.getElementById('sell-overlay-title');
+  const titleTextEl = document.getElementById('sell-overlay-title-text');
+  const titleIconEl = document.querySelector('#sell-overlay-title .sell-overlay-title-icon');
   const hintEl = document.getElementById('sell-overlay-hint');
   const confirmEl = document.getElementById('sell-overlay-confirm');
   const nameEl = document.getElementById('sell-ship-name');
   const valueEl = document.getElementById('sell-ship-value');
-  if (titleEl) titleEl.textContent = title;
+  if (titleTextEl) titleTextEl.textContent = title;
+  if (titleIconEl) titleIconEl.textContent = titleIcon;
   if (nameEl) nameEl.textContent = name;
   if (valueEl) valueEl.innerHTML = valueHtml;
   if (hintEl) hintEl.innerHTML = hint || 'This cannot be undone.';
@@ -1543,9 +1573,10 @@ window.openSellOverlay = function(shipId) {
     id: shipId,
     mode: 'sell',
     value: sellVal,
-    title: '⊘ Sell Ship',
+    title: 'Sell Ship',
+    titleIcon: 'sell',
     name: ship.name,
-    valueHtml: `$${fmt(sellVal)}`,
+    valueHtml: sellRewardsHtml([coinsReward(sellVal)]),
     hint: getShipDispositionWarning(ship),
     confirmLabel: 'CONFIRM SELL',
   });
@@ -1560,9 +1591,10 @@ window.openSalvageOverlay = function(shipId) {
     id: shipId,
     mode: 'salvage',
     value: 0,
-    title: '♻ Salvage Ship',
+    title: 'Salvage Ship',
+    titleIcon: 'recycling',
     name: ship.name,
-    valueHtml: salvage.map(({ type, amount }) => `<span style="color:${RESOURCE_DEFS[type]?.color || '#6fff9a'};">${fmt(amount)} ${RESOURCE_DEFS[type]?.label || type}</span>`).join(' + '),
+    valueHtml: sellRewardsHtml(salvage.map(({ type, amount }) => ({ type, amount }))),
     hint: getShipDispositionWarning(ship),
     confirmLabel: 'CONFIRM SALVAGE',
   });
@@ -1574,15 +1606,19 @@ window.openModuleSellOverlay = function(moduleId, name, label, refundCoins) {
     id: moduleId,
     mode: 'sell',
     value: refundCoins,
-    title: `⊘ Sell ${label}`,
+    title: `Sell ${label}`,
+    titleIcon: 'sell',
     name,
-    valueHtml: `$${fmt(refundCoins)}`,
+    valueHtml: sellRewardsHtml([coinsReward(refundCoins)]),
     hint: 'This cannot be undone.',
     confirmLabel: 'CONFIRM SELL',
   });
 };
 
 window.openTurretSellOverlay = function(turretId, name, refundCoins, refundIron, refundCopper) {
+  const rewards = [coinsReward(refundCoins)];
+  if (refundIron > 0) rewards.push({ type: 'iron', amount: refundIron });
+  if (refundCopper > 0) rewards.push({ type: 'copper', amount: refundCopper });
   showSellOverlay({
     kind: 'turret',
     id: turretId,
@@ -1590,9 +1626,10 @@ window.openTurretSellOverlay = function(turretId, name, refundCoins, refundIron,
     value: refundCoins,
     refundIron,
     refundCopper,
-    title: '⊘ Sell Turret',
+    title: 'Sell Turret',
+    titleIcon: 'sell',
     name,
-    valueHtml: `<span style="color:#6fff9a;">$${fmt(refundCoins)}</span> + <span style="color:#4d8;">${refundIron} Iron</span> + <span style="color:#4d8;">${refundCopper} Copper</span>`,
+    valueHtml: sellRewardsHtml(rewards),
     hint: 'This cannot be undone.',
     confirmLabel: 'CONFIRM SELL',
   });

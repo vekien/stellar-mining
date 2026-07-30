@@ -47,3 +47,9 @@ export function getResourceTier(resourceType) {
   const t = _resourceTierMap.get(resourceType);
   return t !== undefined ? t : null;
 }
+
+/** True for mineable/storable cargo — excludes special map nodes like crashed ships. */
+export function isStorableResource(resourceType) {
+  const def = RESOURCE_DEFS[resourceType];
+  return !!(def && !def.special);
+}

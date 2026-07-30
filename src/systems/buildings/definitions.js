@@ -1,7 +1,7 @@
 // ============================================================
 // BUILDING TYPES — class-based building definitions
 // ============================================================
-import { RESOURCE_DEFS, getResourceTier } from '../../data/resources.js';
+import { RESOURCE_DEFS, getResourceTier, isStorableResource } from '../../data/resources.js';
 
 export const STORAGE_FACILITY_ID = 'storage_facility';
 export const POWER_STATION_ID = 'power_station';
@@ -39,7 +39,20 @@ function fmtStat(value) {
 }
 
 export function makeEmptyInventory() {
-  return Object.fromEntries(Object.keys(RESOURCE_DEFS).map((key) => [key, 0]));
+  return Object.fromEntries(
+    Object.keys(RESOURCE_DEFS)
+      .filter((key) => isStorableResource(key))
+      .map((key) => [key, 0]),
+  );
+}
+
+/** Strip special/non-cargo keys (e.g. crashed_ship) from a module inventory. */
+export function scrubModuleInventory(module) {
+  const inv = module?.inventory;
+  if (!inv) return;
+  for (const key of Object.keys(inv)) {
+    if (!isStorableResource(key)) delete inv[key];
+  }
 }
 
 export function getPowerFuelOutput(resourceType) {
@@ -154,6 +167,7 @@ class PoweredInventoryBuildingType extends BuildingType {
     module.powerCapacity = Math.max(module.powerCapacity || 0, stats.powerCapacity || 0);
     module.power = Math.max(0, Math.min(Number.isFinite(module.power) ? module.power : module.powerCapacity, module.powerCapacity));
     module.inventory = { ...makeEmptyInventory(), ...(module.inventory || {}) };
+    scrubModuleInventory(module);
   }
 }
 
@@ -263,6 +277,7 @@ class PowerStationBuildingType extends BuildingType {
     module.powerRange = Math.max(module.powerRange || 0, stats.powerRange);
     module.resourceCapacity = Math.max(module.resourceCapacity || 0, stats.resourceCapacity);
     module.inventory = { ...makeEmptyInventory(), ...(module.inventory || {}) };
+    scrubModuleInventory(module);
     module.fuelResource = getPowerFuelOutput(module.fuelResource) > 0 ? module.fuelResource : 'iron';
   }
 }

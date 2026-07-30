@@ -4,6 +4,618 @@
 import { state } from '../state.js';
 import { addLog, fmt, fmtCompact, resourceIconHtml, spendCoins, addCoins, isLightColor, showHintTooltip, hideTooltip } from '../helpers.js';
 import { bindTippy, bindTippyIn, destroyTippiesIn, hideAllTippies, setHtmlDestroyingTippies } from './tippy.js';
+
+function infoRowHtml(label, id, value = '', cls = '') {
+  return `<div class="sm-info-row"><span class="k">${label}</span><span class="val${cls ? ` ${cls}` : ''}" id="${id}">${value}</span></div>`;
+}
+
+function netTileHtml(id, iconSrc, name, tip) {
+  return `<div class="lab-net-tile" data-tippy-content="${tip}">
+    <img class="lab-net-icon" src="${iconSrc}" alt="">
+    <div>
+      <div id="${id}" class="lab-net-count">0</div>
+      <div class="lab-net-name">${name}</div>
+    </div>
+  </div>`;
+}
+
+function moduleTabsHtml(tabs) {
+  // tabs: [{ id, label, icon, countId? }]
+  return `<div class="mod-tabs sm-tabs">
+    ${tabs.map((t, i) => `<button type="button" class="mod-tab sm-tab${i === 0 ? ' on' : ''}" data-tab="${t.id}" onclick="setModuleModalTab(this,'${t.id}')">
+      <span class="ms-icon">${t.icon}</span> ${t.label}${t.countId ? ` <span class="bp-tab-count" id="${t.countId}">0</span>` : ''}
+    </button>`).join('')}
+  </div>`;
+}
+
+window.setModuleModalTab = function(el, tab) {
+  const root = el?.closest?.('.lab-layout');
+  if (!root) return;
+  root.querySelectorAll('.mod-tab').forEach((btn) => {
+    btn.classList.toggle('on', btn.dataset.tab === tab);
+  });
+  root.querySelectorAll('.mod-tab-pane').forEach((pane) => {
+    pane.classList.toggle('on', pane.dataset.pane === tab);
+  });
+  if (tab === 'network') {
+    const moduleId = Number(root.dataset.moduleId);
+    if (Number.isFinite(moduleId)) {
+      const mod = state.modules.find((m) => m.id === moduleId);
+      if (mod) {
+        patchNetworkTab(root, mod);
+        bindTippyIn(root.querySelector('#module-net-tiles') || root);
+      }
+    }
+  }
+};
+
+function withModuleId(layoutClass, moduleId, inner) {
+  return `<div class="lab-layout ${layoutClass}" data-module-id="${moduleId}">${inner}</div>`;
+}
+
+function networkPanelHtml() {
+  return `<div class="sm-info-block sm-info-block-fill net-panel" style="flex:1;min-height:0;">
+    <div class="net-diagram-wrap">
+      <div class="net-canvas-toolbar">
+        <button type="button" class="net-canvas-btn" title="Zoom out" onclick="netCanvasZoom(this,-1)"><span class="ms-icon">remove</span></button>
+        <button type="button" class="net-canvas-btn" title="Reset view" onclick="netCanvasReset(this)"><span class="ms-icon">center_focus_weak</span></button>
+        <button type="button" class="net-canvas-btn" title="Zoom in" onclick="netCanvasZoom(this,1)"><span class="ms-icon">add</span></button>
+      </div>
+      <div class="net-diagram" id="module-net-diagram"></div>
+      <div class="net-canvas-hint">drag to pan · scroll to zoom · double-click reset</div>
+    </div>
+    <div class="lab-network-tiles net-summary-tiles" id="module-net-tiles"></div>
+    <div class="net-node-list" id="module-net-list"></div>
+  </div>`;
+}
+
+const NET_ZOOM_MIN = 0.35;
+const NET_ZOOM_MAX = 3.5;
+const _netCamByModule = new Map();
+const _netDrag = { active: false, diagram: null, lastX: 0, lastY: 0, moved: false };
+
+function getNetCam(moduleId) {
+  let cam = _netCamByModule.get(moduleId);
+  if (!cam) {
+    cam = { x: 0, y: 0, scale: 1, fitted: false, worldW: 520, worldH: 280 };
+    _netCamByModule.set(moduleId, cam);
+  }
+  return cam;
+}
+
+function applyNetCam(diagram, cam) {
+  const world = diagram?.querySelector?.('.net-canvas-world');
+  if (!world) return;
+  world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale})`;
+}
+
+function fitNetCam(diagram, cam) {
+  const viewport = diagram?.querySelector?.('.net-canvas-viewport');
+  if (!viewport) return;
+  const rect = viewport.getBoundingClientRect();
+  const vw = Math.max(40, rect.width);
+  const vh = Math.max(40, rect.height);
+  const pad = 28;
+  const sx = (vw - pad * 2) / Math.max(1, cam.worldW);
+  const sy = (vh - pad * 2) / Math.max(1, cam.worldH);
+  cam.scale = Math.max(NET_ZOOM_MIN, Math.min(1.35, Math.min(sx, sy)));
+  cam.x = (vw - cam.worldW * cam.scale) / 2;
+  cam.y = (vh - cam.worldH * cam.scale) / 2;
+  cam.fitted = true;
+  applyNetCam(diagram, cam);
+}
+
+function zoomNetCamAt(diagram, cam, factor, clientX, clientY) {
+  const viewport = diagram.querySelector('.net-canvas-viewport');
+  if (!viewport) return;
+  const rect = viewport.getBoundingClientRect();
+  const mx = Number.isFinite(clientX) ? clientX - rect.left : rect.width / 2;
+  const my = Number.isFinite(clientY) ? clientY - rect.top : rect.height / 2;
+  const wx = (mx - cam.x) / cam.scale;
+  const wy = (my - cam.y) / cam.scale;
+  const next = Math.max(NET_ZOOM_MIN, Math.min(NET_ZOOM_MAX, cam.scale * factor));
+  cam.scale = next;
+  cam.x = mx - wx * next;
+  cam.y = my - wy * next;
+  applyNetCam(diagram, cam);
+}
+
+function diagramFromNetControl(el) {
+  return el?.closest?.('.net-diagram-wrap')?.querySelector?.('#module-net-diagram')
+    || el?.closest?.('.lab-layout')?.querySelector?.('#module-net-diagram')
+    || null;
+}
+
+window.netCanvasZoom = function(el, dir) {
+  const diagram = diagramFromNetControl(el);
+  if (!diagram) return;
+  const moduleId = Number(diagram.dataset.moduleId);
+  if (!Number.isFinite(moduleId)) return;
+  const cam = getNetCam(moduleId);
+  zoomNetCamAt(diagram, cam, dir > 0 ? 1.2 : 1 / 1.2);
+};
+
+window.netCanvasReset = function(el) {
+  const diagram = diagramFromNetControl(el);
+  if (!diagram) return;
+  const moduleId = Number(diagram.dataset.moduleId);
+  if (!Number.isFinite(moduleId)) return;
+  fitNetCam(diagram, getNetCam(moduleId));
+};
+
+function bindNetCanvas(diagram, moduleId) {
+  if (diagram.dataset.bound === '1') {
+    diagram.dataset.moduleId = String(moduleId);
+    return;
+  }
+  diagram.dataset.bound = '1';
+  diagram.dataset.moduleId = String(moduleId);
+
+  const camId = () => {
+    const id = Number(diagram.dataset.moduleId);
+    return Number.isFinite(id) ? id : moduleId;
+  };
+
+  const onPointerDown = (e) => {
+    if (e.button !== 0 && e.pointerType !== 'touch') return;
+    if (e.target.closest?.('.net-canvas-btn, .net-canvas-toolbar')) return;
+    const viewport = diagram.querySelector('.net-canvas-viewport');
+    if (!viewport) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _netDrag.active = true;
+    _netDrag.diagram = diagram;
+    _netDrag.lastX = e.clientX;
+    _netDrag.lastY = e.clientY;
+    _netDrag.moved = false;
+    diagram.classList.add('panning');
+    try { viewport.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+  };
+
+  const onPointerMove = (e) => {
+    if (!_netDrag.active || _netDrag.diagram !== diagram) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const dx = e.clientX - _netDrag.lastX;
+    const dy = e.clientY - _netDrag.lastY;
+    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) _netDrag.moved = true;
+    _netDrag.lastX = e.clientX;
+    _netDrag.lastY = e.clientY;
+    const cam = getNetCam(camId());
+    cam.x += dx;
+    cam.y += dy;
+    applyNetCam(diagram, cam);
+  };
+
+  const onPointerUp = (e) => {
+    if (_netDrag.diagram !== diagram) return;
+    _netDrag.active = false;
+    _netDrag.diagram = null;
+    diagram.classList.remove('panning');
+    try {
+      const viewport = diagram.querySelector('.net-canvas-viewport');
+      viewport?.releasePointerCapture?.(e.pointerId);
+    } catch (_) { /* ignore */ }
+  };
+
+  const onWheel = (e) => {
+    if (!diagram.contains(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const cam = getNetCam(camId());
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    zoomNetCamAt(diagram, cam, factor, e.clientX, e.clientY);
+  };
+
+  const onDblClick = (e) => {
+    if (e.target.closest?.('.net-canvas-btn, .net-canvas-toolbar')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fitNetCam(diagram, getNetCam(camId()));
+  };
+
+  diagram.addEventListener('pointerdown', onPointerDown);
+  diagram.addEventListener('pointermove', onPointerMove);
+  diagram.addEventListener('pointerup', onPointerUp);
+  diagram.addEventListener('pointercancel', onPointerUp);
+  diagram.addEventListener('lostpointercapture', onPointerUp);
+  diagram.addEventListener('wheel', onWheel, { passive: false });
+  diagram.addEventListener('dblclick', onDblClick);
+}
+
+function mountNetworkDiagram(diagram, moduleId, graph) {
+  diagram.dataset.moduleId = String(moduleId);
+  if (!graph.nodes.length) {
+    diagram.innerHTML = `<div class="net-empty">No linked network nodes.</div>`;
+    diagram.dataset.bound = '';
+    return;
+  }
+
+  const { positions, W, H } = layoutNetworkNodes(graph.nodes);
+  const lines = graph.edges.map((e) => {
+    const a = positions.get(e.fromId);
+    const b = positions.get(e.toId);
+    if (!a || !b) return '';
+    const netCls = e.net === 'lab' ? ' lab' : e.net === 'power' ? ' power' : '';
+    return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="net-edge${netCls}"/>`;
+  }).join('');
+
+  const nodeEls = graph.nodes.map((n) => {
+    const p = positions.get(n.id);
+    if (!p) return '';
+    const cls = n.isFocus ? 'net-node focus' : `net-node kind-${n.kind || 'consumer'}`;
+    const label = n.name.length > 14 ? `${n.name.slice(0, 13)}…` : n.name;
+    return `<g class="${cls}" transform="translate(${p.x},${p.y})">
+      <circle r="22" class="net-node-ring"/>
+      <image href="${n.icon}" x="-12" y="-12" width="24" height="24" preserveAspectRatio="xMidYMid meet"/>
+      <text y="36" text-anchor="middle" class="net-node-label">${escapeHtml(label)}</text>
+    </g>`;
+  }).join('');
+
+  const svg = `<svg class="net-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${lines}${nodeEls}</svg>`;
+
+  let viewport = diagram.querySelector('.net-canvas-viewport');
+  let world = diagram.querySelector('.net-canvas-world');
+  if (!viewport || !world) {
+    diagram.dataset.bound = '';
+    diagram.innerHTML = `<div class="net-canvas-viewport"><div class="net-canvas-world"></div></div>`;
+    viewport = diagram.querySelector('.net-canvas-viewport');
+    world = diagram.querySelector('.net-canvas-world');
+  }
+  world.innerHTML = svg;
+  bindNetCanvas(diagram, moduleId);
+
+  const cam = getNetCam(moduleId);
+  cam.worldW = W;
+  cam.worldH = H;
+  if (!cam.fitted) {
+    // Fit after layout so viewport has real size
+    requestAnimationFrame(() => fitNetCam(diagram, cam));
+  } else {
+    applyNetCam(diagram, cam);
+  }
+}
+
+function buildingIconFor(entity, isTurret = false) {
+  if (isTurret) return 'assets/images/buildings/power_pole.png';
+  if (!entity) return 'assets/images/buildings/storage.png';
+  if (isPowerStationModule(entity)) return 'assets/images/buildings/power.png';
+  if (isPowerPoleModule(entity)) return 'assets/images/buildings/power_pole.png';
+  if (isResearchLabModule(entity)) return 'assets/images/buildings/lab.png';
+  if (isLabTowerModule(entity)) return 'assets/images/buildings/lab_pole.png';
+  if (isDroneLabModule(entity)) return 'assets/images/buildings/drone_lab.png';
+  if (isStorageModule(entity)) return 'assets/images/buildings/storage.png';
+  return 'assets/images/buildings/storage.png';
+}
+
+function typeLabelFor(entity, isTurret = false) {
+  if (isTurret) return 'Turret';
+  if (isPowerStationModule(entity)) return 'Power Station';
+  if (isPowerPoleModule(entity)) return 'Power Pole';
+  if (isResearchLabModule(entity)) return 'Research Lab';
+  if (isLabTowerModule(entity)) return 'Lab Tower';
+  if (isDroneLabModule(entity)) return 'Drone Lab';
+  if (isStorageModule(entity)) return 'Storage';
+  return getModuleDef(entity.type)?.name || entity.type || 'Module';
+}
+
+function collectPowerGraph(focus) {
+  const info = getPowerModuleNetworkInfo(focus.id, state.modules, state.turrets);
+  const net = getPowerNetworkState(state.modules, state.turrets);
+  const nodes = new Map();
+  const add = (ent, kind, isTurret = false) => {
+    if (!ent) return;
+    // Prefer lab/station kinds when this graph is later merged
+    let nodeKind = kind;
+    if (!isTurret && isResearchLabModule(ent)) nodeKind = 'lab';
+    else if (!isTurret && isPowerStationModule(ent)) nodeKind = 'station';
+    else if (!isTurret && isPowerPoleModule(ent)) nodeKind = 'pole';
+    nodes.set(ent.id, {
+      id: ent.id,
+      name: ent.name || typeLabelFor(ent, isTurret),
+      kind: nodeKind,
+      isTurret,
+      isFocus: ent.id === focus.id,
+      icon: buildingIconFor(ent, isTurret),
+      entity: ent,
+    });
+  };
+  add(focus, isPowerStationModule(focus) ? 'station' : isPowerPoleModule(focus) ? 'pole' : 'consumer');
+  for (const s of info.stations) add(s, 'station');
+  for (const p of info.poles) add(p, 'pole');
+  for (const c of info.storages) add(c, 'consumer');
+  for (const t of info.turrets) add(t, 'turret', true);
+
+  const idSet = new Set(nodes.keys());
+  const edgeKeys = new Set();
+  const edges = [];
+  const pushEdge = (a, b) => {
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    edges.push({ fromId: a, toId: b, net: 'power' });
+  };
+  for (const id of idSet) {
+    for (const next of net.edgeAdjacency?.get(id) || []) {
+      if (idSet.has(next)) pushEdge(id, next);
+    }
+  }
+  for (const e of net.activeEdges || []) {
+    if (idSet.has(e.fromId) && idSet.has(e.toId)) pushEdge(e.fromId, e.toId);
+  }
+
+  return {
+    nodes: [...nodes.values()],
+    edges,
+    tiles: [
+      { id: 'module-net-c-stations', icon: 'assets/images/buildings/power.png', name: 'Stations', count: info.stations.length + (isPowerStationModule(focus) ? 1 : 0), tip: 'Power Stations' },
+      { id: 'module-net-c-poles', icon: 'assets/images/buildings/power_pole.png', name: 'Poles', count: info.poles.length + (isPowerPoleModule(focus) ? 1 : 0), tip: 'Power Poles' },
+      { id: 'module-net-c-consumers', icon: 'assets/images/buildings/storage.png', name: 'Consumers', count: info.storages.length + (isPoweredBuildingModule(focus) && !isPowerStationModule(focus) && !isPowerPoleModule(focus) ? 1 : 0), tip: 'Powered buildings' },
+      { id: 'module-net-c-turrets', icon: 'assets/images/buildings/power_pole.png', name: 'Turrets', count: info.turrets.length, tip: 'Turrets on network' },
+    ].filter((t) => t.count > 0 || ['module-net-c-stations', 'module-net-c-poles'].includes(t.id)),
+  };
+}
+
+function collectLabGraph(focus) {
+  const info = getLabModuleNetworkInfo(focus.id, state.modules, state.nodes, state.base.level);
+  const net = getLabNetworkState(state.modules, state.nodes, state.base.level);
+  const nodes = new Map();
+  const add = (ent, kind) => {
+    if (!ent) return;
+    nodes.set(ent.id, {
+      id: ent.id,
+      name: ent.name || typeLabelFor(ent),
+      kind,
+      isFocus: ent.id === focus.id,
+      icon: buildingIconFor(ent),
+      entity: ent,
+    });
+  };
+  add(focus, isResearchLabModule(focus) ? 'lab' : 'tower');
+  for (const l of info.labs || []) add(l, 'lab');
+  for (const t of info.towers || []) add(t, 'tower');
+
+  const idSet = new Set([...nodes.keys()]);
+  const edgeKeys = new Set();
+  const edges = [];
+  const pushEdge = (a, b) => {
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    edges.push({ fromId: a, toId: b, net: 'lab' });
+  };
+
+  // Prefer full adjacency so tower-only components still draw links
+  for (const id of idSet) {
+    for (const next of net.adjacency?.get(id) || []) {
+      if (idSet.has(next)) pushEdge(id, next);
+    }
+  }
+  for (const e of net.activeEdges || []) {
+    if (idSet.has(e.fromId) && idSet.has(e.toId)) pushEdge(e.fromId, e.toId);
+  }
+
+  // resource leaves from linked resources / nodeEdges
+  let resCount = 0;
+  const addResource = (towerId, node) => {
+    if (!node || !idSet.has(towerId)) return;
+    resCount += 1;
+    const rid = `node:${node.id}`;
+    if (!nodes.has(rid)) {
+      const def = RESOURCE_DEFS[node.type];
+      nodes.set(rid, {
+        id: rid,
+        name: def?.label || node.type || 'Node',
+        kind: 'resource',
+        isFocus: false,
+        icon: def ? `assets/images/resources/${node.type}.png` : buildingIconFor(focus),
+        entity: null,
+      });
+    }
+    pushEdge(towerId, rid);
+  };
+
+  for (const entry of info.resources || []) {
+    addResource(entry.tower?.id ?? entry.towerId, entry.node);
+  }
+  if (!(info.resources || []).length) {
+    for (const ne of net.nodeEdges || []) {
+      if (!idSet.has(ne.towerId)) continue;
+      addResource(ne.towerId, { id: ne.nodeId, type: ne.resourceType });
+    }
+  }
+
+  return {
+    nodes: [...nodes.values()],
+    edges,
+    tiles: [
+      { id: 'module-net-c-labs', icon: 'assets/images/buildings/lab.png', name: 'Labs', count: (info.labs?.length || 0) + (isResearchLabModule(focus) ? 1 : 0), tip: 'Research Labs' },
+      { id: 'module-net-c-towers', icon: 'assets/images/buildings/lab_pole.png', name: 'Towers', count: (info.towers?.length || 0) + (isLabTowerModule(focus) ? 1 : 0), tip: 'Lab Towers' },
+      { id: 'module-net-c-nodes', icon: 'assets/images/resources/iron.png', name: 'Nodes', count: resCount, tip: 'Linked resource nodes' },
+    ],
+  };
+}
+
+const NET_KIND_RANK = {
+  lab: 6,
+  station: 5,
+  tower: 4,
+  pole: 4,
+  consumer: 2,
+  turret: 1,
+  resource: 0,
+};
+
+function mergeNetworkGraphs(primary, secondary, focus) {
+  const nodes = new Map();
+  const take = (n) => {
+    const prev = nodes.get(n.id);
+    if (!prev) {
+      nodes.set(n.id, { ...n, isFocus: n.id === focus.id || !!n.isFocus });
+      return;
+    }
+    const prefer = (NET_KIND_RANK[n.kind] || 0) > (NET_KIND_RANK[prev.kind] || 0) ? n : prev;
+    nodes.set(n.id, {
+      ...prefer,
+      isFocus: prev.isFocus || n.isFocus || n.id === focus.id,
+      name: (n.isFocus || n.id === focus.id) ? (n.name || prev.name) : (prev.name || n.name),
+      entity: prefer.entity || prev.entity || n.entity,
+      icon: prefer.icon || prev.icon || n.icon,
+      isTurret: !!(prefer.isTurret || prev.isTurret || n.isTurret),
+    });
+  };
+  for (const n of primary.nodes || []) take(n);
+  for (const n of secondary.nodes || []) take(n);
+
+  const edgeKeys = new Set();
+  const edges = [];
+  for (const e of [...(primary.edges || []), ...(secondary.edges || [])]) {
+    // Allow power + lab edges between the same pair (different nets)
+    const key = `${e.fromId}:${e.toId}:${e.net || 'x'}`;
+    const rev = `${e.toId}:${e.fromId}:${e.net || 'x'}`;
+    if (edgeKeys.has(key) || edgeKeys.has(rev)) continue;
+    edgeKeys.add(key);
+    edges.push(e);
+  }
+
+  const tileMap = new Map();
+  for (const t of [...(primary.tiles || []), ...(secondary.tiles || [])]) {
+    if (!tileMap.has(t.id)) tileMap.set(t.id, { ...t });
+    else tileMap.get(t.id).count = Math.max(tileMap.get(t.id).count, t.count);
+  }
+
+  // Power tiles first, then lab tiles
+  const tileOrder = [
+    'module-net-c-stations',
+    'module-net-c-poles',
+    'module-net-c-consumers',
+    'module-net-c-turrets',
+    'module-net-c-labs',
+    'module-net-c-towers',
+    'module-net-c-nodes',
+  ];
+  const tiles = tileOrder.map((id) => tileMap.get(id)).filter(Boolean)
+    .concat([...tileMap.values()].filter((t) => !tileOrder.includes(t.id)));
+
+  return { nodes: [...nodes.values()], edges, tiles };
+}
+
+function collectResearchLabGraph(focus) {
+  // Research labs sit on both the research network and the power grid
+  return mergeNetworkGraphs(collectLabGraph(focus), collectPowerGraph(focus), focus);
+}
+
+function collectModuleNetworkGraph(module) {
+  if (isResearchLabModule(module)) return collectResearchLabGraph(module);
+  if (isLabTowerModule(module)) return collectLabGraph(module);
+  return collectPowerGraph(module);
+}
+
+function layoutNetworkNodes(nodes) {
+  const maxInRow = Math.max(1, ...[...nodes.reduce((m, n) => {
+    const k = n.kind || 'consumer';
+    m.set(k, (m.get(k) || 0) + 1);
+    return m;
+  }, new Map()).values()]);
+  const W = Math.max(520, 96 + maxInRow * 88);
+  const layerOrder = ['station', 'lab', 'pole', 'tower', 'consumer', 'turret', 'resource'];
+  const layers = new Map();
+  for (const n of nodes) {
+    const k = n.kind || 'consumer';
+    if (!layers.has(k)) layers.set(k, []);
+    layers.get(k).push(n);
+  }
+  const activeLayers = layerOrder.filter((k) => layers.has(k) && layers.get(k).length);
+  const layerCount = Math.max(1, activeLayers.length);
+  const H = Math.max(280, 72 + layerCount * 90);
+  const positions = new Map();
+
+  activeLayers.forEach((kind, li) => {
+    const row = layers.get(kind);
+    // Keep focus near horizontal center within its layer
+    row.sort((a, b) => (a.isFocus === b.isFocus ? String(a.name).localeCompare(String(b.name)) : a.isFocus ? -1 : 1));
+    if (row.length > 2) {
+      const focusIdx = row.findIndex((n) => n.isFocus);
+      if (focusIdx > 0) {
+        const [f] = row.splice(focusIdx, 1);
+        row.splice(Math.floor(row.length / 2), 0, f);
+      }
+    }
+    const y = layerCount === 1 ? H / 2 : 48 + (li / (layerCount - 1)) * (H - 96);
+    row.forEach((n, i) => {
+      const x = row.length === 1 ? W / 2 : 56 + (i / (row.length - 1)) * (W - 112);
+      positions.set(n.id, { x, y });
+    });
+  });
+
+  return { positions, W, H };
+}
+
+function graphSignature(graph) {
+  const nodeSig = graph.nodes.map((n) => `${n.id}:${n.kind}:${n.isFocus ? 1 : 0}:${n.name}`).join('|');
+  const edgeSig = graph.edges.map((e) => `${e.fromId}-${e.toId}`).join('|');
+  const tileSig = graph.tiles.map((t) => `${t.id}:${t.count}`).join('|');
+  return `${nodeSig}#${edgeSig}#${tileSig}`;
+}
+
+function patchNetworkTab(root, module) {
+  const diagram = root.querySelector('#module-net-diagram');
+  const tiles = root.querySelector('#module-net-tiles');
+  const list = root.querySelector('#module-net-list');
+  if (!diagram) return;
+
+  const graph = collectModuleNetworkGraph(module);
+
+  const sig = graphSignature(graph);
+  if (diagram.dataset.sig !== sig) {
+    diagram.dataset.sig = sig;
+    mountNetworkDiagram(diagram, module.id, graph);
+  } else if (!diagram.querySelector('.net-canvas-viewport') && graph.nodes.length) {
+    mountNetworkDiagram(diagram, module.id, graph);
+  } else {
+    diagram.dataset.moduleId = String(module.id);
+    const cam = getNetCam(module.id);
+    if (cam.fitted) applyNetCam(diagram, cam);
+  }
+
+  if (tiles) {
+    const tileHtml = graph.tiles.map((t) =>
+      `<div class="lab-net-tile" data-tippy-content="${t.tip}">
+        <img class="lab-net-icon" src="${t.icon}" alt="">
+        <div>
+          <div class="lab-net-count" id="${t.id}">${t.count}</div>
+          <div class="lab-net-name">${t.name}</div>
+        </div>
+      </div>`
+    ).join('');
+    if (tiles.dataset.sig !== sig) {
+      tiles.dataset.sig = sig;
+      tiles.innerHTML = tileHtml;
+    }
+  }
+
+  if (list) {
+    const rows = graph.nodes
+      .filter((n) => !String(n.id).startsWith('node:'))
+      .sort((a, b) => (a.isFocus === b.isFocus ? a.name.localeCompare(b.name) : a.isFocus ? -1 : 1))
+      .map((n) => `<div class="net-list-row${n.isFocus ? ' focus' : ''}">
+        <img src="${n.icon}" alt="" class="net-list-icon">
+        <span class="net-list-name">${escapeHtml(n.name)}</span>
+        <span class="net-list-kind">${n.isFocus ? 'YOU' : escapeHtml(typeLabelFor(n.entity, n.isTurret))}</span>
+      </div>`).join('');
+    if (list.dataset.sig !== sig) {
+      list.dataset.sig = sig;
+      list.innerHTML = rows || '<div class="net-empty">No modules linked.</div>';
+    }
+  }
+}
+
+function maybePatchNetworkTab(modal, module) {
+  const root = modal?.querySelector?.('.lab-layout[data-module-id]');
+  if (!root) return;
+  const netOn = root.querySelector('.mod-tab.on[data-tab="network"]');
+  if (netOn) patchNetworkTab(root, module);
+}
 import {
   SYNTHESIS_RECIPES,
   SYNTHESIS_SLOT_COUNT,
@@ -39,10 +651,12 @@ import {
   isPowerPoleModule,
   isLabTowerModule,
   getModuleInventoryTotal,
+  scrubModuleInventory,
   getPowerFuelOptions,
   formatPowerFuelRate,
   getPowerNetworkState,
   getPowerModuleNetworkInfo,
+  getLabNetworkState,
   getLabModuleNetworkInfo,
   getPowerResourceConsumption,
   getPowerFuelOutput,
@@ -254,6 +868,9 @@ function isCompactWideBuilding(module) {
   return isPowerPoleModule(module) || isLabTowerModule(module);
 }
 
+const MODULE_MODAL_DEFAULT_W = 1000;
+const MODULE_MODAL_DEFAULT_H = 1000;
+
 function applyModuleModalChrome(modal, module) {
   if (!modal || !module) return;
   const isWide = isWideBuildingModal(module);
@@ -272,17 +889,15 @@ function applyModuleModalChrome(modal, module) {
     body.classList.toggle('storage-modal-body-lab', isWide);
     body.style.padding = isWide ? '12px' : '14px';
   }
-  if (isWide && parseInt(modal.style.width, 10) < 900) {
-    modal.style.width = isCompactWideBuilding(module) ? '900px' : '980px';
-  }
-  // Default open heights. Skip if user resized.
-  if (modal.dataset.moved !== '1' && !modal.dataset.height) {
-    if (isDroneLabModule(module)) {
-      modal.style.height = '560px';
-      modal.dataset.height = '560';
-    } else if (isCompactWideBuilding(module)) {
-      modal.style.height = '520px';
-      modal.dataset.height = '520';
+  // Default open size. Skip if user already resized/moved this window.
+  if (modal.dataset.moved !== '1') {
+    if (!modal.dataset.width) {
+      modal.style.width = `${MODULE_MODAL_DEFAULT_W}px`;
+      modal.dataset.width = String(MODULE_MODAL_DEFAULT_W);
+    }
+    if (!modal.dataset.height) {
+      modal.style.height = `${MODULE_MODAL_DEFAULT_H}px`;
+      modal.dataset.height = String(MODULE_MODAL_DEFAULT_H);
     }
   }
 }
@@ -294,15 +909,14 @@ function ensureStorageModalWindow(moduleId) {
   if (!host) return null;
   const module = getModuleById(moduleId);
   const isWide = isWideBuildingModal(module);
-  const isDrone = module && isDroneLabModule(module);
-  const isCompact = module && isCompactWideBuilding(module);
-  const defaultW = isWide ? (isCompact ? 900 : 980) : 600;
-  const defaultH = isDrone ? 560 : isCompact ? 520 : 0;
+  const defaultW = MODULE_MODAL_DEFAULT_W;
+  const defaultH = MODULE_MODAL_DEFAULT_H;
   modal = document.createElement('div');
   modal.className = 'storage-modal-window';
   modal.dataset.moduleId = String(moduleId);
-  modal.style.cssText = `position:absolute;width:${defaultW}px;${defaultH ? `height:${defaultH}px;` : ''}background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;`;
-  if (defaultH) modal.dataset.height = String(defaultH);
+  modal.style.cssText = `position:absolute;width:${defaultW}px;height:${defaultH}px;background:linear-gradient(160deg,#0a1428 0%,#060c1a 100%);border:1px solid #2a5090;border-radius:7px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.8);pointer-events:all;`;
+  modal.dataset.width = String(defaultW);
+  modal.dataset.height = String(defaultH);
   modal.innerHTML = `<div class="panel-shell-head storage-modal-drag-handle"><div class="panel-shell-title storage-modal-title">BUILDING</div><button class="panel-shell-close" onclick="closeStorageModal(${moduleId})">✕</button></div><div class="storage-modal-body" style="padding:${isWide ? '12px' : '14px'};"></div>`;
   applyModuleModalChrome(modal, module);
   host.appendChild(modal);
@@ -515,7 +1129,8 @@ function buildPowerConsumerListHtml(linkedStorages, linkedTurrets) {
 
 function buildStorageInventoryGridHtml(module, query = '', sort = 'amount') {
   const q = String(query || '').trim().toLowerCase();
-  let rows = Object.entries(module.inventory || {}).filter(([, amt]) => (amt || 0) > 0);
+  let rows = Object.entries(module.inventory || {})
+    .filter(([type, amt]) => (amt || 0) > 0 && RESOURCE_DEFS[type] && !RESOURCE_DEFS[type].special);
   if (q) {
     rows = rows.filter(([type]) => {
       const label = (RESOURCE_DEFS[type]?.label || type).toLowerCase();
@@ -550,7 +1165,7 @@ function buildStorageInventoryGridHtml(module, query = '', sort = 'amount') {
 
 function buildPowerStationFuelStoresHtml(module, activeFuelType) {
   const rows = Object.entries(module.inventory || {})
-    .filter(([, amt]) => amt > 0)
+    .filter(([type, amt]) => amt > 0 && RESOURCE_DEFS[type] && !RESOURCE_DEFS[type].special)
     .sort((a, b) => b[1] - a[1]);
   if (!rows.length) return '<div class="module-empty-note">No fuel stored yet.<br>Deliver resources via ships.</div>';
   return rows.map(([type, amt]) => {
@@ -789,7 +1404,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
 
   if (isStorageModule(module)) {
     body.innerHTML = `
-      <div class="lab-layout st-layout">
+      <div class="lab-layout st-layout" data-module-id="${module.id}">
         <div class="lab-hero">
           <div class="lab-hero-left">
             <div class="lab-hero-name-row">
@@ -808,82 +1423,57 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div id="storage-tier-pill" class="lab-tier-badge"></div>
         </div>
 
-        <div class="st-main-grid">
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ SYSTEMS</span>
-              <span class="lab-panel-sub">status</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="lab-stat-cards">
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Status</div>
-                  <div id="st-status-value" class="lab-stat-value green">ONLINE</div>
-                </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Fill</div>
-                  <div id="st-fill-value" class="lab-stat-value">0%</div>
-                </div>
-              </div>
-              <div class="lab-power-block">
-                <div class="lab-meter-head">
-                  <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Grid</span>
-                  <span id="storage-power-value" class="lab-meter-value"></span>
-                </div>
-                <div class="lab-power-meta">
-                  <span>Usage <strong id="storage-power-usage"></strong></span>
-                  <span>Capacity</span>
-                </div>
-                <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
-                <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
-                <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
-              </div>
-              <div class="lab-power-block">
-                <div class="lab-meter-head">
-                  <span class="lab-meter-label">Storage Used</span>
-                  <span id="storage-used-value" class="lab-meter-value"></span>
-                </div>
-                <div class="lab-meter-track"><div id="storage-used-bar" class="lab-meter-bar" style="background:linear-gradient(90deg,#1a6aff,#48f);"></div></div>
-              </div>
-              <div class="lab-network-block">
-                <div class="lab-network-label">◈ Linked Network</div>
-                <div class="lab-network-tiles">
-                  <div class="lab-net-tile" data-tippy-content="Power Stations">
-                    <img class="lab-net-icon" src="assets/images/buildings/power.png" alt="">
-                    <div>
-                      <div id="st-net-stations" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Stations</div>
+        ${moduleTabsHtml([
+          { id: 'details', label: 'DETAILS', icon: 'circles' },
+          { id: 'network', label: 'NETWORK', icon: 'hub' },
+        ])}
+        <div class="mod-tab-body">
+          <div class="mod-tab-pane on" data-pane="details">
+            <div class="mod-details-grid st-details-grid">
+              <div class="st-left-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ POWER</div>
+                  <div class="lab-power-block">
+                    <div class="lab-meter-head">
+                      <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power</span>
+                      <span id="storage-power-value" class="lab-meter-value"></span>
                     </div>
+                    <div class="lab-power-meta">
+                      <span data-tippy-content="Power usage">Usage <strong id="storage-power-usage"></strong></span>
+                      <span>Capacity</span>
+                    </div>
+                    <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
+                    <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
+                    <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
                   </div>
-                  <div class="lab-net-tile" data-tippy-content="Power Poles">
-                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
-                    <div>
-                      <div id="st-net-poles" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Poles</div>
+                  <div class="lab-power-block">
+                    <div class="lab-meter-head">
+                      <span class="lab-meter-label">Storage Used</span>
+                      <span id="storage-used-value" class="lab-meter-value"></span>
                     </div>
+                    <div class="lab-meter-track"><div id="storage-used-bar" class="lab-meter-bar" style="background:linear-gradient(90deg,#1a6aff,#48f);"></div></div>
                   </div>
                 </div>
-                <div id="power-station-link-summary" class="st-net-summary" style="display:none;"></div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ SYSTEMS</div>
+                  ${infoRowHtml('STATUS', 'st-status-value', 'ONLINE', 'green')}
+                  ${infoRowHtml('FILL', 'st-fill-value', '0%')}
+                </div>
+              </div>
+              <div class="sm-info-block sm-info-block-fill st-inv-col">
+                <div class="blk-title">◈ INVENTORY <span class="blk-sub" id="st-inv-count">0 types</span></div>
+                <div class="st-inv-toolbar">
+                  <input id="st-inv-search" class="st-inv-search" type="search" placeholder="Search resources…" value="" oninput="filterStorageInventory(${module.id})" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
+                  <select id="st-inv-sort" class="st-inv-sort" onchange="filterStorageInventory(${module.id})" onmousedown="event.stopPropagation()">
+                    <option value="amount">Qty ↓</option>
+                    <option value="name">Name</option>
+                  </select>
+                </div>
+                <div id="storage-inventory-list" class="st-inv-grid"></div>
               </div>
             </div>
-          </section>
-
-          <section class="lab-panel st-inv-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ INVENTORY</span>
-              <span class="lab-panel-sub" id="st-inv-count">0 types</span>
-            </div>
-            <div class="lab-panel-body st-inv-body">
-              <div class="st-inv-toolbar">
-                <input id="st-inv-search" class="st-inv-search" type="search" placeholder="Search resources…" value="" oninput="filterStorageInventory(${module.id})" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
-                <select id="st-inv-sort" class="st-inv-sort" onchange="filterStorageInventory(${module.id})" onmousedown="event.stopPropagation()">
-                  <option value="amount">Qty ↓</option>
-                  <option value="name">Name</option>
-                </select>
-              </div>
-              <div id="storage-inventory-list" class="st-inv-grid"></div>
-            </div>
-          </section>
+          </div>
+          <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
         <div class="lab-footer">
@@ -902,7 +1492,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
 
   if (isDroneLabModule(module)) {
     body.innerHTML = `
-      <div class="lab-layout dl-layout">
+      <div class="lab-layout dl-layout" data-module-id="${module.id}">
         <div class="lab-hero">
           <div class="lab-hero-left">
             <div class="lab-hero-name-row">
@@ -921,74 +1511,50 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div id="storage-tier-pill" class="lab-tier-badge"></div>
         </div>
 
-        <div class="st-main-grid">
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ SYSTEMS</span>
-              <span class="lab-panel-sub">operations</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="lab-stat-cards">
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Status</div>
-                  <div id="dl-status-value" class="lab-stat-value green">ONLINE</div>
-                </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Active</div>
-                  <div id="dl-active-value" class="lab-stat-value blue">0 / 0</div>
-                </div>
-              </div>
-              <div class="lab-power-block">
-                <div class="lab-meter-head">
-                  <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Grid</span>
-                  <span id="storage-power-value" class="lab-meter-value"></span>
-                </div>
-                <div class="lab-power-meta">
-                  <span data-tippy-content="Power usage scales with drone count: 1/s per drone deployed.">Usage <strong id="storage-power-usage"></strong></span>
-                  <span>Capacity</span>
-                </div>
-                <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
-                <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
-                <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
-              </div>
-              <div class="lab-power-block">
-                <div class="lab-meter-head">
-                  <span class="lab-meter-label">Drone Bay</span>
-                  <span id="storage-used-value" class="lab-meter-value"></span>
-                </div>
-                <div class="lab-meter-track"><div id="storage-used-bar" class="lab-meter-bar" style="background:linear-gradient(90deg,#0a6a80,#5af0ff);"></div></div>
-              </div>
-              <div class="lab-network-block">
-                <div class="lab-network-label">◈ Linked Network</div>
-                <div class="lab-network-tiles">
-                  <div class="lab-net-tile" data-tippy-content="Power Stations">
-                    <img class="lab-net-icon" src="assets/images/buildings/power.png" alt="">
-                    <div>
-                      <div id="dl-net-stations" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Stations</div>
+        ${moduleTabsHtml([
+          { id: 'details', label: 'DETAILS', icon: 'circles' },
+          { id: 'network', label: 'NETWORK', icon: 'hub' },
+        ])}
+        <div class="mod-tab-body">
+          <div class="mod-tab-pane on" data-pane="details">
+            <div class="mod-details-grid dl-details-grid">
+              <div class="dl-left-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ POWER</div>
+                  <div class="lab-power-block">
+                    <div class="lab-meter-head">
+                      <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Grid</span>
+                      <span id="storage-power-value" class="lab-meter-value"></span>
                     </div>
+                    <div class="lab-power-meta">
+                      <span data-tippy-content="Power usage scales with drone count: 1/s per drone deployed.">Usage <strong id="storage-power-usage"></strong></span>
+                      <span>Capacity</span>
+                    </div>
+                    <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
+                    <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
+                    <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
                   </div>
-                  <div class="lab-net-tile" data-tippy-content="Power Poles">
-                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
-                    <div>
-                      <div id="dl-net-poles" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Poles</div>
+                  <div class="lab-power-block">
+                    <div class="lab-meter-head">
+                      <span class="lab-meter-label">Drone Bay</span>
+                      <span id="storage-used-value" class="lab-meter-value"></span>
                     </div>
+                    <div class="lab-meter-track"><div id="storage-used-bar" class="lab-meter-bar" style="background:linear-gradient(90deg,#0a6a80,#5af0ff);"></div></div>
                   </div>
                 </div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ SYSTEMS</div>
+                  ${infoRowHtml('STATUS', 'dl-status-value', 'ONLINE', 'green')}
+                  ${infoRowHtml('ACTIVE', 'dl-active-value', '0 / 0', 'blue')}
+                </div>
+              </div>
+              <div class="sm-info-block sm-info-block-fill dl-bay-col">
+                <div class="blk-title">◈ DRONE BAY <span class="blk-sub" id="dl-bay-count">0 active</span></div>
+                <div id="drone-bay-status-list" class="dl-drone-list"></div>
               </div>
             </div>
-          </section>
-
-          <section class="lab-panel st-inv-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ DRONE BAY</span>
-              <span class="lab-panel-sub" id="dl-bay-count">0 active</span>
-            </div>
-            <div class="lab-panel-body st-inv-body">
-              <div id="drone-bay-status-list" class="dl-drone-list"></div>
-            </div>
-          </section>
+          </div>
+          <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
         <div class="lab-footer">
@@ -1007,7 +1573,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
 
   if (isPowerStationModule(module)) {
     body.innerHTML = `
-      <div class="lab-layout ps-layout">
+      <div class="lab-layout ps-layout" data-module-id="${module.id}">
         <div class="lab-hero">
           <div class="lab-hero-left">
             <div class="lab-hero-name-row">
@@ -1029,111 +1595,83 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
         <div id="power-station-no-fuel-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO FUEL</div>
         <div id="power-station-deficit-warning" class="storage-no-power-warning" style="display:none;">WARNING: POWER DEFICIT</div>
 
-        <div class="lab-main-grid">
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ FUEL & OUTPUT</span>
-              <span class="lab-panel-sub">generation</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="ps-fuel-select-row">
-                <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Source</span>
-                <button type="button" id="power-station-fuel-btn" class="ps-fuel-btn" onclick="openFuelPickerOverlay(${module.id})">
-                  <span id="power-station-fuel-btn-icon" class="ps-fuel-btn-icon"></span>
-                  <span id="power-station-fuel-btn-label" class="ps-fuel-btn-label">Iron</span>
-                  <span class="ps-fuel-btn-chevron">▾</span>
-                </button>
-              </div>
-
-              <div class="ps-dash" id="power-station-dash">
-                <div class="ps-dash-section">
-                  <div class="ps-dash-head">
-                    <span class="ps-dash-title">Fuel flow</span>
-                    <span id="ps-fuel-balance-pill" class="ps-balance-pill">—</span>
-                  </div>
-                  <div class="ps-dash-row" id="ps-row-import" data-tippy-content="">
-                    <span class="ps-dash-label">Import</span>
-                    <div class="ps-dash-track"><div id="ps-bar-import" class="ps-dash-bar ps-bar-import"></div></div>
-                    <span id="ps-val-import" class="ps-dash-val">0/m</span>
-                  </div>
-                  <div class="ps-dash-row" id="ps-row-burn" data-tippy-content="">
-                    <span class="ps-dash-label">Burn</span>
-                    <div class="ps-dash-track"><div id="ps-bar-burn" class="ps-dash-bar ps-bar-burn"></div></div>
-                    <span id="ps-val-burn" class="ps-dash-val">0/m</span>
-                  </div>
-                  <div class="ps-dash-note" id="ps-fuel-note"></div>
+        ${moduleTabsHtml([
+          { id: 'details', label: 'DETAILS', icon: 'circles' },
+          { id: 'network', label: 'NETWORK', icon: 'hub' },
+        ])}
+        <div class="mod-tab-body">
+          <div class="mod-tab-pane on" data-pane="details">
+            <div class="mod-details-grid ps-details-grid">
+              <div class="sm-info-block sm-info-block-fill ps-output-col">
+                <div class="blk-title">◈ FUEL &amp; OUTPUT</div>
+                <div class="ps-fuel-select-row">
+                  <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Source</span>
+                  <button type="button" id="power-station-fuel-btn" class="ps-fuel-btn" onclick="openFuelPickerOverlay(${module.id})">
+                    <span id="power-station-fuel-btn-icon" class="ps-fuel-btn-icon"></span>
+                    <span id="power-station-fuel-btn-label" class="ps-fuel-btn-label">Iron</span>
+                    <span class="ps-fuel-btn-chevron">▾</span>
+                  </button>
                 </div>
-
-                <div class="ps-dash-section">
-                  <div class="ps-dash-head">
-                    <span class="ps-dash-title">Power grid</span>
-                    <span id="ps-power-balance-pill" class="ps-balance-pill">—</span>
-                  </div>
-                  <div class="ps-dash-row" id="ps-row-output" data-tippy-content="">
-                    <span class="ps-dash-label">Output</span>
-                    <div class="ps-dash-track"><div id="ps-bar-output" class="ps-dash-bar ps-bar-output"></div></div>
-                    <span id="ps-val-output" class="ps-dash-val">0/s</span>
-                  </div>
-                  <div class="ps-dash-row" id="ps-row-load" data-tippy-content="">
-                    <span class="ps-dash-label">Load</span>
-                    <div class="ps-dash-track"><div id="ps-bar-load" class="ps-dash-bar ps-bar-load"></div></div>
-                    <span id="ps-val-load" class="ps-dash-val">0/s</span>
-                  </div>
-                  <div class="ps-dash-note" id="ps-power-note"></div>
-                </div>
-              </div>
-
-              <div class="lab-network-block">
-                <div class="lab-network-label">◈ Linked Network</div>
-                <div class="lab-network-tiles">
-                  <div class="lab-net-tile" data-tippy-content="Power Poles">
-                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
-                    <div>
-                      <div id="ps-net-poles" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Poles</div>
+                <div class="ps-dash" id="power-station-dash">
+                  <div class="ps-dash-section">
+                    <div class="ps-dash-head">
+                      <span class="ps-dash-title">Fuel flow</span>
+                      <span id="ps-fuel-balance-pill" class="ps-balance-pill">—</span>
                     </div>
-                  </div>
-                  <div class="lab-net-tile" data-tippy-content="Powered Consumers">
-                    <img class="lab-net-icon" src="assets/images/buildings/storage.png" alt="">
-                    <div>
-                      <div id="ps-net-consumers" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Consumers</div>
+                    <div class="ps-dash-row" id="ps-row-import" data-tippy-content="">
+                      <span class="ps-dash-label">Import</span>
+                      <div class="ps-dash-track"><div id="ps-bar-import" class="ps-dash-bar ps-bar-import"></div></div>
+                      <span id="ps-val-import" class="ps-dash-val">0/m</span>
                     </div>
+                    <div class="ps-dash-row" id="ps-row-burn" data-tippy-content="">
+                      <span class="ps-dash-label">Burn</span>
+                      <div class="ps-dash-track"><div id="ps-bar-burn" class="ps-dash-bar ps-bar-burn"></div></div>
+                      <span id="ps-val-burn" class="ps-dash-val">0/m</span>
+                    </div>
+                    <div class="ps-dash-note" id="ps-fuel-note"></div>
+                  </div>
+                  <div class="ps-dash-section">
+                    <div class="ps-dash-head">
+                      <span class="ps-dash-title">Power grid</span>
+                      <span id="ps-power-balance-pill" class="ps-balance-pill">—</span>
+                    </div>
+                    <div class="ps-dash-row" id="ps-row-output" data-tippy-content="">
+                      <span class="ps-dash-label">Output</span>
+                      <div class="ps-dash-track"><div id="ps-bar-output" class="ps-dash-bar ps-bar-output"></div></div>
+                      <span id="ps-val-output" class="ps-dash-val">0/s</span>
+                    </div>
+                    <div class="ps-dash-row" id="ps-row-load" data-tippy-content="">
+                      <span class="ps-dash-label">Load</span>
+                      <div class="ps-dash-track"><div id="ps-bar-load" class="ps-dash-bar ps-bar-load"></div></div>
+                      <span id="ps-val-load" class="ps-dash-val">0/s</span>
+                    </div>
+                    <div class="ps-dash-note" id="ps-power-note"></div>
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
-
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ CONSUMERS</span>
-              <span class="lab-panel-sub">drawing power</span>
-            </div>
-            <div class="lab-panel-body">
-              <div id="power-station-network-consumers" class="ps-consumer-list"></div>
-            </div>
-          </section>
-
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ FUEL STORES</span>
-              <span class="lab-panel-sub">held inventory</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="ps-active-fuel">
-                <div class="ps-active-fuel-head">
-                  <span class="ps-active-fuel-title">
-                    <span id="power-station-used-icon" class="ps-active-fuel-icon"></span>
-                    <span id="power-station-used-label">Active Fuel</span>
-                  </span>
-                  <span id="power-station-used-value" class="lab-meter-value"></span>
+              <div class="ps-fuel-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ FUEL STORES</div>
+                  <div class="ps-active-fuel">
+                    <div class="ps-active-fuel-head">
+                      <span class="ps-active-fuel-title">
+                        <span id="power-station-used-icon" class="ps-active-fuel-icon"></span>
+                        <span id="power-station-used-label">Active Fuel</span>
+                      </span>
+                      <span id="power-station-used-value" class="lab-meter-value"></span>
+                    </div>
+                    <div class="lab-meter-track"><div id="power-station-used-bar" class="lab-meter-bar ps-fuel-bar"></div></div>
+                  </div>
+                  <div id="storage-inventory-list" class="lab-res-list ps-fuel-stores"></div>
                 </div>
-                <div class="lab-meter-track"><div id="power-station-used-bar" class="lab-meter-bar ps-fuel-bar"></div></div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ CONSUMERS</div>
+                  <div id="power-station-network-consumers" class="ps-consumer-list"></div>
+                </div>
               </div>
-              <div id="storage-inventory-list" class="lab-res-list ps-fuel-stores"></div>
             </div>
-          </section>
+          </div>
+          <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
         <div class="lab-footer">
@@ -1152,7 +1690,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
 
   if (isLabTowerModule(module)) {
     body.innerHTML = `
-      <div class="lab-layout lt-layout">
+      <div class="lab-layout lt-layout" data-module-id="${module.id}">
         <div class="lab-hero">
           <div class="lab-hero-left">
             <div class="lab-hero-name-row">
@@ -1171,74 +1709,37 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div id="storage-tier-pill" class="lab-tier-badge"></div>
         </div>
 
-        <div class="pp-main-grid">
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ LAB RELAY</span>
-              <span class="lab-panel-sub">systems</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="lab-stat-cards">
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Status</div>
-                  <div id="lt-status-value" class="lab-stat-value green">ONLINE</div>
+        ${moduleTabsHtml([
+          { id: 'details', label: 'DETAILS', icon: 'circles' },
+          { id: 'network', label: 'NETWORK', icon: 'hub' },
+        ])}
+        <div class="mod-tab-body">
+          <div class="mod-tab-pane on" data-pane="details">
+            <div class="mod-details-grid lt-details-grid">
+              <div class="lt-left-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ LAB RELAY</div>
+                  ${infoRowHtml('STATUS', 'lt-status-value', 'ONLINE', 'green')}
+                  ${infoRowHtml('RELAY RANGE', 'relay-range-value', '0 TILES')}
+                  ${infoRowHtml('NODE TIER', 'lt-node-tier', `T${module.level || 1}`)}
+                  ${infoRowHtml('LINKED NODES', 'lt-node-count', '0')}
                 </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Relay Range</div>
-                  <div id="relay-range-value" class="lab-stat-value">0 TILES</div>
-                </div>
-              </div>
-
-              <div class="pp-range-block lt-range-block">
-                <div class="lab-meter-head">
-                  <span class="lab-meter-label">Coverage</span>
-                  <span id="relay-range-blocks" class="pp-range-blocks lt-range-blocks"></span>
-                </div>
-                <div class="lt-range-note" id="lt-range-note">Links matching-tier resource nodes in range.</div>
-              </div>
-
-              <div class="lab-stat-cards">
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Node Tier</div>
-                  <div id="lt-node-tier" class="lab-stat-value">T${module.level || 1}</div>
-                </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Linked Nodes</div>
-                  <div id="lt-node-count" class="lab-stat-value">0</div>
-                </div>
-              </div>
-
-              <div class="lab-network-block">
-                <div class="lab-network-label">◈ Linked Network</div>
-                <div class="lab-network-tiles">
-                  <div class="lab-net-tile" data-tippy-content="Research Labs">
-                    <img class="lab-net-icon" src="assets/images/buildings/lab.png" alt="">
-                    <div>
-                      <div id="lt-net-labs" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Labs</div>
-                    </div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ COVERAGE</div>
+                  <div class="pp-coverage-row">
+                    <span class="pp-coverage-label">RANGE</span>
+                    <span id="relay-range-blocks" class="pp-range-blocks lt-range-blocks"></span>
                   </div>
-                  <div class="lab-net-tile" data-tippy-content="Lab Towers">
-                    <img class="lab-net-icon" src="assets/images/buildings/lab_pole.png" alt="">
-                    <div>
-                      <div id="lt-net-towers" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Towers</div>
-                    </div>
-                  </div>
+                  <div class="lt-range-note" id="lt-range-note">Links matching-tier resource nodes in range.</div>
                 </div>
               </div>
+              <div class="sm-info-block sm-info-block-fill lt-res-col">
+                <div class="blk-title">◈ LINKED RESOURCES <span class="blk-sub" id="lt-res-count">in range</span></div>
+                <div id="lab-linked-resources" class="lab-res-list lt-res-list"></div>
+              </div>
             </div>
-          </section>
-
-          <section class="lab-panel st-inv-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ LINKED RESOURCES</span>
-              <span class="lab-panel-sub" id="lt-res-count">in range</span>
-            </div>
-            <div class="lab-panel-body">
-              <div id="lab-linked-resources" class="lab-res-list lt-res-list"></div>
-            </div>
-          </section>
+          </div>
+          <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
         <div class="lab-footer">
@@ -1257,7 +1758,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
 
   if (isPowerPoleModule(module)) {
     body.innerHTML = `
-      <div class="lab-layout pp-layout">
+      <div class="lab-layout pp-layout" data-module-id="${module.id}">
         <div class="lab-hero">
           <div class="lab-hero-left">
             <div class="lab-hero-name-row">
@@ -1278,82 +1779,52 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
 
         <div id="power-station-no-fuel-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO FUEL ON NETWORK</div>
 
-        <div class="pp-main-grid">
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ RELAY</span>
-              <span class="lab-panel-sub">systems</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="lab-stat-cards">
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Status</div>
-                  <div id="pp-status-value" class="lab-stat-value green">ONLINE</div>
+        ${moduleTabsHtml([
+          { id: 'details', label: 'DETAILS', icon: 'circles' },
+          { id: 'network', label: 'NETWORK', icon: 'hub' },
+        ])}
+        <div class="mod-tab-body">
+          <div class="mod-tab-pane on" data-pane="details">
+            <div class="mod-details-grid pp-details-grid">
+              <div class="pp-left-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ RELAY</div>
+                  ${infoRowHtml('STATUS', 'pp-status-value', 'ONLINE', 'green')}
+                  ${infoRowHtml('RELAY RANGE', 'relay-range-value', '0 TILES')}
                 </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Relay Range</div>
-                  <div id="relay-range-value" class="lab-stat-value">0 TILES</div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ COVERAGE</div>
+                  <div class="pp-coverage-row">
+                    <span class="pp-coverage-label">RANGE</span>
+                    <span id="relay-range-blocks" class="pp-range-blocks"></span>
+                  </div>
                 </div>
-              </div>
-
-              <div class="pp-range-block">
-                <div class="lab-meter-head">
-                  <span class="lab-meter-label">Coverage</span>
-                  <span id="relay-range-blocks" class="pp-range-blocks"></span>
-                </div>
-              </div>
-
-              <div class="ps-dash" id="power-pole-dash">
-                <div class="ps-dash-section">
-                  <div class="ps-dash-head">
-                    <span class="ps-dash-title">Power load</span>
-                    <span id="pp-balance-pill" class="ps-balance-pill">—</span>
-                  </div>
-                  <div class="ps-dash-row" id="pp-row-output" data-tippy-content="">
-                    <span class="ps-dash-label">Output</span>
-                    <div class="ps-dash-track"><div id="pp-bar-output" class="ps-dash-bar ps-bar-output"></div></div>
-                    <span id="pp-val-output" class="ps-dash-val">0/s</span>
-                  </div>
-                  <div class="ps-dash-row" id="pp-row-load" data-tippy-content="">
-                    <span class="ps-dash-label">Load</span>
-                    <div class="ps-dash-track"><div id="pp-bar-load" class="ps-dash-bar ps-bar-load"></div></div>
-                    <span id="pp-val-load" class="ps-dash-val">0/s</span>
-                  </div>
-                  <div class="ps-dash-note" id="pp-power-note"></div>
-                </div>
-              </div>
-
-              <div class="lab-network-block">
-                <div class="lab-network-label">◈ Linked Network</div>
-                <div class="lab-network-tiles">
-                  <div class="lab-net-tile" data-tippy-content="Power Stations">
-                    <img class="lab-net-icon" src="assets/images/buildings/power.png" alt="">
-                    <div>
-                      <div id="pp-net-stations" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Stations</div>
-                    </div>
-                  </div>
-                  <div class="lab-net-tile" data-tippy-content="Power Poles">
-                    <img class="lab-net-icon" src="assets/images/buildings/power_pole.png" alt="">
-                    <div>
-                      <div id="pp-net-poles" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Poles</div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ POWER LOAD <span class="blk-sub" id="pp-balance-pill">—</span></div>
+                  <div class="ps-dash" id="power-pole-dash">
+                    <div class="ps-dash-section">
+                      <div class="ps-dash-row" id="pp-row-output" data-tippy-content="">
+                        <span class="ps-dash-label">Output</span>
+                        <div class="ps-dash-track"><div id="pp-bar-output" class="ps-dash-bar ps-bar-output"></div></div>
+                        <span id="pp-val-output" class="ps-dash-val">0/s</span>
+                      </div>
+                      <div class="ps-dash-row" id="pp-row-load" data-tippy-content="">
+                        <span class="ps-dash-label">Load</span>
+                        <div class="ps-dash-track"><div id="pp-bar-load" class="ps-dash-bar ps-bar-load"></div></div>
+                        <span id="pp-val-load" class="ps-dash-val">0/s</span>
+                      </div>
+                      <div class="ps-dash-note" id="pp-power-note"></div>
                     </div>
                   </div>
                 </div>
               </div>
+              <div class="sm-info-block sm-info-block-fill pp-consumers-col">
+                <div class="blk-title">◈ CONSUMERS <span class="blk-sub" id="pp-consumer-count">drawing power</span></div>
+                <div id="power-station-network-consumers" class="ps-consumer-list"></div>
+              </div>
             </div>
-          </section>
-
-          <section class="lab-panel st-inv-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ CONSUMERS</span>
-              <span class="lab-panel-sub" id="pp-consumer-count">drawing power</span>
-            </div>
-            <div class="lab-panel-body">
-              <div id="power-station-network-consumers" class="ps-consumer-list"></div>
-            </div>
-          </section>
+          </div>
+          <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
         <div class="lab-footer">
@@ -1373,7 +1844,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
   if (isResearchLabModule(module)) {
     module.synthesisSlots = normalizeSynthesisSlots(module.synthesisSlots);
     body.innerHTML = `
-      <div class="lab-layout">
+      <div class="lab-layout rl-layout" data-module-id="${module.id}">
         <div class="lab-hero">
           <div class="lab-hero-left">
             <div class="lab-hero-name-row">
@@ -1392,78 +1863,50 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div id="storage-tier-pill" class="lab-tier-badge"></div>
         </div>
 
-        <div class="lab-main-grid">
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ SYSTEMS</span>
-              <span class="lab-panel-sub">status</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="lab-stat-cards">
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Throughput</div>
-                  <div id="lab-throughput-value" class="lab-stat-value blue">ACTIVE</div>
-                </div>
-                <div class="lab-stat-card">
-                  <div class="lab-stat-label">Synthesis</div>
-                  <div id="lab-synth-count" class="lab-stat-value green">0 / ${SYNTHESIS_SLOT_COUNT}</div>
-                </div>
-              </div>
-              <div class="lab-power-block">
-                <div class="lab-meter-head">
-                  <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power Grid</span>
-                  <span id="storage-power-value" class="lab-meter-value"></span>
-                </div>
-                <div class="lab-power-meta">
-                  <span>Usage <strong id="storage-power-usage"></strong></span>
-                  <span>Capacity</span>
-                </div>
-                <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
-                <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
-                <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
-              </div>
-              <div class="lab-network-block">
-                <div class="lab-network-label">◈ Linked Network</div>
-                <div class="lab-network-tiles">
-                  <div class="lab-net-tile" data-tippy-content="Lab Towers">
-                    <img class="lab-net-icon" src="assets/images/buildings/lab_pole.png" alt="">
-                    <div>
-                      <div id="lab-net-poles" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Poles</div>
+        ${moduleTabsHtml([
+          { id: 'details', label: 'DETAILS', icon: 'circles' },
+          { id: 'network', label: 'NETWORK', icon: 'hub' },
+        ])}
+        <div class="mod-tab-body">
+          <div class="mod-tab-pane on" data-pane="details">
+            <div class="mod-details-grid rl-details-grid">
+              <div class="rl-left-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ POWER</div>
+                  <div class="lab-power-block">
+                    <div class="lab-meter-head">
+                      <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power</span>
+                      <span id="storage-power-value" class="lab-meter-value"></span>
                     </div>
-                  </div>
-                  <div class="lab-net-tile" data-tippy-content="Research Labs">
-                    <img class="lab-net-icon" src="assets/images/buildings/lab.png" alt="">
-                    <div>
-                      <div id="lab-net-labs" class="lab-net-count">0</div>
-                      <div class="lab-net-name">Labs</div>
+                    <div class="lab-power-meta">
+                      <span>Usage <strong id="storage-power-usage"></strong></span>
+                      <span>Capacity</span>
                     </div>
+                    <div class="lab-meter-track"><div id="storage-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
+                    <div id="storage-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
+                    <button id="storage-buy-power-btn" class="btn primary module-btn-medium" style="display:none;margin-top:8px;" onclick="buyStoragePower(${module.id})">BUY POWER</button>
                   </div>
                 </div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ SYSTEMS</div>
+                  ${infoRowHtml('THROUGHPUT', 'lab-throughput-value', 'ACTIVE', 'blue')}
+                  ${infoRowHtml('SYNTHESIS', 'lab-synth-count', `0 / ${SYNTHESIS_SLOT_COUNT}`, 'green')}
+                </div>
+              </div>
+              <div class="rl-research-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ SYNTHESIS <span class="blk-sub">up to ${SYNTHESIS_SLOT_COUNT}</span></div>
+                  <div class="lab-synth-hint">Combine linked materials into advanced composites. Click a slot to choose a recipe.</div>
+                  <div id="lab-synth-slots" class="lab-synth-slots" data-synth-sig="${module.level || 1}|${normalizeSynthesisSlots(module.synthesisSlots).join(',')}">${buildSynthesisSlotsHtml(module)}</div>
+                </div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ LINKED RESOURCES <span class="blk-sub">via towers</span></div>
+                  <div id="lab-linked-resources" class="lab-res-list"></div>
+                </div>
               </div>
             </div>
-          </section>
-
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ SYNTHESIS</span>
-              <span class="lab-panel-sub">up to ${SYNTHESIS_SLOT_COUNT} recipes</span>
-            </div>
-            <div class="lab-panel-body">
-              <div class="lab-synth-hint">Combine linked materials into advanced composites. Click a slot to choose a recipe.</div>
-              <div id="lab-synth-slots" class="lab-synth-slots" data-synth-sig="${module.level || 1}|${normalizeSynthesisSlots(module.synthesisSlots).join(',')}">${buildSynthesisSlotsHtml(module)}</div>
-            </div>
-          </section>
-
-          <section class="lab-panel">
-            <div class="lab-panel-h">
-              <span class="lab-panel-title">◈ LINKED RESOURCES</span>
-              <span class="lab-panel-sub">via towers</span>
-            </div>
-            <div class="lab-panel-body">
-              <div id="lab-linked-resources" class="lab-res-list"></div>
-            </div>
-          </section>
+          </div>
+          <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
         <div class="lab-footer">
@@ -1684,7 +2127,9 @@ function patchDroneLabModal(module, modal, qs) {
   const statusVal = qs('#dl-status-value');
   if (statusVal) {
     statusVal.classList.toggle('green', online);
-    statusVal.style.color = online ? '' : '#f88';
+    statusVal.classList.toggle('ok', online);
+    statusVal.classList.toggle('bad', !online);
+    statusVal.style.color = '';
   }
 
   const activeDroneCount = getDronesForLab(module.id).length;
@@ -1712,10 +2157,6 @@ function patchDroneLabModal(module, modal, qs) {
     buyPowerBtn.innerHTML = `BUY POWER <span style="color:#ffe066;">- $${fmt(buyPowerCost)}</span>`;
   }
 
-  const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
-  setTextIfChangedIn(modal, '#dl-net-stations', String(networkInfo.stations.length));
-  setTextIfChangedIn(modal, '#dl-net-poles', String(networkInfo.poles.length));
-
   const list = qs('#drone-bay-status-list');
   if (list) {
     const drones = getDronesForLab(module.id).slice().sort((a, b) => a.id - b.id);
@@ -1739,6 +2180,7 @@ function patchDroneLabModal(module, modal, qs) {
     }
   }
   bindTippyIn(modal);
+  maybePatchNetworkTab(modal, module);
 
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
@@ -1756,6 +2198,7 @@ function patchDroneLabModal(module, modal, qs) {
 }
 
 function patchStorageFacilityModal(module, modal, qs) {
+  scrubModuleInventory(module);
   const moduleDef = getModuleDef(module.type);
   const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
   const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
@@ -1784,7 +2227,9 @@ function patchStorageFacilityModal(module, modal, qs) {
   const statusVal = qs('#st-status-value');
   if (statusVal) {
     statusVal.classList.toggle('green', online);
-    statusVal.style.color = online ? '' : '#f88';
+    statusVal.classList.toggle('ok', online);
+    statusVal.classList.toggle('bad', !online);
+    statusVal.style.color = '';
   }
 
   const totalInv = getStorageTotalInventory(module);
@@ -1811,10 +2256,6 @@ function patchStorageFacilityModal(module, modal, qs) {
     buyPowerBtn.innerHTML = `BUY POWER <span style="color:#ffe066;">- $${fmt(buyPowerCost)}</span>`;
   }
 
-  const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
-  setTextIfChangedIn(modal, '#st-net-stations', String(networkInfo.stations.length));
-  setTextIfChangedIn(modal, '#st-net-poles', String(networkInfo.poles.length));
-
   const searchEl = qs('#st-inv-search');
   const sortEl = qs('#st-inv-sort');
   const query = searchEl?.value || '';
@@ -1831,6 +2272,7 @@ function patchStorageFacilityModal(module, modal, qs) {
     }
   }
   bindTippyIn(modal);
+  maybePatchNetworkTab(modal, module);
 
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
@@ -1848,6 +2290,7 @@ function patchStorageFacilityModal(module, modal, qs) {
 }
 
 function patchPowerStationModal(module, modal, qs) {
+  scrubModuleInventory(module);
   const moduleDef = getModuleDef(module.type);
   const hpPct = Math.round((module.health / Math.max(1, module.maxHealth)) * 100);
   const hpColor = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
@@ -1866,7 +2309,6 @@ function patchPowerStationModal(module, modal, qs) {
   qs('#storage-health-bar').style.background = hpPct < 25 ? 'linear-gradient(90deg,#cc1010,#f44)' : 'linear-gradient(90deg,#2a8040,#4d8)';
 
   const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
-  const linkedPoles = networkInfo.poles;
   const linkedStorages = networkInfo.storages;
   const linkedTurrets = networkInfo.turrets;
   const linkedConsumers = linkedStorages.length + linkedTurrets.length;
@@ -1987,9 +2429,6 @@ function patchPowerStationModal(module, modal, qs) {
   const fuelBar = qs('#power-station-used-bar');
   if (fuelBar) fuelBar.style.width = `${Math.max(0, Math.min(100, (selectedFuelStored / Math.max(1, fuelCap || 1)) * 100))}%`;
 
-  setTextIfChangedIn(modal, '#ps-net-poles', String(linkedPoles.length));
-  setTextIfChangedIn(modal, '#ps-net-consumers', String(linkedConsumers));
-
   const noFuelWarning = qs('#power-station-no-fuel-warning');
   if (noFuelWarning) {
     noFuelWarning.textContent = `WARNING: NO ${fuelName.toUpperCase()}`;
@@ -2014,6 +2453,7 @@ function patchPowerStationModal(module, modal, qs) {
   setHtmlIfChangedIn(modal, '#power-station-network-consumers', buildPowerConsumerListHtml(linkedStorages, linkedTurrets));
   setHtmlIfChangedIn(modal, '#storage-inventory-list', buildPowerStationFuelStoresHtml(module, fuelType));
   bindTippyIn(modal);
+  maybePatchNetworkTab(modal, module);
 
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
@@ -2058,7 +2498,9 @@ function patchPowerPoleModal(module, modal, qs) {
   const statusVal = qs('#pp-status-value');
   if (statusVal) {
     statusVal.classList.toggle('green', online);
-    statusVal.style.color = online ? '' : '#f88';
+    statusVal.classList.toggle('ok', online);
+    statusVal.classList.toggle('bad', !online);
+    statusVal.style.color = '';
   }
 
   const range = Math.max(0, module.relayRange || 0);
@@ -2067,7 +2509,6 @@ function patchPowerPoleModal(module, modal, qs) {
 
   const networkInfo = getPowerModuleNetworkInfo(module.id, state.modules, state.turrets);
   const networkState = getPowerNetworkState(state.modules, state.turrets);
-  const linkedPoles = networkInfo.poles;
   const linkedStorages = networkInfo.storages;
   const linkedStations = networkInfo.stations;
   const linkedTurrets = networkInfo.turrets;
@@ -2134,8 +2575,6 @@ function patchPowerPoleModal(module, modal, qs) {
   bindTippy(qs('#pp-row-load'),
     `<strong>Network load</strong><br>Demand from ${linkedConsumers} linked ${facilityLabel}.<br><span style="color:#ffe066">${totalLoadText}/s</span> total draw`);
 
-  setTextIfChangedIn(modal, '#pp-net-stations', String(linkedStations.length));
-  setTextIfChangedIn(modal, '#pp-net-poles', String(linkedPoles.length));
   setTextIfChangedIn(modal, '#pp-consumer-count', `${linkedConsumers} drawing`);
 
   const noFuelWarning = qs('#power-station-no-fuel-warning');
@@ -2143,6 +2582,7 @@ function patchPowerPoleModal(module, modal, qs) {
 
   setHtmlIfChangedIn(modal, '#power-station-network-consumers', buildPowerConsumerListHtml(linkedStorages, linkedTurrets));
   bindTippyIn(modal);
+  maybePatchNetworkTab(modal, module);
 
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
@@ -2187,7 +2627,9 @@ function patchLabTowerModal(module, modal, qs) {
   const statusVal = qs('#lt-status-value');
   if (statusVal) {
     statusVal.classList.toggle('green', online);
-    statusVal.style.color = online ? '' : '#f88';
+    statusVal.classList.toggle('ok', online);
+    statusVal.classList.toggle('bad', !online);
+    statusVal.style.color = '';
   }
 
   const range = Math.max(0, module.relayRange || 0);
@@ -2202,9 +2644,6 @@ function patchLabTowerModal(module, modal, qs) {
   const resourceTypes = new Set(labInfo.resources.map((entry) => entry.node?.type).filter(Boolean));
   setTextIfChangedIn(modal, '#lt-node-tier', `T${moduleTier}`);
   setTextIfChangedIn(modal, '#lt-node-count', String(labInfo.resources.length));
-  setTextIfChangedIn(modal, '#lt-net-labs', String(labInfo.labs.length));
-  // Include self in tower count display
-  setTextIfChangedIn(modal, '#lt-net-towers', String(labInfo.towers.length + 1));
   setTextIfChangedIn(modal, '#lt-res-count', `${resourceTypes.size} type${resourceTypes.size === 1 ? '' : 's'}`);
   setTextIfChangedIn(modal, '#lt-range-note', online
     ? `Links Tier ${moduleTier} resource nodes within ${range} tiles.`
@@ -2212,6 +2651,7 @@ function patchLabTowerModal(module, modal, qs) {
 
   setHtmlIfChangedIn(modal, '#lab-linked-resources', buildLabLinkedResourcesHtml(module, labInfo));
   bindTippyIn(modal);
+  maybePatchNetworkTab(modal, module);
 
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
@@ -2279,8 +2719,6 @@ function patchResearchLabModal(module, modal, qs) {
   setTextIfChangedIn(modal, '#lab-synth-count', `${activeSlots} / ${SYNTHESIS_SLOT_COUNT}`);
 
   const labInfo = getLabModuleNetworkInfo(module.id, state.modules, state.nodes, state.base.level);
-  setTextIfChangedIn(modal, '#lab-net-poles', String(labInfo.towers.length));
-  setTextIfChangedIn(modal, '#lab-net-labs', String(labInfo.labs.length));
   setHtmlIfChangedIn(modal, '#lab-linked-resources', buildLabLinkedResourcesHtml(module, labInfo, getLabUsedIngredientIds(module)));
 
   // Only rebuild slot DOM when assignment/tier changes — avoids restarting CSS timers every patch.
@@ -2294,6 +2732,7 @@ function patchResearchLabModal(module, modal, qs) {
     }
   }
   bindTippyIn(modal);
+  maybePatchNetworkTab(modal, module);
 
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
@@ -2350,7 +2789,7 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
   }
 
   if (isResearchLabModule(module)) {
-    if (!qs('.lab-layout') || qs('.ps-layout') || qs('.st-layout') || qs('.dl-layout') || qs('.pp-layout') || qs('.lt-layout')) { renderModuleModal(moduleId, modal); return; }
+    if (!qs('.rl-layout')) { renderModuleModal(moduleId, modal); return; }
     patchResearchLabModal(module, modal, qs);
     return;
   }
