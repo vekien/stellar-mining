@@ -9,11 +9,17 @@ import { addLog } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { updateHeaderRP } from '../ui/ui.js';
 import { fireRandomEvent } from './events.js';
+import { startDailyRaid } from './combat.js';
 import { showTransmissionMessage } from '../ui/transmissions.js';
 import { checkTradeTutorial } from '../ui/tutorial.js';
 import { NPCS } from '../data/npcs.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { getResearchPointCap } from '../data/research.js';
+import {
+  getPirateThreatLevel,
+  getPirateStatusSolIncrease,
+  PIRATE_STATUS_RAID_AT,
+} from '../data/combat.js';
 
 export function scheduleNextEvent() {
   const solsFromNow = EVENT_SCHEDULE_MIN_SOLS + Math.floor(Math.random() * (EVENT_SCHEDULE_MAX_SOLS - EVENT_SCHEDULE_MIN_SOLS + 1));
@@ -73,6 +79,20 @@ export function tickSOL(dt) {
     if (state.nextEventSol !== null && state.sol >= state.nextEventSol) {
       fireRandomEvent();
       scheduleNextEvent();
+    }
+
+    // Pirate Status climbs each SOL; raid when gauge hits 100%
+    if (state.sol > 1) {
+      const threat = getPirateThreatLevel(state);
+      const gain = getPirateStatusSolIncrease(threat);
+      state.pirateStatus = Math.min(
+        PIRATE_STATUS_RAID_AT,
+        Math.max(0, (state.pirateStatus || 0) + gain),
+      );
+      patchSolPanel('pirate');
+      if (state.pirateStatus >= PIRATE_STATUS_RAID_AT) {
+        startDailyRaid();
+      }
     }
 
     // Rigs nags about idle ships — repeats every SOL

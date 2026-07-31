@@ -23,6 +23,7 @@ import { spawnFloatie } from '../render/animations.js';
 import { showOnce, showTransmissionMessage, dismissTransmission } from '../ui/transmissions.js';
 import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
+import { bumpPirateStatusOnExpand } from './combat.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
 import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules, recordModuleImport } from '../data/modules.js';
@@ -526,6 +527,7 @@ function completeCraftShip(recipeId) {
     delete craftTimeouts[recipeId];
   }
   spawnShip(recipeId);
+  bumpPirateStatusOnExpand();
   if (!state.shipCraftNotices) state.shipCraftNotices = {};
   state.shipCraftNotices[recipeId] = Date.now() + 3000;
   setTimeout(() => {
@@ -567,6 +569,7 @@ export function spawnShip(type = 'scout') {
     mineBonus:    mineBonusFromLevel(isUnique ? 10 : 0),
     loadSpeed:    stats.loadSpeed ?? 0,
     hp:           stats.hp       ?? 0,
+    currentHp:    stats.hp       ?? 0,
     attack:       stats.attack   ?? 0,
     attackSpeed:  stats.attackSpeed ?? 0,
     mineTier:     stats.mineTier,
@@ -641,6 +644,10 @@ export function assignShip(ship, node) {
 export let tickEvents = [];
 
 export function tickShip(ship, dt) {
+  // Combat system owns movement for engaging / repairing combat ships
+  if (ship.status === 'engaging' || ship.status === 'intercepting' || ship.status === 'returning_repair' || ship.isHqSupport) {
+    return;
+  }
   if (state.base.health > 0) baseDownNoticeShown = false;
   const baseDown = state.base.health <= 0;
   if (baseDown && !baseDownNoticeShown) {
@@ -1055,6 +1062,8 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     addLog(`⬆ ${ship.name} cargo Lv${ship.capacityLevel} → ${ship.capacity}${ship.capacityLevel>=cap?' (MAX)':''}`);
 
   } else if (stat === 'flySpeed') {
+    const role = SHIP_DEFS[ship.type]?.role;
+    if (role === 'combat' || role === 'garrison') return;
     const allowed = Math.min(chunk, cap - ship.flySpeedLevel); if (allowed <= 0) return;
     const cost = upgradeTotalCost(UPGRADE_FLY_COST, ship, 'flySpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
@@ -1095,6 +1104,8 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     spendCoins(cost);
     ship.hpLevel = (ship.hpLevel || 0) + allowed;
     ship.hp = hpFromLevel(ship.type, ship.hpLevel);
+    if (!Number.isFinite(ship.currentHp) || ship.currentHp > ship.hp) ship.currentHp = ship.hp;
+    else if ((ship.currentHp || 0) <= 0) ship.currentHp = ship.hp;
     addLog(`⬆ ${ship.name} HP Lv${ship.hpLevel} → ${ship.hp.toLocaleString()}${ship.hpLevel>=cap?' (MAX)':''}`);
 
   } else if (stat === 'attack') {
@@ -1180,12 +1191,10 @@ window.upgradeShipAll = function(shipId, levels) {
     if (loadChk > 0) { const c = upgradeTotalCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', loadChk); total += c; upgrades.push(() => { ship.loadSpeedLevel = (ship.loadSpeedLevel||0) + loadChk; ship.loadSpeed = loadSpeedFromLevel(ship.type, ship.loadSpeedLevel); }); }
 
   } else if (role === 'combat') {
-    const flyChk  = n ? cap - ship.flySpeedLevel               : Math.min(levels, cap - ship.flySpeedLevel);
     const hpChk   = n ? cap - (ship.hpLevel||0)                : Math.min(levels, cap - (ship.hpLevel||0));
     const atkChk  = n ? cap - (ship.attackLevel||0)            : Math.min(levels, cap - (ship.attackLevel||0));
     const rateChk = n ? cap - (ship.atkRateLevel||0)           : Math.min(levels, cap - (ship.atkRateLevel||0));
-    if (flyChk  > 0) { const c = upgradeTotalCost(UPGRADE_FLY_COST,      ship, 'flySpeed', flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel += flyChk;  ship.flySpeed    = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
-    if (hpChk   > 0) { const c = upgradeTotalCost(UPGRADE_HP_COST,       ship, 'hp',       hpChk);   total += c; upgrades.push(() => { ship.hpLevel       = (ship.hpLevel||0) + hpChk;     ship.hp          = hpFromLevel(ship.type, ship.hpLevel); }); }
+    if (hpChk   > 0) { const c = upgradeTotalCost(UPGRADE_HP_COST,       ship, 'hp',       hpChk);   total += c; upgrades.push(() => { ship.hpLevel       = (ship.hpLevel||0) + hpChk;     ship.hp          = hpFromLevel(ship.type, ship.hpLevel); if (!Number.isFinite(ship.currentHp) || ship.currentHp > ship.hp) ship.currentHp = ship.hp; }); }
     if (atkChk  > 0) { const c = upgradeTotalCost(UPGRADE_ATTACK_COST,   ship, 'attack',   atkChk);  total += c; upgrades.push(() => { ship.attackLevel   = (ship.attackLevel||0) + atkChk;  ship.attack      = attackFromLevel(ship.type, ship.attackLevel); }); }
     if (rateChk > 0) { const c = upgradeTotalCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate',  rateChk); total += c; upgrades.push(() => { ship.atkRateLevel  = (ship.atkRateLevel||0) + rateChk; ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel); }); }
   }

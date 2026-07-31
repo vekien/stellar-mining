@@ -11,16 +11,23 @@ import { SOL_DURATION } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI, fmt } from './helpers.js';
 import './ui/tippy.js';
 import { cam, focusOnBase, nodeWorldPos, BASE_POS } from './render/camera.js';
+import {
+  applyFloatingPosition,
+  bringFloatingToFront,
+  centerFloatingWindow,
+  initFloatingDrag,
+} from './ui/floatingWindow.js';
 import { initRenderer, resizeRenderer, render, setOnCameraMove, setRenderFps, invalidateNodeSortCache, W, H } from './render/renderer.js';
 import { initStars, resizeStars, buildStarData, tickShootingStars, setStarsEnabled } from './render/stars.js';
 import {
   tickFloaties, tickSolarFlare, tickBlackHole, tickComet,
-  tickScreenShake, tickRangePulses, tickNodeParticles,
+  tickScreenShake, tickRangePulses, tickNodeParticles, tickCombatBeams, tickEmpBlasts,
 } from './render/animations.js';
 import { scheduleNextEvent, tickSOL, rollMarketDemands } from './systems/sol.js';
 import { fireRandomEvent } from './systems/events.js';
 import { tickAdmiral, showTransmissionMessage, showOnce } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
+import { tickCombat } from './systems/combat.js';
 import { tickDrone, spawnDrone } from './systems/drones.js';
 import './systems/research.js';
 import { getMaxShield } from './systems/research.js';
@@ -206,12 +213,6 @@ document.getElementById('sidebar').addEventListener('mousedown', e => {
   if (interactive) {
     dismissHdrModal();
     window.dismissBasePanel && window.dismissBasePanel();
-  } else if (state.selectedShip !== null) {
-    state.selectedShip  = null;
-    state.pendingAssign = null;
-    canvas.style.cursor = '';
-    removeReassignTooltip();
-    if (refresh.ui) refresh.ui();
   }
 });
 
@@ -238,17 +239,61 @@ window.closeAbout     = () => {
 window.openLogHistory = openLogHistory;
 window.toggleTrackCraft = (kind, id) => { toggleTrackCraft(kind, id); };
 window.closeLogHistory = closeLogHistory;
+const SETTINGS_LAYOUT_KEY = 'settings';
+let _settingsDragInit = false;
+
+function initSettingsWindow() {
+  if (_settingsDragInit) return;
+  const overlay = document.getElementById('settings-overlay');
+  const box = document.getElementById('settings-box');
+  if (!overlay || !box) return;
+  initFloatingDrag(box, overlay, {
+    handleSelector: '.settings-drag-handle',
+    layoutKey: SETTINGS_LAYOUT_KEY,
+    isActive: () => overlay.classList.contains('show'),
+  });
+  _settingsDragInit = true;
+}
+
 window.openSettings   = () => {
   const overlay = document.getElementById('settings-overlay');
-  const chkShowGrid = document.getElementById('setting-show-grid');
-  const chkStars = document.getElementById('setting-bg-stars');
-  const chkEffects = document.getElementById('setting-visual-effects');
+  const box = document.getElementById('settings-box');
+  const s = state.settings || {};
+  const setChk = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!val;
+  };
+  const setSlider = (id, valId, pct01) => {
+    const pct = Math.round(Math.max(0.1, Math.min(1, pct01 ?? 1)) * 100);
+    const el = document.getElementById(id);
+    const lab = document.getElementById(valId);
+    if (el) el.value = String(pct);
+    if (lab) lab.textContent = `${pct}%`;
+  };
+  setChk('setting-show-grid', s.showGrid !== false);
+  setChk('setting-bg-stars', s.showBackgroundStars !== false);
+  setChk('setting-visual-effects', s.showVisualEffects !== false);
+  setChk('setting-camera-shake', s.showCameraShake !== false);
+  setChk('setting-focus-events', s.focusOnEvents !== false);
+  setChk('setting-power-lines', s.showPowerLines !== false);
+  setChk('setting-power-lines-hover', s.showPowerLinesOnHover === true);
+  setChk('setting-research-lines', s.showResearchLines !== false);
+  setChk('setting-research-lines-hover', s.showResearchLinesOnHover === true);
+  setSlider('setting-power-line-opacity', 'setting-power-line-opacity-val', s.powerLineOpacity);
+  setSlider('setting-research-line-opacity', 'setting-research-line-opacity-val', s.researchLineOpacity);
   const selFps = document.getElementById('setting-fps');
-  if (chkShowGrid) chkShowGrid.checked = state.settings?.showGrid !== false;
-  if (chkStars) chkStars.checked = state.settings?.showBackgroundStars !== false;
-  if (chkEffects) chkEffects.checked = state.settings?.showVisualEffects !== false;
-  if (selFps) selFps.value = String(state.settings?.renderFps ?? 45);
+  if (selFps) selFps.value = String(s.renderFps ?? 45);
+  initSettingsWindow();
   if (overlay) overlay.classList.add('show');
+  if (box && overlay) {
+    bringFloatingToFront(box);
+    const place = () => centerFloatingWindow(overlay, box, SETTINGS_LAYOUT_KEY);
+    place();
+    requestAnimationFrame(() => {
+      place();
+      requestAnimationFrame(place);
+    });
+  }
 };
 window.closeSettings  = () => {
   const overlay = document.getElementById('settings-overlay');
@@ -266,6 +311,44 @@ window.toggleBackgroundStars = (enabled) => {
 window.toggleVisualEffects = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showVisualEffects = !!enabled;
+};
+window.toggleCameraShake = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showCameraShake = !!enabled;
+};
+window.toggleFocusOnEvents = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.focusOnEvents = !!enabled;
+};
+window.togglePowerLines = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showPowerLines = !!enabled;
+};
+window.togglePowerLinesOnHover = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showPowerLinesOnHover = !!enabled;
+};
+window.setPowerLineOpacity = (pct) => {
+  if (!state.settings) state.settings = {};
+  const n = Math.max(10, Math.min(100, Number(pct) || 100));
+  state.settings.powerLineOpacity = n / 100;
+  const lab = document.getElementById('setting-power-line-opacity-val');
+  if (lab) lab.textContent = `${n}%`;
+};
+window.toggleResearchLines = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showResearchLines = !!enabled;
+};
+window.toggleResearchLinesOnHover = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.showResearchLinesOnHover = !!enabled;
+};
+window.setResearchLineOpacity = (pct) => {
+  if (!state.settings) state.settings = {};
+  const n = Math.max(10, Math.min(100, Number(pct) || 100));
+  state.settings.researchLineOpacity = n / 100;
+  const lab = document.getElementById('setting-research-line-opacity-val');
+  if (lab) lab.textContent = `${n}%`;
 };
 window.setFpsSetting = (fps) => {
   if (!state.settings) state.settings = {};
@@ -297,6 +380,8 @@ function gameLoop() {
   tickSolarFlare(dt);
   tickBlackHole(dt);
   tickComet(dt);
+  tickCombatBeams(dt);
+  tickEmpBlasts(dt);
   tickScreenShake(dt);
   tickShootingStars(dt);
   tickRangePulses(dt);
@@ -399,6 +484,7 @@ function gameLoop() {
     if (n.fadeAge !== undefined && n.fadeAge < n.fadeDuration) n.fadeAge += dt;
   }
 
+  tickCombat(dt);
   for (const s of state.ships) tickShip(s, dt);
   for (const d of (state.drones || [])) tickDrone(d, dt);
 

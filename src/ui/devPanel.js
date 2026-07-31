@@ -30,6 +30,7 @@ import { assignShip, spawnShip } from '../systems/ships.js';
 import { BASE_MAX_SHIPS } from '../data/base.js';
 import { BASE_COL, BASE_ROW } from '../constants.js';
 import { fireEventById } from '../systems/events.js';
+import { startDailyRaid } from '../systems/combat.js';
 import { rollMarketDemands } from '../systems/sol.js';
 import { saveGame } from '../state.js';
 
@@ -117,8 +118,13 @@ function devMaxUpgrades() {
     const role = SHIP_DEFS[ship.type]?.role || 'mining';
     ship.mineTier = 10;
 
-    ship.flySpeedLevel = cap;
-    ship.flySpeed = flySpeedFromLevel(ship.type, cap);
+    if (role === 'combat' || role === 'garrison') {
+      ship.flySpeedLevel = 0;
+      ship.flySpeed = 155; // shared combat cruise
+    } else {
+      ship.flySpeedLevel = cap;
+      ship.flySpeed = flySpeedFromLevel(ship.type, cap);
+    }
 
     if (role === 'mining') {
       ship.capacityLevel  = cap;
@@ -228,6 +234,11 @@ function devSpawnBlackHole() {
   fireEventById('black_hole');
 }
 
+function devPirateAttack() {
+  // Spawn a new wave (reinforces if a raid is already active — does not wipe hostiles)
+  startDailyRaid({ force: true });
+}
+
 export function initDevPanel() {
   const panel = document.getElementById('dev-panel');
   const menu  = document.getElementById('dev-menu');
@@ -240,19 +251,24 @@ export function initDevPanel() {
     if (!panel.contains(e.target)) menu.classList.remove('open');
   });
 
-  document.getElementById('dev-btn-transmission').addEventListener('click', e => { e.stopPropagation(); devTestTransmission(); });
-  document.getElementById('dev-btn-coins').addEventListener('click',         e => { e.stopPropagation(); devAddCoins(); });
-  document.getElementById('dev-btn-rp').addEventListener('click',            e => { e.stopPropagation(); devAddRP(); });
-  document.getElementById('dev-btn-max-research').addEventListener('click',  e => { e.stopPropagation(); devMaxResearch(); });
-  document.getElementById('dev-btn-resources').addEventListener('click',     e => { e.stopPropagation(); devAddResources(); });
-  document.getElementById('dev-btn-sol').addEventListener('click',           e => { e.stopPropagation(); devNextSol(); });
-  document.getElementById('dev-btn-max-upgrades').addEventListener('click',  e => { e.stopPropagation(); devMaxUpgrades(); });
-  document.getElementById('dev-btn-assign-random').addEventListener('click',  e => { e.stopPropagation(); devAssignAllRandom(); });
-  document.getElementById('dev-btn-upgrade-base').addEventListener('click',   e => { e.stopPropagation(); devUpgradeBase(); });
-  document.getElementById('dev-btn-unique-ships').addEventListener('click',   e => { e.stopPropagation(); devAddUniqueShips(); });
-  document.getElementById('dev-btn-max-ships').addEventListener('click',      e => { e.stopPropagation(); devFillMaxShips(); });
-  document.getElementById('dev-btn-flood-nodes').addEventListener('click',    e => { e.stopPropagation(); devFloodIronNodes(); });
-  document.getElementById('dev-btn-solar-flare').addEventListener('click',    e => { e.stopPropagation(); devSpawnSolarFlare(); });
-  document.getElementById('dev-btn-comet').addEventListener('click',          e => { e.stopPropagation(); devSpawnComet(); });
-  document.getElementById('dev-btn-black-hole').addEventListener('click',     e => { e.stopPropagation(); devSpawnBlackHole(); });
+  const bind = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', e => { e.stopPropagation(); fn(); });
+  };
+  bind('dev-btn-transmission', devTestTransmission);
+  bind('dev-btn-coins', devAddCoins);
+  bind('dev-btn-rp', devAddRP);
+  bind('dev-btn-max-research', devMaxResearch);
+  bind('dev-btn-resources', devAddResources);
+  bind('dev-btn-sol', devNextSol);
+  bind('dev-btn-max-upgrades', devMaxUpgrades);
+  bind('dev-btn-assign-random', devAssignAllRandom);
+  bind('dev-btn-upgrade-base', devUpgradeBase);
+  bind('dev-btn-unique-ships', devAddUniqueShips);
+  bind('dev-btn-max-ships', devFillMaxShips);
+  bind('dev-btn-flood-nodes', devFloodIronNodes);
+  bind('dev-btn-solar-flare', devSpawnSolarFlare);
+  bind('dev-btn-comet', devSpawnComet);
+  bind('dev-btn-black-hole', devSpawnBlackHole);
+  bind('dev-btn-pirate-attack', devPirateAttack);
 }

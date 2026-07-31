@@ -47,6 +47,7 @@
           <button id="dev-btn-solar-flare">Event: Solar Flare</button>
           <button id="dev-btn-comet">Event: Comet</button>
           <button id="dev-btn-black-hole">Event: Black Hole</button>
+          <button id="dev-btn-pirate-attack">Event: Pirate Attack</button>
           <button id="dev-btn-transmission">UI: Test Transmission</button>
         </div>
       </div>
@@ -202,43 +203,145 @@
   </div>
 </div>
 
-<div id="settings-overlay" onclick="closeSettings(event)">
-  <div id="settings-box" onclick="event.stopPropagation()">
-    <button class="about-close" onclick="closeSettings()">✕</button>
-    <h2 class="about-title">SETTINGS</h2>
-    <div class="about-divider"></div>
-    <div class="settings-row">
-      <div class="settings-row-label">Show Tile Grid</div>
-      <label class="settings-row-toggle">
-        <input id="setting-show-grid" type="checkbox" onchange="toggleShowGrid(this.checked)">
-        On
-      </label>
+<div id="settings-overlay">
+  <div id="settings-box">
+    <div class="panel-shell-head settings-drag-handle">
+      <div class="panel-shell-title">SETTINGS</div>
+      <button type="button" class="panel-shell-close" onclick="closeSettings()">✕</button>
     </div>
-    <div class="settings-row">
-      <div class="settings-row-label">Show Background Stars</div>
-      <label class="settings-row-toggle">
-        <input id="setting-bg-stars" type="checkbox" onchange="toggleBackgroundStars(this.checked)">
-        On
-      </label>
+    <div class="settings-body">
+
+    <div class="settings-section">
+      <div class="settings-section-label">DISPLAY</div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Tile Grid</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-show-grid" type="checkbox" onchange="toggleShowGrid(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Background Stars</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-bg-stars" type="checkbox" onchange="toggleBackgroundStars(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Visual Effects</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-visual-effects" type="checkbox" onchange="toggleVisualEffects(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Camera Shake</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-camera-shake" type="checkbox" onchange="toggleCameraShake(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Focus on Events</div>
+          <div class="settings-row-hint">Auto-pan camera to raids &amp; anomalies</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-focus-events" type="checkbox" onchange="toggleFocusOnEvents(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Frame Rate</div>
+        </div>
+        <select id="setting-fps" class="settings-select" onchange="setFpsSetting(this.value)">
+          <option value="30">30 FPS</option>
+          <option value="45">45 FPS</option>
+          <option value="60">60 FPS</option>
+          <option value="90">90 FPS</option>
+          <option value="120">120 FPS</option>
+        </select>
+      </div>
     </div>
-    <div class="settings-row">
-      <div class="settings-row-label">Visual Effects</div>
-      <label class="settings-row-toggle">
-        <input id="setting-visual-effects" type="checkbox" onchange="toggleVisualEffects(this.checked)">
-        On
-      </label>
+
+    <div class="settings-section">
+      <div class="settings-section-label">POWER NETWORK</div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Show Power Lines</div>
+          <div class="settings-row-hint">Always draw power links</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-power-lines" type="checkbox" onchange="togglePowerLines(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">On Mouse Over</div>
+          <div class="settings-row-hint">Show links when hovering a power building</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-power-lines-hover" type="checkbox" onchange="togglePowerLinesOnHover(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row settings-row-slider">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Opacity</div>
+        </div>
+        <div class="settings-slider-wrap">
+          <input id="setting-power-line-opacity" class="settings-slider" type="range" min="10" max="100" step="5"
+            oninput="setPowerLineOpacity(this.value)">
+          <span id="setting-power-line-opacity-val" class="settings-slider-val">100%</span>
+        </div>
+      </div>
     </div>
-    <div class="settings-row">
-      <div class="settings-row-label">Frame Rate</div>
-      <select id="setting-fps" class="settings-select" onchange="setFpsSetting(this.value)">
-        <option value="30">30 FPS</option>
-        <option value="45">45 FPS</option>
-        <option value="60">60 FPS</option>
-        <option value="90">90 FPS</option>
-        <option value="120">120 FPS</option>
-      </select>
+
+    <div class="settings-section">
+      <div class="settings-section-label">RESEARCH NETWORK</div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Show Research Lines</div>
+          <div class="settings-row-hint">Always draw lab / tower links</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-research-lines" type="checkbox" onchange="toggleResearchLines(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">On Mouse Over</div>
+          <div class="settings-row-hint">Show links when hovering a lab tower</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-research-lines-hover" type="checkbox" onchange="toggleResearchLinesOnHover(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
+      </div>
+      <div class="settings-row settings-row-slider">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Opacity</div>
+        </div>
+        <div class="settings-slider-wrap">
+          <input id="setting-research-line-opacity" class="settings-slider" type="range" min="10" max="100" step="5"
+            oninput="setResearchLineOpacity(this.value)">
+          <span id="setting-research-line-opacity-val" class="settings-slider-val">100%</span>
+        </div>
+      </div>
     </div>
-    <button class="btn btn-full btn-top-14" onclick="closeSettings()">CLOSE</button>
+
+    </div>
   </div>
 </div>
 
@@ -283,6 +386,19 @@
   </div>
 </div>
 
+<div id="ship-upgrade-overlay">
+  <div id="ship-upgrade-box" class="ship-upgrade-box" onclick="event.stopPropagation()">
+    <div class="ship-upgrade-head">
+      <div>
+        <div class="ship-upgrade-title" id="ship-upgrade-title">◈ Ship Upgrades</div>
+        <div class="ship-upgrade-sub" id="ship-upgrade-sub"></div>
+      </div>
+      <button type="button" class="panel-shell-close" onclick="closeShipUpgradeOverlay()">✕</button>
+    </div>
+    <div id="ship-upgrade-body" class="ship-upgrade-body"></div>
+  </div>
+</div>
+
 <div id="fuel-picker-overlay">
   <div id="fuel-picker-box" onclick="event.stopPropagation()">
     <div class="fuel-picker-head">
@@ -307,6 +423,29 @@
 </div>
 
 <div id="event-warning"><div id="event-warning-inner"></div></div>
+
+<div id="hq-support-panel">
+  <div id="hq-support-inner">
+    <div class="hq-support-head">
+      <span class="ms-icon hq-support-icon">military_tech</span>
+      <div>
+        <div class="hq-support-title">STAR COMMAND SUPPORT</div>
+        <div class="hq-support-sub">Combat wing on standby</div>
+      </div>
+    </div>
+    <div class="hq-support-body">
+      Divert a mercenary strike wing to defend your sector.
+      <div class="hq-support-cost">Deployment cost: <strong id="hq-support-cost">$0</strong></div>
+    </div>
+    <div class="hq-support-actions">
+      <button type="button" id="hq-support-call-btn" class="hq-support-call-btn" onclick="callHqCombatSupport()">
+        <span class="hq-support-call-label">CALL SUPPORT</span>
+        <span class="hq-support-call-price" id="hq-support-call-price">$0</span>
+      </button>
+      <button type="button" class="btn hq-support-dismiss-btn" onclick="dismissHqSupportPanel()">DISMISS</button>
+    </div>
+  </div>
+</div>
 
 <div id="hdr-modal-overlay">
   <div id="hdr-modal-host"></div>

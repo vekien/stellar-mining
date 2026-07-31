@@ -17,7 +17,8 @@ import {
 import { SHIP_TIER_REQS } from '../data/base.js';
 import { BASE_POS, cam, ZOOM_MAX_V, focusOn, gridToWorld } from '../render/camera.js';
 import { TILE_H } from '../constants.js';
-import { fmt, addLog, getResourceIconPath, resourceIconHtml } from '../helpers.js';
+import { PLAYER_SHOOT_RANGE, HQ_SHOOT_RANGE } from '../data/combat.js';
+import { fmt, addLog, getResourceIconPath, resourceIconHtml, isLightColor } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { getSellPrice } from '../systems/market.js';
 import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial, renderTutPointers } from './tutorial.js';
@@ -149,6 +150,8 @@ export function getShipTransportSummaryLabel(ship) {
 export function getShipStatusMeta(ship) {
   if (ship.loadingPickup) return { badge: 'LOADING', message: '⇣ Loading', color: '#ffd966' };
   if (ship.unloadingDepot) return { badge: 'UNLOADING', message: '⇡ Unloading', color: '#9bd6ff' };
+  if (ship.status === 'engaging' || ship.status === 'intercepting') return { badge: 'COMBAT', message: '⚔ Engaged', color: '#ff6b6b' };
+  if (ship.status === 'returning_repair') return { badge: 'REPAIR', message: '🔧 Returning to Repair', color: '#9bd6ff' };
   if (ship.status === 'flying') return { badge: 'EN ROUTE', message: '▶ En Route', color: '#48f' };
   if (ship.status === 'mining') return { badge: 'MINING', message: '⛏ Mining', color: '#c6f' };
   if (ship.status === 'returning' || ship.status === 'pausing') return { badge: 'RETURNING', message: '↩ Returning', color: '#fa6' };
@@ -567,7 +570,7 @@ function _overallLevel(ship) {
   const role = SHIP_DEFS[ship.type]?.role || 'mining';
   if (role === 'mining')    return (ship.capacityLevel||0) + (ship.flySpeedLevel||0) + (ship.mineSpeedLevel||0) + (ship.mineBonusLevel||0);
   if (role === 'transport') return (ship.capacityLevel||0) + (ship.flySpeedLevel||0) + (ship.loadSpeedLevel||0);
-  if (role === 'combat')    return (ship.hpLevel||0) + (ship.attackLevel||0) + (ship.atkRateLevel||0) + (ship.flySpeedLevel||0);
+  if (role === 'combat')    return (ship.hpLevel||0) + (ship.attackLevel||0) + (ship.atkRateLevel||0);
   if (role === 'unique')    return 400; // all 4 stats at 100
   return (ship.capacityLevel||0) + (ship.flySpeedLevel||0);
 }
@@ -596,6 +599,21 @@ function getShipDistanceInfo(ship) {
   const d = Math.round(Math.hypot(ship.x - bp.x, ship.y - bp.y) / 36);
   if (d === 0) return { text: 'At Base', tiles: 0, atBase: true };
   return { text: String(d), tiles: d, atBase: false };
+}
+
+/** Combat weapon range (world units) — not tile-based. */
+function getShipWeaponRange(ship) {
+  if (ship?.isHqSupport) return HQ_SHOOT_RANGE;
+  const def = SHIP_DEFS[ship?.type];
+  // Unique ships may define range in tile-ish units — convert to world
+  if (Number.isFinite(def?.range) && def.range > 0) {
+    return Math.round(def.range * 36);
+  }
+  return PLAYER_SHOOT_RANGE;
+}
+
+function formatWeaponRange(ship) {
+  return String(getShipWeaponRange(ship));
 }
 
 function getShipTypeLabel(ship) {
@@ -656,6 +674,7 @@ function openShipModalWindow() {
 }
 
 export function closeShipModal() {
+  window.closeShipUpgradeOverlay?.();
   const overlay = document.getElementById('ship-modal-overlay');
   if (overlay) overlay.style.display = 'none';
   const body = document.getElementById('ship-modal-body');
@@ -694,27 +713,66 @@ window.setShipModalTab = function(tab) {
   if (_tierTrackAnimating) {
     _tierTrackAnimating = false;
   }
-  _shipModalTab = tab === 'primary' || tab === 'upgrades' ? tab : 'details';
+  _shipModalTab = tab === 'primary' ? 'primary' : 'details';
   _shipModalForceRebuild = true;
   renderActionPanel();
 };
 
 let _tierTrackAnimating = false;
+let _shipUpgradeOverlayId = null;
+
+window.openShipUpgradeOverlay = function(shipId) {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return;
+  _shipUpgradeOverlayId = shipId;
+  const overlay = document.getElementById('ship-upgrade-overlay');
+  const box = document.getElementById('ship-upgrade-box');
+  const title = document.getElementById('ship-upgrade-title');
+  const sub = document.getElementById('ship-upgrade-sub');
+  const role = SHIP_DEFS[ship.type]?.role || 'mining';
+  const typeLabel = getShipTypeLabel(ship);
+  const accent = ROLE_ACCENTS[role] || ROLE_ACCENTS.mining;
+  if (box) box.style.setProperty('--ship-accent', accent);
+  if (title) title.textContent = '◈ SHIP UPGRADES';
+  if (sub) {
+    sub.innerHTML = `<strong>${ship.name}</strong> · ${typeLabel} · ${ROLE_LABELS[role] || role}`;
+  }
+  window.refreshShipUpgrades?.();
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.onclick = (e) => {
+      if (e.target === overlay) window.closeShipUpgradeOverlay?.();
+    };
+  }
+};
+
+window.closeShipUpgradeOverlay = function() {
+  _shipUpgradeOverlayId = null;
+  const overlay = document.getElementById('ship-upgrade-overlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    overlay.onclick = null;
+  }
+  const body = document.getElementById('ship-upgrade-body');
+  if (body) body.innerHTML = '';
+};
 
 window.refreshShipUpgrades = function() {
   if (_tierTrackAnimating) return;
-  if (_shipModalTab !== 'upgrades') return;
-  const ship = state.selectedShip != null ? state.ships.find(s => s.id === state.selectedShip) : null;
-  if (!ship) return;
-  const el = document.getElementById('ship-upgrades-body');
-  if (el) {
-    setHtmlDestroyingTippies(el, buildUpgradesSection(ship.id));
-    bindTippyIn(el);
-    requestAnimationFrame(() => {
-      layoutTierTrack(el, ship.mineTier || 1);
-      observeTierTrack(el, ship.mineTier || 1);
-    });
+  if (_shipUpgradeOverlayId == null) return;
+  const ship = state.ships.find((s) => s.id === _shipUpgradeOverlayId);
+  if (!ship) {
+    window.closeShipUpgradeOverlay?.();
+    return;
   }
+  const el = document.getElementById('ship-upgrade-body');
+  if (!el) return;
+  setHtmlDestroyingTippies(el, buildUpgradesSection(ship.id));
+  bindTippyIn(el);
+  requestAnimationFrame(() => {
+    layoutTierTrack(el, ship.mineTier || 1);
+    observeTierTrack(el, ship.mineTier || 1);
+  });
 };
 
 /**
@@ -772,7 +830,8 @@ function spawnTierBurst(dotEl) {
 
 /** Animate fill → next node, then mini explosion. ~1s total. */
 window.playShipTierTrackAnimation = function(shipId, fromTier, toTier) {
-  const root = document.getElementById('ship-upgrades-body');
+  const root = document.getElementById('ship-upgrade-body')
+    || document.getElementById('upgrades-section-body')?.parentElement;
   const fill = root?.querySelector('.sm-bp-fill');
   const nodes = root?.querySelectorAll('.sm-bp-node');
   const btn = root?.querySelector('.sm-btn-tier');
@@ -888,7 +947,10 @@ export function renderActionPanel() {
 
   const accent = ROLE_ACCENTS[role] || ROLE_ACCENTS.mining;
   modal.style.setProperty('--ship-accent', accent);
-  if (title) title.textContent = 'SHIP';
+  modal.classList.add('storage-modal-window', 'storage-modal-window-lab', 'ship-modal-window');
+  modal.classList.toggle('modal-accent-defense', role === 'combat' || role === 'garrison');
+  modal.classList.toggle('modal-accent-storage', role === 'mining' || role === 'transport');
+  if (title) title.textContent = (getShipTypeLabel(ship) || 'SHIP').toUpperCase();
 
   const wasOpen = document.getElementById('ship-modal-overlay')?.style.display === 'flex';
   const needsFull = _shipModalForceRebuild
@@ -900,13 +962,6 @@ export function renderActionPanel() {
     setHtmlDestroyingTippies(body, buildShipModalContent(ship));
     _renderedActionShipId = ship.id;
     bindTippyIn(body);
-    if (_shipModalTab === 'upgrades') {
-      requestAnimationFrame(() => {
-        const upg = document.getElementById('ship-upgrades-body');
-        layoutTierTrack(upg, ship.mineTier || 1);
-        observeTierTrack(upg, ship.mineTier || 1);
-      });
-    }
   } else {
     patchShipModalContent(ship);
   }
@@ -1032,25 +1087,56 @@ function buildDetailsPane(ship) {
       + smInfoRow('MANIFEST', getShipCargoSummary(ship))
       + smInfoRow('HOLD', `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`, '', 'action-panel-cargo');
   } else if (role === 'combat' || role === 'garrison') {
-    vitalsCls = ' cols-5';
-    vitals = smVital('favorite', 'HULL HP', (ship.hp || 0).toLocaleString())
-      + smVital('swords', 'ATTACK', String(ship.attack || 0))
-      + smVital('bolt', 'ATK RATE', `${formatAtkRatePercent(ship.attackSpeed || 0).replace('%', '')}<span class="unit">%</span>`)
-      + smVital('speed', 'FLY SPD', formatFlySpeed(ship.flySpeed))
-      + smVital('social_distance', 'RANGE', `<span id="action-panel-dist">${rangeStr}</span>`);
-    ops = smInfoRow('STATUS', statusClean, 'accent', 'action-panel-status')
-      + smInfoRow('ROLE', roleLabel, 'accent')
-      + smInfoRow('TYPE', typeLabel)
-      + smInfoRow('SHIP TIER', tierStr, '', 'action-panel-tier');
-    assign = role === 'garrison'
-      ? smInfoRow('REST POST', '—')
-        + smInfoRow('TARGET AI', 'Nearest Threat')
-        + smInfoRow('WEAPONS', '—')
-        + smInfoRow('POSTURE', 'Hold perimeter')
-      : smInfoRow('TARGET AI', 'Lowest Health')
-        + smInfoRow('WEAPONS', '—')
-        + smInfoRow('DPS', '—')
-        + smInfoRow('SLOTS', '—');
+    const wpnRange = formatWeaponRange(ship);
+    const dps = Math.round((ship.attack || 0) * (ship.attackSpeed || 0));
+    const curHp = Math.max(0, Math.round(ship.currentHp ?? ship.hp ?? 0));
+    // Tower-style defense cards (match turret modal)
+    return `<div class="mod-details-grid st-details-grid">
+      <div class="st-left-col">
+        <div class="sm-info-block sm-info-block-fill">
+          <div class="blk-title">◈ SYSTEMS</div>
+          ${smInfoRow('STATUS', statusClean, 'accent', 'action-panel-status')}
+          ${smInfoRow('ROLE', roleLabel, 'accent')}
+          ${smInfoRow('TYPE', typeLabel)}
+          ${smInfoRow('SHIP TIER', tierStr, '', 'action-panel-tier')}
+        </div>
+        <div class="sm-info-block sm-info-block-fill">
+          <div class="blk-title">◈ ${role === 'garrison' ? 'DEFENSE' : 'COMBAT'}</div>
+          ${role === 'garrison'
+            ? smInfoRow('TARGET AI', 'Nearest Threat')
+              + smInfoRow('POSTURE', 'Hold perimeter')
+              + smInfoRow('WPN RANGE', wpnRange, '', 'action-panel-weapon-range-row')
+            : smInfoRow('TARGET AI', 'Lowest Health')
+              + smInfoRow('DPS', String(dps), 'accent')
+              + smInfoRow('WPN RANGE', wpnRange, '', 'action-panel-weapon-range-row')}
+        </div>
+      </div>
+      <div class="sm-info-block sm-info-block-fill tu-defense-col">
+        <div class="blk-title">◈ ARMAMENT</div>
+        <div class="tu-stat-grid">
+          <div class="tu-stat-card">
+            <span class="ms-icon tu-stat-icon">favorite</span>
+            <span class="tu-stat-label">HULL HP</span>
+            <span class="tu-stat-value" id="action-panel-hull-hp">${curHp.toLocaleString()}</span>
+          </div>
+          <div class="tu-stat-card">
+            <span class="ms-icon tu-stat-icon">swords</span>
+            <span class="tu-stat-label">ATTACK</span>
+            <span class="tu-stat-value">${ship.attack || 0}</span>
+          </div>
+          <div class="tu-stat-card">
+            <span class="ms-icon tu-stat-icon">speed</span>
+            <span class="tu-stat-label">ATK RATE</span>
+            <span class="tu-stat-value">${formatAtkRatePercent(ship.attackSpeed || 0)}</span>
+          </div>
+          <div class="tu-stat-card">
+            <span class="ms-icon tu-stat-icon">radar</span>
+            <span class="tu-stat-label">RANGE</span>
+            <span class="tu-stat-value" id="action-panel-weapon-range">${wpnRange}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
   } else {
     vitals = smVital('speed', 'FLY SPD', formatFlySpeed(ship.flySpeed));
     if ((ship.capacity || 0) > 0) vitals = smVital('luggage', 'CARGO', `<span id="action-panel-cargo-vital">${cargoStr}</span>`) + vitals;
@@ -1267,63 +1353,87 @@ function buildShipFooter(ship, sellVal) {
   const role = SHIP_DEFS[ship.type]?.role || 'mining';
   const canRecall = role === 'mining' && ship.status !== 'idle' && (ship.mineSpeed || 0) > 0;
   const followOn = state.followShip === ship.id;
-  return `
-    ${canRecall ? `<button type="button" class="sm-fbtn danger" onclick="recallShip(${ship.id})">${msIcon('undo')} RECALL</button>` : ''}
-    <button type="button" class="sm-fbtn${followOn ? ' on' : ''}" onclick="toggleFollowShip(${ship.id})">${msIcon(followOn ? 'cancel' : 'filter_center_focus')} ${followOn ? 'UNFOLLOW' : 'FOLLOW'}</button>
-    <button type="button" class="sm-fbtn" onclick="openRenameOverlay(${ship.id})">${msIcon('edit')} RENAME</button>
-    <button type="button" class="sm-fbtn sell" ${state.ships.length <= 1 ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id}, ${sellVal})">SELL $${fmt(sellVal)}</button>
-    <button type="button" class="sm-fbtn salvage" ${state.ships.length <= 1 ? 'disabled title="Cannot salvage your last ship"' : ''} onclick="openSalvageOverlay(${ship.id})">${msIcon('recycling')} SALVAGE</button>`;
+  const isUnique = SHIP_DEFS[ship.type]?.unique === true;
+  const lastShip = state.ships.length <= 1;
+  const upgradeBtn = isUnique
+    ? `<button type="button" class="btn primary" disabled title="Legendary — all stats maxed">★ MAX</button>`
+    : `<button type="button" class="btn primary" id="ship-upgrade-btn" onclick="openShipUpgradeOverlay(${ship.id})">UPGRADE</button>`;
+  return `<div class="lab-footer">
+    <div class="lab-actions" id="ship-bottom-actions">
+      ${upgradeBtn}
+      ${canRecall ? `<button type="button" class="btn" onclick="recallShip(${ship.id})">RECALL</button>` : ''}
+      <button type="button" class="btn${followOn ? ' primary' : ''}" onclick="toggleFollowShip(${ship.id})">${followOn ? 'UNFOLLOW' : 'FOLLOW'}</button>
+      <button type="button" class="btn" onclick="openRenameOverlay(${ship.id})">RENAME</button>
+      <button type="button" class="btn danger" ${lastShip ? 'disabled title="Cannot sell your last ship"' : ''} onclick="openSellOverlay(${ship.id}, ${sellVal})">SELL</button>
+      <button type="button" class="btn danger" ${lastShip ? 'disabled title="Cannot salvage your last ship"' : ''} onclick="openSalvageOverlay(${ship.id})">SALVAGE</button>
+    </div>
+  </div>`;
 }
 
 function buildShipModalContent(ship) {
   const role = SHIP_DEFS[ship.type]?.role || 'mining';
-  const roleLabel = ROLE_LABELS[role] || role;
-  const typeLabel = getShipTypeLabel(ship);
   const statusMeta = getShipStatusMeta(ship);
   const safeTier = Math.min(10, Math.max(1, ship.mineTier || 1));
   const tierDef = MINE_TIERS[safeTier];
-  const tierColor = TIER_COLORS[safeTier] || '#e8eaf0';
   const sellVal = getShipSellValue(ship);
   const primary = ROLE_PRIMARY_TAB[role] || ROLE_PRIMARY_TAB.mining;
   const tab = _shipModalTab;
-  const pillCls = statusPillClass(statusMeta);
-  const node = ship.targetNode != null ? state.nodes.find(n => n.id === ship.targetNode) : null;
-  const dist = getShipDistanceInfo(ship);
-  const nodeMeta = node
-    ? `<span>Node <b class="ok">${RESOURCE_DEFS[node.type]?.label || node.type} Node</b></span>`
-    : '';
-  const rangeMeta = `<span>Range <b id="ship-modal-range-meta">${dist.atBase ? 'At Base' : `${dist.tiles} tiles`}</b></span>`;
+  const isCombat = role === 'combat' || role === 'garrison';
+  const curHp = Math.max(0, Math.round(ship.currentHp ?? ship.hp ?? 0));
+  const maxHp = Math.max(1, Math.round(ship.hp || 1));
+  const hpPct = Math.max(0, Math.min(100, Math.round((curHp / maxHp) * 100)));
+  const cargoPct = ship.capacity > 0 ? Math.round((ship.cargo / ship.capacity) * 100) : 0;
+  const meterLabel = isCombat ? 'HEALTH' : 'CARGO';
+  const meterValue = isCombat
+    ? `${fmt(curHp)} / ${fmt(maxHp)}`
+    : `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`;
+  const meterPct = isCombat ? hpPct : cargoPct;
+  const meterBarBg = isCombat
+    ? (hpPct > 60 ? 'linear-gradient(90deg,#2a8040,#4d8)' : hpPct > 30 ? 'linear-gradient(90deg,#a06010,#fa4)' : 'linear-gradient(90deg,#cc1010,#f44)')
+    : 'linear-gradient(90deg,#caa020,#ffe066)';
+  const meterValColor = isCombat
+    ? (hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44')
+    : '#ffe066';
+  const tierColor = TIER_COLORS[safeTier] || tierDef?.color || '#e8eaf0';
+  const tierLight = isLightColor(tierColor) || String(tierColor).toLowerCase() === '#ffffff';
+  const tierBg = tierLight ? 'linear-gradient(180deg, #fff 0%, #e8eef8 100%)' : tierColor;
+  const tierFg = tierLight ? '#111' : '#fff';
+  const tierBorder = tierLight ? '1px solid rgba(0,0,0,0.18)' : '1px solid transparent';
 
-  return `<div data-ship-modal-root="1" class="sm-root">
-    <div class="sm-hero">
-      <div class="sm-hero-left">
-        <div class="sm-hero-name-row">
-          <div class="sm-hero-name" id="ship-modal-name">${ship.name}</div>
-          <button class="sm-hero-rename" type="button" title="Rename" onclick="openRenameOverlay(${ship.id})">${msIcon('edit')}</button>
-          <span class="sm-status-pill ${pillCls}" id="ship-modal-status-pill">
-            <span id="ship-modal-status-text">${statusMeta.badge}</span>
-          </span>
+  return `<div data-ship-modal-root="1" class="lab-layout st-layout ship-lab-layout" data-ship-id="${ship.id}">
+    <div class="lab-hero">
+      <div class="lab-hero-left">
+        <div class="lab-hero-name-row">
+          <span id="ship-modal-name" class="storage-modal-name lab-hero-name">${ship.name}</span>
+          <button type="button" title="Rename" class="storage-modal-rename-btn" onclick="openRenameOverlay(${ship.id})">✎</button>
+          <div id="ship-modal-status-pill" class="lab-status-pill">${statusMeta.badge}</div>
         </div>
-        <div class="sm-hero-meta">
-          <span>Role <b style="color:${ROLE_ACCENTS[role]}">${roleLabel}</b></span>
-          <span>Type <b>${typeLabel}</b></span>
-          ${nodeMeta}
-          ${rangeMeta}
+        <div class="lab-meter">
+          <div class="lab-meter-head">
+            <span class="lab-meter-label">${meterLabel}</span>
+            <span id="ship-modal-meter-value" class="lab-meter-value" style="color:${meterValColor}">${meterValue}</span>
+          </div>
+          <div class="lab-meter-track"><div id="ship-modal-meter-bar" class="lab-meter-bar" style="width:${meterPct}%;background:${meterBarBg}"></div></div>
         </div>
       </div>
-      <div class="sm-tier-badge" id="ship-modal-tier-badge" style="background:${tierColor};color:#111">${tierDef?.label || `TIER ${toRoman(safeTier)}`}</div>
+      <div id="ship-modal-tier-badge" class="lab-tier-badge" style="background:${tierBg};color:${tierFg};border:${tierBorder}">${tierDef?.label || `TIER ${toRoman(safeTier)}`}</div>
     </div>
-    <div class="sm-tabs">
-      <button type="button" class="sm-tab${tab === 'details' ? ' on' : ''}" onclick="setShipModalTab('details')">${msIcon('circles')} DETAILS</button>
-      <button type="button" class="sm-tab${tab === 'primary' ? ' on' : ''}" onclick="setShipModalTab('primary')">${msIcon(primary.icon)} ${primary.label}</button>
-      <button type="button" class="sm-tab${tab === 'upgrades' ? ' on' : ''}" id="upgrades-section-header" onclick="setShipModalTab('upgrades')">${msIcon('upgrade')} UPGRADES</button>
+
+    <div class="mod-tabs sm-tabs">
+      <button type="button" class="mod-tab sm-tab${tab === 'details' ? ' on' : ''}" data-tab="details" onclick="setShipModalTab('details')">
+        <span class="ms-icon">circles</span> DETAILS
+      </button>
+      <button type="button" class="mod-tab sm-tab${tab === 'primary' ? ' on' : ''}" data-tab="primary" onclick="setShipModalTab('primary')">
+        <span class="ms-icon">${primary.icon}</span> ${primary.label}
+      </button>
     </div>
-    <div class="sm-tab-body">
-      <div class="sm-pane${tab === 'details' ? ' on' : ''}" data-sm-pane="details">${tab === 'details' ? buildDetailsPane(ship) : ''}</div>
-      <div class="sm-pane${tab === 'primary' ? ' on' : ''}" data-sm-pane="primary">${tab === 'primary' ? buildPrimaryPane(ship) : ''}</div>
-      <div class="sm-pane${tab === 'upgrades' ? ' on' : ''}" data-sm-pane="upgrades" id="ship-upgrades-body">${tab === 'upgrades' ? buildUpgradesSection(ship.id) : ''}</div>
+
+    <div class="mod-tab-body">
+      <div class="mod-tab-pane${tab === 'details' ? ' on' : ''}" data-pane="details">${tab === 'details' ? buildDetailsPane(ship) : ''}</div>
+      <div class="mod-tab-pane${tab === 'primary' ? ' on' : ''}" data-pane="primary">${tab === 'primary' ? buildPrimaryPane(ship) : ''}</div>
     </div>
-    <div class="sm-footer" id="ship-bottom-actions">${buildShipFooter(ship, sellVal)}</div>
+
+    ${buildShipFooter(ship, sellVal)}
   </div>`;
 }
 
@@ -1342,7 +1452,6 @@ function patchShipModalContent(ship) {
   const dist = getShipDistanceInfo(ship);
   const safeTier = Math.min(10, Math.max(1, ship.mineTier || 1));
   const tierDef = MINE_TIERS[safeTier];
-  const tierColor = TIER_COLORS[safeTier] || '#e8eaf0';
   const holdingReason = getShipHoldingReason(ship);
   const routeError = getShipRouteError(ship);
   const transportSummary = getShipTransportSummary(ship);
@@ -1352,19 +1461,49 @@ function patchShipModalContent(ship) {
 
   const pill = document.getElementById('ship-modal-status-pill');
   if (pill) {
-    pill.className = `sm-status-pill ${statusPillClass(statusMeta)}`;
+    const offline = (statusMeta.badge || '').toUpperCase() === 'REPAIR'
+      || (ship.currentHp ?? ship.hp ?? 1) <= 0;
+    pill.className = `lab-status-pill${offline ? ' offline' : ''}`;
+    setTextIfChanged(pill, statusMeta.badge);
   }
-  setTextIfChanged(document.getElementById('ship-modal-status-text'), statusMeta.badge);
 
   const tierBadge = document.getElementById('ship-modal-tier-badge');
   if (tierBadge) {
     setTextIfChanged(tierBadge, tierDef?.label || `TIER ${toRoman(safeTier)}`);
-    tierBadge.style.background = tierColor;
-    tierBadge.style.color = '#111';
+    const tierColor = TIER_COLORS[safeTier] || tierDef?.color || '#e8eaf0';
+    const tierLight = isLightColor(tierColor) || String(tierColor).toLowerCase() === '#ffffff';
+    tierBadge.style.background = tierLight ? 'linear-gradient(180deg, #fff 0%, #e8eef8 100%)' : tierColor;
+    tierBadge.style.color = tierLight ? '#111' : '#fff';
+    tierBadge.style.border = tierLight ? '1px solid rgba(0,0,0,0.18)' : '1px solid transparent';
   }
 
-  const rangeMeta = document.getElementById('ship-modal-range-meta');
-  if (rangeMeta) setTextIfChanged(rangeMeta, dist.atBase ? 'At Base' : `${dist.tiles} tiles`);
+  // Hero meter — HP for combat, cargo otherwise
+  const isCombat = role === 'combat' || role === 'garrison';
+  const meterVal = document.getElementById('ship-modal-meter-value');
+  const meterBar = document.getElementById('ship-modal-meter-bar');
+  if (meterVal && meterBar) {
+    if (isCombat) {
+      const curHp = Math.max(0, Math.round(ship.currentHp ?? ship.hp ?? 0));
+      const maxHp = Math.max(1, Math.round(ship.hp || 1));
+      const hpPct = Math.max(0, Math.min(100, Math.round((curHp / maxHp) * 100)));
+      setTextIfChanged(meterVal, `${fmt(curHp)} / ${fmt(maxHp)}`);
+      meterVal.style.color = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
+      meterBar.style.width = `${hpPct}%`;
+      meterBar.style.background = hpPct > 60
+        ? 'linear-gradient(90deg,#2a8040,#4d8)'
+        : hpPct > 30
+          ? 'linear-gradient(90deg,#a06010,#fa4)'
+          : 'linear-gradient(90deg,#cc1010,#f44)';
+      const hull = document.getElementById('action-panel-hull-hp');
+      if (hull) setTextIfChanged(hull, curHp.toLocaleString());
+    } else {
+      setTextIfChanged(meterVal, `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`);
+      meterVal.style.color = '#ffe066';
+      const pct = ship.capacity > 0 ? Math.round((ship.cargo / ship.capacity) * 100) : 0;
+      meterBar.style.width = `${pct}%`;
+      meterBar.style.background = 'linear-gradient(90deg,#caa020,#ffe066)';
+    }
+  }
 
   const statusClean = (statusMeta.message || '').replace(/^[^\w]+/, '').trim() || statusMeta.badge;
   const statusEl = document.getElementById('action-panel-status');
@@ -1403,6 +1542,11 @@ function patchShipModalContent(ship) {
       distEl.classList.toggle('ok', dist.atBase);
     }
   }
+  // Combat weapon range (world units) — not distance-from-base tiles
+  const wpnRangeStr = formatWeaponRange(ship);
+  document.querySelectorAll('#action-panel-weapon-range, #action-panel-weapon-range-row').forEach((el) => {
+    setTextIfChanged(el, wpnRangeStr);
+  });
 
   const cargoBar = document.getElementById('action-panel-cargo-bar');
   if (cargoBar) {
@@ -1782,7 +1926,6 @@ function buildUpgradesSection(shipId) {
     const hpLv = s2.hpLevel || 0;
     const atkLv = s2.attackLevel || 0;
     const rateLv = s2.atkRateLevel || 0;
-    const flyChk = s2.flySpeedLevel >= cap ? 0 : 1;
     const hpChk = hpLv >= cap ? 0 : 1;
     const atkChk = atkLv >= cap ? 0 : 1;
     const rateChk = rateLv >= cap ? 0 : 1;
@@ -1795,9 +1938,6 @@ function buildUpgradesSection(shipId) {
     cards.push(statCard('bolt', 'ATK RATE', rateLv, formatAtkRatePercent(s2.attackSpeed || 0),
       rateChk ? formatAtkRatePercent(atkRateFromLevel(s2.type, rateLv + 1)) : 'MAX',
       rateChk ? upgradeTotalCost(UPGRADE_ATK_RATE_COST, s2, 'atkRate', rateChk) : 0, rateChk, 'atkRate'));
-    cards.push(statCard('speed', 'FLY SPD', s2.flySpeedLevel, formatFlySpeed(s2.flySpeed),
-      flyChk ? formatFlySpeed(flySpeedFromLevel(s2.type, s2.flySpeedLevel + 1)) : 'MAX',
-      flyChk ? upgradeTotalCost(UPGRADE_FLY_COST, s2, 'flySpeed', flyChk) : 0, flyChk, 'flySpeed'));
   } else {
     const flyChk = s2.flySpeedLevel >= cap ? 0 : 1;
     cards.push(statCard('speed', 'FLY SPD', s2.flySpeedLevel, formatFlySpeed(s2.flySpeed),
@@ -1827,11 +1967,9 @@ function buildUpgradesSection(shipId) {
       if (f > 0) total += upgradeTotalCost(UPGRADE_FLY_COST, s2, 'flySpeed', f);
       if (l > 0) total += upgradeTotalCost(UPGRADE_LOAD_COST, s2, 'loadSpeed', l);
     } else if (role === 'combat') {
-      const f = n ? cap - s2.flySpeedLevel : Math.min(levels, cap - s2.flySpeedLevel);
       const h = n ? cap - (s2.hpLevel || 0) : Math.min(levels, cap - (s2.hpLevel || 0));
       const a = n ? cap - (s2.attackLevel || 0) : Math.min(levels, cap - (s2.attackLevel || 0));
       const r = n ? cap - (s2.atkRateLevel || 0) : Math.min(levels, cap - (s2.atkRateLevel || 0));
-      if (f > 0) total += upgradeTotalCost(UPGRADE_FLY_COST, s2, 'flySpeed', f);
       if (h > 0) total += upgradeTotalCost(UPGRADE_HP_COST, s2, 'hp', h);
       if (a > 0) total += upgradeTotalCost(UPGRADE_ATTACK_COST, s2, 'attack', a);
       if (r > 0) total += upgradeTotalCost(UPGRADE_ATK_RATE_COST, s2, 'atkRate', r);

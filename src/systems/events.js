@@ -28,7 +28,7 @@ import {
 import { getMaxShield } from './research.js';
 import { isStorageModule, isPowerStationModule } from '../data/modules.js';
 import { BASE_RANGE } from '../data/base.js';
-import { focusOn, gridToWorld } from '../render/camera.js';
+import { focusOnEvent, gridToWorld } from '../render/camera.js';
 
 function getSolarFlareResourcePools(resourceType) {
   const pools = [
@@ -198,7 +198,7 @@ export const RANDOM_EVENTS = [
         age: 0,
         duration,
       };
-      focusOn(state.blackHole.wx, state.blackHole.wy);
+      focusOnEvent(state.blackHole.wx, state.blackHole.wy);
       addLog(`Black Hole anomaly detected near (${pick.col},${pick.row})`);
       showEventWarning(eventTitleHtml('black_hole', 'BLACK HOLE', 'md'), `<div style="color:#cde;">A spatial distortion has formed near <strong>${pick.col},${pick.row}</strong>.</div>`, BLACK_HOLE_WARNING_DURATION_MS);
       const eventId = makeEventId();

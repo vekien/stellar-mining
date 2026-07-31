@@ -216,13 +216,13 @@ const TUTORIAL_DEFS = [
     getEl: () => document.querySelector('.ship-card'),
   },
 
-  // Step B: point at the Upgrades section in the action panel
+  // Step B: point at the Upgrade button in the ship modal footer
   {
     id: 'tut-ptr-upgrades',
     condition: s => s.upgradesTutActive && !!s.selectedShip,
-    text: 'UPGRADES',
+    text: 'UPGRADE',
     placement: 'above',
-    getEl: () => document.getElementById('upgrades-section-header'),
+    getEl: () => document.getElementById('ship-upgrade-btn'),
   },
 
 ];

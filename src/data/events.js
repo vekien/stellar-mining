@@ -8,6 +8,7 @@ export const EVENT_ICON_NAMES = {
   black_hole: 'circle_circle',
   comet: 'explosion',
   comet_intercepted: 'shield',
+  pirate_raid: 'swords',
 };
 
 export function eventIconHtml(eventTypeOrIcon, { size = 'sm', fill = null, className = '' } = {}) {

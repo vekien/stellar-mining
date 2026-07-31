@@ -24,6 +24,8 @@ export const NPCS = {
         `${C}, Juno here. Your base is currently <strong>offline</strong>.<br><br>` +
         `While integrity is at <strong>0 HP</strong>, incoming ships <strong>cannot deposit cargo</strong>.<br><br>` +
         `Repair the Base Station to restore docking and transfer operations.`,
+      hq_support: (cost) =>
+        `Copy, ${C}. Star Command is diverting a combat wing to your sector (−$${cost.toLocaleString?.() || cost}). Hold the line — help is inbound.`,
     },
   },
   sera: {
@@ -47,6 +49,11 @@ export const NPCS = {
     ship: 'Space Pirate Captain · The Marauder',
     portrait: 'assets/images/npcs/vex.jpg',
     bio: "Captain Vex is the most feared pirate in the outer belt. A former Star Command pilot gone rogue, he now leads a ruthless crew aboard The Marauder — raiding civilian mining operations and selling salvage to the highest bidder.",
+    transmissionLines: {
+      raid_incoming: () =>
+        `Heh. Nice little operation you've built out here, Commander.<br><br>` +
+        `We're coming to collect. Try not to cry when the hulls start burning.`,
+    },
   },
   rigs: {
     id: 'rigs',
@@ -177,7 +184,10 @@ export const NPCS = {
       dax_lv3_intro:
         `Marshal Dax here, ${C}. <strong>Sector Enforcement</strong>. You're pushing into <strong>contested lanes</strong> now.<br><br>` +
         `<strong>Pirate scouts</strong> have been sighted near the outer rocks, and they won't ignore a growing operation for long.<br><br>` +
-        `Keep your fleet moving, keep your base hardened, and <strong>expect contact</strong>.`
+        `Keep your fleet moving, keep your base hardened, and <strong>expect contact</strong>.`,
+      raid_won: (kills) =>
+        `Sector clear. <strong>${kills}</strong> hostiles neutralized.<br><br>` +
+        `Pull your combat wing back to the station for repairs and rearm. Next wave won't wait forever.`,
     },
   },
   kai: {

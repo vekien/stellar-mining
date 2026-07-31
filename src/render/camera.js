@@ -3,6 +3,7 @@
 // ============================================================
 import { TILE_W, TILE_H } from '../constants.js';
 import { BASE_COL, BASE_ROW } from '../constants.js';
+import { state } from '../state.js';
 
 export const ZOOM_MIN_V = 0.35;
 export const ZOOM_MAX_V = 3.0;
@@ -81,6 +82,19 @@ export function focusOn(wx, wy, zoom) {
   cam.targetX = wx;
   cam.targetY = wy;
   if (zoom !== undefined) cam.zoom = Math.max(ZOOM_MIN_V, Math.min(ZOOM_MAX_V, zoom));
+}
+
+/** Event-driven focus (raids, black holes, etc). No-op when Focus on Events is off. */
+export function focusOnEvent(wx, wy, zoom) {
+  if (state.settings?.focusOnEvents === false) return false;
+  focusOn(wx, wy, zoom);
+  return true;
+}
+
+export function focusOnBaseEvent(zoom) {
+  if (state.settings?.focusOnEvents === false) return false;
+  focusOnBase(zoom);
+  return true;
 }
 
 export function snapTo(wx, wy, zoom) {

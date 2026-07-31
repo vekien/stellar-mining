@@ -12,7 +12,7 @@ import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
 import {
   drawSolarFlare, drawBlackHole, drawComet, drawFloaties, drawRangePulses, drawNodeParticles,
-  getShakeOffset, setAnimCtx,
+  drawCombatBeams, drawEmpBlasts, getShakeOffset, setAnimCtx,
 } from './animations.js';
 import { drawStars } from './stars.js';
 import { drawTurrets, drawTurretPlacementHover, setTurretCtx } from './turrets.js';
@@ -344,17 +344,53 @@ export function drawRangeBorder() {
   ctx.restore();
 }
 
+function drawBaseCrisisAlertIcon(cx, cy, pulse = 0.5) {
+  const size = 28;
+  const color = '#ff3a3a';
+  const glow = 'rgba(255, 50, 50, 1)';
+  const alpha = 0.9 + pulse * 0.1;
+  ctx.save();
+  ctx.font = `400 ${size}px "Material Symbols Outlined"`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (ctx.fontKerning !== undefined) ctx.fontKerning = 'normal';
+  // Glyph-only glow (no disc behind)
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = 22 + pulse * 18;
+  ctx.fillStyle = color;
+  ctx.fillText('crisis_alert', cx, cy);
+  ctx.shadowBlur = 10 + pulse * 8;
+  ctx.shadowColor = 'rgba(255,255,255,0.95)';
+  ctx.globalAlpha = 0.55 + pulse * 0.35;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('crisis_alert', cx, cy);
+  ctx.shadowBlur = 14 + pulse * 10;
+  ctx.shadowColor = glow;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fillText('crisis_alert', cx, cy);
+  ctx.restore();
+}
+
 export function drawBase(col, row) {
   const {x,y} = gridToIso(col, row);
   const cx = x, cy = y+TILE_H/2;
   const { baseHovered } = canvasState;
   const baseDown = (state.base.health || 0) <= 0;
+  // HQ shows crisis for the whole raid; other buildings wait for first hit
+  const underAttack = !!(state.activeRaid);
   const flashPulse = 0.5 + 0.5 * Math.sin(performance.now() / 140);
-  const strokeColor = baseDown ? (flashPulse > 0.5 ? '#ff3d3d' : '#ff9a9a') : (baseHovered ? '#8ff' : '#4af');
-  const coreFill = baseDown ? '#3a0d12' : '#102040';
+  const raidPulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
+  const strokeColor = baseDown
+    ? (flashPulse > 0.5 ? '#ff3d3d' : '#ff9a9a')
+    : underAttack
+      ? (raidPulse > 0.5 ? '#ff3a3a' : '#ff8a6a')
+      : (baseHovered ? '#8ff' : '#4af');
+  const coreFill = baseDown ? '#3a0d12' : underAttack ? '#2a1018' : '#102040';
   const towerFill = baseDown ? '#5a1118' : '#1a3a6e';
-  const beaconColor = baseDown ? '#ff5555' : '#8ff';
-  const textColor = baseDown ? '#ff7a7a' : '#4af';
+  const beaconColor = baseDown ? '#ff5555' : underAttack ? '#ff5555' : '#8ff';
+  const textColor = baseDown ? '#ff7a7a' : underAttack ? '#ff7a7a' : '#4af';
   const showEffects = state.settings?.showVisualEffects !== false;
 
   if (showEffects && baseHovered && !baseHoverImage.complete) {
@@ -389,8 +425,23 @@ export function drawBase(col, row) {
   ctx.fillStyle = coreFill;
   ctx.fill();
   ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = baseHovered ? 2 : 1.25;
+  ctx.lineWidth = baseHovered || underAttack ? 2 : 1.25;
   ctx.stroke();
+
+  // Red pulse on base footprint only (no shadow blur — avoids square bleed)
+  if (underAttack && showEffects && !baseDown) {
+    ctx.beginPath();
+    ctx.moveTo(top.x, top.y);
+    ctx.lineTo(right.x, right.y);
+    ctx.lineTo(bottom.x, bottom.y);
+    ctx.lineTo(left.x, left.y);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(255, 40, 40, ${0.16 + raidPulse * 0.28})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255, 70, 70, ${0.55 + raidPulse * 0.45})`;
+    ctx.lineWidth = 1.5 + raidPulse * 1.25;
+    ctx.stroke();
+  }
 
   const displayImage = baseHovered && baseHoverImage.complete && baseHoverImage.naturalWidth > 0
     ? baseHoverImage
@@ -412,6 +463,10 @@ export function drawBase(col, row) {
       ctx.fillStyle = `rgba(80,0,0,${0.2 + flashPulse * 0.15})`;
       ctx.fillRect(imageX, imageY, imageW, imageH);
     }
+
+    if (underAttack && !baseDown) {
+      drawBaseCrisisAlertIcon(cx, cy - imageH * 0.42, raidPulse);
+    }
     return;
   }
 
@@ -420,8 +475,8 @@ export function drawBase(col, row) {
   ctx.strokeStyle = strokeColor; ctx.lineWidth=1; ctx.strokeRect(cx-tw/2,cy-th,tw,th);
   if (showEffects) {
     const grd = ctx.createRadialGradient(cx,cy-th-4,1,cx,cy-th-4,14);
-    if (baseDown) {
-      grd.addColorStop(0,`rgba(255,90,90,${0.75 + flashPulse * 0.2})`); grd.addColorStop(1,'rgba(255,90,90,0)');
+    if (baseDown || underAttack) {
+      grd.addColorStop(0,`rgba(255,90,90,${0.75 + (baseDown ? flashPulse : raidPulse) * 0.2})`); grd.addColorStop(1,'rgba(255,90,90,0)');
     } else {
       grd.addColorStop(0,'rgba(80,200,255,0.9)'); grd.addColorStop(1,'rgba(80,200,255,0)');
     }
@@ -432,6 +487,9 @@ export function drawBase(col, row) {
   ctx.beginPath(); ctx.arc(cx,cy-th-12,3,0,Math.PI*2); ctx.fillStyle = beaconColor; ctx.fill();
   ctx.fillStyle = textColor; ctx.font='bold 9px Orbitron,monospace'; ctx.textAlign='center'; ctx.fillText('BASE',cx,cy-th-20);
 
+  if (underAttack && !baseDown) {
+    drawBaseCrisisAlertIcon(cx, cy - th - 36, raidPulse);
+  }
 }
 
 function drawBaseHoverLabel(col, row) {
@@ -602,12 +660,106 @@ export function drawNode(node) {
   ctx.restore();
 }
 
+export function drawEnemies() {
+  const enemies = state.enemies || [];
+  if (!enemies.length) return;
+  const showEffects = state.settings?.showVisualEffects !== false;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if ((e.hp || 0) <= 0) continue;
+    if (!isInView(e.x, e.y)) continue;
+    const size = e.size || 9;
+    const col = e.color || '#ff5d5d';
+
+    // Trail
+    const trail = e.trail;
+    if (trail?.length > 1) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (let t = 1; t < trail.length; t++) {
+        const a = trail[t - 1];
+        const b = trail[t];
+        const u = t / trail.length;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = col;
+        ctx.globalAlpha = u * 0.45;
+        ctx.lineWidth = u * 5;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(e.heading || 0);
+    if (showEffects) {
+      const grd = ctx.createRadialGradient(0, 0, 1, 0, 0, size + 8);
+      grd.addColorStop(0, 'rgba(255,80,80,0.35)');
+      grd.addColorStop(1, 'rgba(255,80,80,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(0, 0, size + 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Angular hostile silhouette
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.lineTo(size * 0.7, size * 0.35);
+    ctx.lineTo(0, size * 0.15);
+    ctx.lineTo(-size * 0.7, size * 0.35);
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
+
+    // EMP stun ring
+    if ((e.stunTimer || 0) > 0 && showEffects) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 90);
+      ctx.save();
+      ctx.strokeStyle = `rgba(100, 220, 255, ${0.55 + pulse * 0.4})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, size + 6 + pulse * 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // HP bar
+    const maxHp = Math.max(1, e.maxHp || e.hp || 1);
+    const pct = Math.max(0, Math.min(1, (e.hp || 0) / maxHp));
+    const barW = 22;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(e.x - barW / 2, e.y - size - 10, barW, 3);
+    ctx.fillStyle = pct > 0.4 ? '#ff6b6b' : '#ff3030';
+    ctx.fillRect(e.x - barW / 2, e.y - size - 10, barW * pct, 3);
+    ctx.restore();
+  }
+}
+
 export function drawShipWorld(ship) {
   const shipDef = SHIP_DEFS[ship.type] || SHIP_DEFS.scout;
   const render = shipDef.render || SHIP_DEFS.scout.render;
   const size = render.size || 8;
   const baseCol = render.color || '#60d090';
-  const col  = ship.status === 'holding' ? '#9aa3ae' : baseCol;
+  const role = shipDef.role || 'mining';
+  const inCombat = ship.status === 'engaging'
+    || ship.status === 'intercepting'
+    || ship.status === 'returning_repair'
+    || !!ship.isHqSupport
+    || ((role === 'combat' || role === 'garrison') && (state.enemies || []).length > 0);
+  // Friendlies fight blue
+  const friendlyBlue = '#4ab8ff';
+  const col = ship.status === 'holding'
+    ? '#9aa3ae'
+    : inCombat
+      ? friendlyBlue
+      : baseCol;
   const isSelected = state.selectedShip === ship.id;
   const showEffects = state.settings?.showVisualEffects !== false;
 
@@ -665,19 +817,48 @@ export function drawShipWorld(ship) {
 
   ctx.rotate(ship.heading || 0);
   if (showEffects) {
-    const glowRadius = size + (render.glowRadiusExtra ?? 6);
-    const glowOpacity = render.glowOpacity ?? 0.33;
-    const glowRgb = hexToRgb(col) || '255,255,255';
-    const grd = ctx.createRadialGradient(0,0,1,0,0,glowRadius);
+    const boost = ship.combatBoost || 0;
+    const glowRadius = size + (render.glowRadiusExtra ?? 6) + (inCombat ? 6 + boost * 8 : 0);
+    const glowOpacity = inCombat
+      ? (0.42 + boost * 0.25)
+      : (render.glowOpacity ?? 0.33);
+    const glowRgb = inCombat ? '74,184,255' : (hexToRgb(col) || '255,255,255');
+    const grd = ctx.createRadialGradient(0, 0, 1, 0, 0, glowRadius);
     grd.addColorStop(0, `rgba(${glowRgb},${glowOpacity})`);
+    grd.addColorStop(0.45, `rgba(${glowRgb},${glowOpacity * 0.45})`);
     grd.addColorStop(1, `rgba(${glowRgb},0)`);
-    ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(0,0,glowRadius,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+    // Extra blue halo for friendlies in the fight
+    if (inCombat) {
+      ctx.beginPath();
+      ctx.arc(0, 0, size + 10 + boost * 4, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(100,200,255,${0.35 + boost * 0.25})`;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
   }
   ctx.beginPath(); ctx.moveTo(0,-size); ctx.lineTo(size*.6,0); ctx.lineTo(0,size*.5); ctx.lineTo(-size*.6,0); ctx.closePath();
-  ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle='#fff6'; ctx.lineWidth=0.7; ctx.stroke();
+  ctx.fillStyle = col; ctx.fill();
+  ctx.strokeStyle = inCombat ? 'rgba(180,230,255,0.75)' : '#fff6';
+  ctx.lineWidth = inCombat ? 1.1 : 0.7;
+  ctx.stroke();
 
-
-
+  // Combat HP bar (world-aligned)
+  if (ship.status === 'engaging' || ship.status === 'intercepting' || ship.status === 'returning_repair' || ship.isHqSupport) {
+    ctx.restore();
+    const maxHp = Math.max(1, ship.hp || 1);
+    const cur = Number.isFinite(ship.currentHp) ? ship.currentHp : maxHp;
+    const pct = Math.max(0, Math.min(1, cur / maxHp));
+    const barW = 20;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(ship.x - barW / 2, ship.y - size - 10, barW, 3);
+    ctx.fillStyle = pct > 0.35 ? '#5dffa0' : '#ff6b6b';
+    ctx.fillRect(ship.x - barW / 2, ship.y - size - 10, barW * pct, 3);
+    return;
+  }
 
   if (ship.status==='mining') {
     ctx.restore();
@@ -998,6 +1179,7 @@ export function render(ts) {
   drawBase(BASE_COL, BASE_ROW);
   drawSelectedShipLine();
   drawTurrets();
+  drawEnemies();
   const ss = getSortedShips();
   for (let i = 0; i < ss.length; i++) {
     const s = ss[i];
@@ -1010,6 +1192,8 @@ export function render(ts) {
     if (!isInView(d.x, d.y)) continue;
     drawDroneWorld(d);
   }
+  drawCombatBeams();
+  drawEmpBlasts();
   drawTurretPlacementHover();
   drawStoragePlacementHover();
   drawSolarFlare();

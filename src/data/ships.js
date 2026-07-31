@@ -67,9 +67,7 @@ export const FLY_SPEED_PROFILE = {
   freighter:   { min: 60,  max: 200,  p: 1.0 },
   courier:     { min: 25, max: 100,  p: 1.0 },
   deep_hauler: { min: 25, max: 80, p: 1.0 },
-  viper:       { min: 200, max: 800,  p: 1.0 },
-  interceptor: { min: 200, max: 600,  p: 1.0 },
-  destroyer:   { min: 100, max: 300,  p: 1.0 },
+  // Combat hulls share a fixed cruise (see COMBAT_CRUISE_SPEED) — not upgraded
 };
 
 export const MINE_SPEED_PROFILE = {
@@ -298,17 +296,17 @@ export const SHIP_DEFS = {
 
   // ── Combat ─────────────────────────────────────────────────────
   viper: {
-    role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4,
+    role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 4,
     render: RENDER_SCOUT,
     hp: 800,  attack: 45,  attackSpeed: 1.8,
   },
   interceptor: {
-    role: 'combat', capacity: 0, flySpeed: 200, mineSpeed: 0, mineTier: 4,
+    role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 4,
     render: RENDER_SCOUT,
     hp: 2500, attack: 60,  attackSpeed: 1.2,
   },
   destroyer: {
-    role: 'combat', capacity: 0, flySpeed: 100, mineSpeed: 0, mineTier: 5,
+    role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 5,
     render: RENDER_FREIGHTER,
     hp: 5000, attack: 100, attackSpeed: 0.4,
   },

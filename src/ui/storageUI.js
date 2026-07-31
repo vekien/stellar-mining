@@ -28,6 +28,44 @@ function moduleTabsHtml(tabs) {
   </div>`;
 }
 
+function moduleFooterActionsHtml(moduleId) {
+  return `<div class="lab-footer">
+    <div class="lab-actions">
+      <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${moduleId})">UPGRADE</button>
+      <button id="module-repair-btn" class="btn" type="button" onclick="repairModule(${moduleId})" style="display:none;">REPAIR</button>
+      <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${moduleId})">MOVE</button>
+      <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${moduleId})">RENAME</button>
+      <button class="btn danger" type="button" onclick="confirmSellStorage(${moduleId})">SELL</button>
+    </div>
+  </div>
+  <div id="storage-upgrade-reqs" style="display:none;"></div>`;
+}
+
+function patchModuleRepairBtn(modal, module) {
+  const btn = modal?.querySelector?.('#module-repair-btn');
+  if (!btn || !module) return;
+  const maxH = Math.max(0, module.maxHealth || 0);
+  const curH = Math.max(0, module.health || 0);
+  const missing = Math.max(0, Math.ceil(maxH - curH));
+  if (missing <= 0 || maxH <= 0) {
+    btn.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'REPAIR';
+    btn.classList.remove('primary');
+    return;
+  }
+  const rank = Math.max(1, Math.floor(module.level || 1));
+  const cost = missing * rank; // missing HP × rank
+  const can = (state.coins || 0) >= cost;
+  btn.style.display = '';
+  btn.disabled = !can;
+  btn.classList.toggle('primary', can);
+  btn.textContent = `REPAIR $${fmt(cost)}`;
+  btn.title = can
+    ? `Restore ${fmt(missing)} HP (×${rank} rank) for $${fmt(cost)}`
+    : `Need $${fmt(cost)} to fully repair`;
+}
+
 window.setModuleModalTab = function(el, tab) {
   const root = el?.closest?.('.lab-layout');
   if (!root) return;
@@ -40,7 +78,8 @@ window.setModuleModalTab = function(el, tab) {
   if (tab === 'network') {
     const moduleId = Number(root.dataset.moduleId);
     if (Number.isFinite(moduleId)) {
-      const mod = state.modules.find((m) => m.id === moduleId);
+      const mod = state.modules.find((m) => m.id === moduleId)
+        || (state.turrets || []).find((t) => t.id === moduleId);
       if (mod) {
         patchNetworkTab(root, mod);
         bindTippyIn(root.querySelector('#module-net-tiles') || root);
@@ -302,6 +341,7 @@ function typeLabelFor(entity, isTurret = false) {
 function collectPowerGraph(focus) {
   const info = getPowerModuleNetworkInfo(focus.id, state.modules, state.turrets);
   const net = getPowerNetworkState(state.modules, state.turrets);
+  const focusIsTurret = (state.turrets || []).some((t) => t.id === focus.id);
   const nodes = new Map();
   const add = (ent, kind, isTurret = false) => {
     if (!ent) return;
@@ -320,7 +360,8 @@ function collectPowerGraph(focus) {
       entity: ent,
     });
   };
-  add(focus, isPowerStationModule(focus) ? 'station' : isPowerPoleModule(focus) ? 'pole' : 'consumer');
+  if (focusIsTurret) add(focus, 'turret', true);
+  else add(focus, isPowerStationModule(focus) ? 'station' : isPowerPoleModule(focus) ? 'pole' : 'consumer');
   for (const s of info.stations) add(s, 'station');
   for (const p of info.poles) add(p, 'pole');
   for (const c of info.storages) add(c, 'consumer');
@@ -350,8 +391,8 @@ function collectPowerGraph(focus) {
     tiles: [
       { id: 'module-net-c-stations', icon: 'assets/images/buildings/power.png', name: 'Stations', count: info.stations.length + (isPowerStationModule(focus) ? 1 : 0), tip: 'Power Stations' },
       { id: 'module-net-c-poles', icon: 'assets/images/buildings/power_pole.png', name: 'Poles', count: info.poles.length + (isPowerPoleModule(focus) ? 1 : 0), tip: 'Power Poles' },
-      { id: 'module-net-c-consumers', icon: 'assets/images/buildings/storage.png', name: 'Consumers', count: info.storages.length + (isPoweredBuildingModule(focus) && !isPowerStationModule(focus) && !isPowerPoleModule(focus) ? 1 : 0), tip: 'Powered buildings' },
-      { id: 'module-net-c-turrets', icon: 'assets/images/buildings/power_pole.png', name: 'Turrets', count: info.turrets.length, tip: 'Turrets on network' },
+      { id: 'module-net-c-consumers', icon: 'assets/images/buildings/storage.png', name: 'Consumers', count: info.storages.length + (isPoweredBuildingModule(focus) && !isPowerStationModule(focus) && !isPowerPoleModule(focus) && !focusIsTurret ? 1 : 0), tip: 'Powered buildings' },
+      { id: 'module-net-c-turrets', icon: 'assets/images/buildings/power_pole.png', name: 'Turrets', count: info.turrets.length + (focusIsTurret ? 1 : 0), tip: 'Turrets on network' },
     ].filter((t) => t.count > 0 || ['module-net-c-stations', 'module-net-c-poles'].includes(t.id)),
   };
 }
@@ -616,6 +657,17 @@ function maybePatchNetworkTab(modal, module) {
   const netOn = root.querySelector('.mod-tab.on[data-tab="network"]');
   if (netOn) patchNetworkTab(root, module);
 }
+
+/** Shared network diagram panel (module + turret modals). */
+export function getNetworkPanelHtml() {
+  return networkPanelHtml();
+}
+
+/** Patch network diagram/list for any power entity (module or turret). */
+export function patchEntityNetworkPanel(root, entity) {
+  if (!root || !entity) return;
+  patchNetworkTab(root, entity);
+}
 import {
   SYNTHESIS_RECIPES,
   SYNTHESIS_SLOT_COUNT,
@@ -668,6 +720,7 @@ import {
 } from '../data/modules.js';
 import { getStoragePowerUsage, isStorageOperational } from '../data/storage.js';
 import { getDronesForLab, getDroneStatusText } from '../systems/drones.js';
+import { bumpPirateStatusOnExpand } from '../systems/combat.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
 import { cam, focusOn, gridToWorld } from '../render/camera.js';
@@ -769,6 +822,7 @@ function completeCraftBuilding(moduleType) {
   state.unplacedModules = state.unplacedModuleQueue.length;
   const moduleDef = getCraft('buildings', moduleType);
   addLog(`✅ ${moduleDef?.name || 'Building'} ready to place.`);
+  bumpPirateStatusOnExpand();
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
@@ -1476,15 +1530,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
-        <div class="lab-footer">
-          <div class="lab-actions">
-            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
-            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
-            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
-            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
-          </div>
-        </div>
-        <div id="storage-upgrade-reqs" style="display:none;"></div>
+        ${moduleFooterActionsHtml(module.id)}
       </div>`;
     patchModuleModal(moduleId, modal);
     return;
@@ -1557,15 +1603,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
-        <div class="lab-footer">
-          <div class="lab-actions">
-            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
-            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
-            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
-            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
-          </div>
-        </div>
-        <div id="storage-upgrade-reqs" style="display:none;"></div>
+        ${moduleFooterActionsHtml(module.id)}
       </div>`;
     patchModuleModal(moduleId, modal);
     return;
@@ -1674,15 +1712,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
-        <div class="lab-footer">
-          <div class="lab-actions">
-            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
-            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
-            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
-            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
-          </div>
-        </div>
-        <div id="storage-upgrade-reqs" style="display:none;"></div>
+        ${moduleFooterActionsHtml(module.id)}
       </div>`;
     patchModuleModal(moduleId, modal);
     return;
@@ -1742,15 +1772,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
-        <div class="lab-footer">
-          <div class="lab-actions">
-            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
-            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
-            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
-            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
-          </div>
-        </div>
-        <div id="storage-upgrade-reqs" style="display:none;"></div>
+        ${moduleFooterActionsHtml(module.id)}
       </div>`;
     patchModuleModal(moduleId, modal);
     return;
@@ -1827,15 +1849,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
-        <div class="lab-footer">
-          <div class="lab-actions">
-            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
-            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
-            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
-            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
-          </div>
-        </div>
-        <div id="storage-upgrade-reqs" style="display:none;"></div>
+        ${moduleFooterActionsHtml(module.id)}
       </div>`;
     patchModuleModal(moduleId, modal);
     return;
@@ -1909,15 +1923,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
           <div class="mod-tab-pane" data-pane="network">${networkPanelHtml()}</div>
         </div>
 
-        <div class="lab-footer">
-          <div class="lab-actions">
-            <button id="storage-upgrade-btn" class="btn primary" type="button" onclick="openModuleUpgradeOverlay(${module.id})">UPGRADE</button>
-            <button class="btn module-btn-move" type="button" onclick="startMoveStorage(${module.id})">MOVE</button>
-            <button class="btn module-btn-rename" type="button" onclick="openStorageRenameOverlay(${module.id})">RENAME</button>
-            <button class="btn danger" type="button" onclick="confirmSellStorage(${module.id})">SELL</button>
-          </div>
-        </div>
-        <div id="storage-upgrade-reqs" style="display:none;"></div>
+        ${moduleFooterActionsHtml(module.id)}
       </div>`;
     patchModuleModal(moduleId, modal);
     return;
@@ -2194,6 +2200,7 @@ function patchDroneLabModal(module, modal, qs) {
     };
   }
   setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  patchModuleRepairBtn(modal, module);
   if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
 }
 
@@ -2286,6 +2293,7 @@ function patchStorageFacilityModal(module, modal, qs) {
     };
   }
   setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  patchModuleRepairBtn(modal, module);
   if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
 }
 
@@ -2467,6 +2475,7 @@ function patchPowerStationModal(module, modal, qs) {
     };
   }
   setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  patchModuleRepairBtn(modal, module);
   if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
 }
 
@@ -2596,6 +2605,7 @@ function patchPowerPoleModal(module, modal, qs) {
     };
   }
   setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  patchModuleRepairBtn(modal, module);
   if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
 }
 
@@ -2665,6 +2675,7 @@ function patchLabTowerModal(module, modal, qs) {
     };
   }
   setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  patchModuleRepairBtn(modal, module);
   if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
 }
 
@@ -2747,6 +2758,7 @@ function patchResearchLabModal(module, modal, qs) {
   }
   // Keep hidden legacy node in sync for any callers
   setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
+  patchModuleRepairBtn(modal, module);
   if (_upgradeOverlayModuleId === module.id) patchModuleUpgradeOverlay();
 }
 
@@ -3089,6 +3101,33 @@ window.buyStoragePower = function(moduleId) {
   module.power = module.powerCapacity;
   addLog(`${module.name} restored to full power for ${fmt(cost)}¢.`);
   if (refresh.ui) refresh.ui();
+  patchModuleModal(moduleId);
+};
+
+window.repairModule = function(moduleId) {
+  const module = getModuleById(moduleId);
+  if (!module) return;
+  const maxH = Math.max(0, module.maxHealth || 0);
+  const curH = Math.max(0, module.health || 0);
+  const missing = Math.max(0, Math.ceil(maxH - curH));
+  if (missing <= 0 || maxH <= 0) {
+    addLog(`${module.name} is already at full integrity.`);
+    patchModuleModal(moduleId);
+    return;
+  }
+  const rank = Math.max(1, Math.floor(module.level || 1));
+  const cost = missing * rank; // missing HP × rank
+  if ((state.coins || 0) < cost) {
+    addLog(`⚠ Not enough coins to repair ${module.name} ($${fmt(cost)}).`);
+    return;
+  }
+  spendCoins(cost);
+  module.health = maxH;
+  // Health gates power/lab network membership — rebuild links after repair
+  invalidateNetworkCache();
+  addLog(`🔧 ${module.name} repaired +${fmt(missing)} HP (×${rank}) → ${fmt(module.health)}/${fmt(module.maxHealth)}`);
+  if (refresh.ui) refresh.ui();
+  if (refresh.resources) refresh.resources();
   patchModuleModal(moduleId);
 };
 

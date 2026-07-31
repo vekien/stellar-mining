@@ -2,7 +2,7 @@
 // TURRET UI — modal, upgrade, place, move, scrap
 // ============================================================
 import { state } from '../state.js';
-import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
+import { addLog, fmt, addCoins, spendCoins, isLightColor } from '../helpers.js';
 import { refresh } from './refresh.js';
 import { canvasState } from '../render/canvasState.js';
 import { getCraft } from '../data/crafts.js';
@@ -13,6 +13,8 @@ import {
 } from '../data/turrets.js';
 import { getPowerModuleNetworkInfo, invalidateNetworkCache } from '../data/modules.js';
 import { toRoman } from '../data/ships.js';
+import { MINE_TIERS } from '../data/resources.js';
+import { getNetworkPanelHtml, patchEntityNetworkPanel } from './storageUI.js';
 import {
   applyFloatingPosition,
   bringFloatingToFront,
@@ -21,6 +23,7 @@ import {
   initFloatingResize,
   placeFloatingWindow,
 } from './floatingWindow.js';
+import { bumpPirateStatusOnExpand } from '../systems/combat.js';
 
 const TURRET_LAYOUT_KEY = 'turret';
 
@@ -113,6 +116,7 @@ function completeCraftTurret(turretType) {
   state.unplacedTurrets = state.unplacedTurretQueue.length;
   const turretDef = getCraft('turrets', turretType);
   addLog(`✅ ${turretDef?.name || 'Turret'} ready to place.`);
+  bumpPirateStatusOnExpand();
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
@@ -134,7 +138,26 @@ export function openTurretModal(turretId) {
   initTurretModalDrag();
   const overlay = document.getElementById('turret-modal-overlay');
   const modal = document.getElementById('turret-modal');
+  if (modal) {
+    modal.classList.add('storage-modal-window', 'storage-modal-window-lab', 'modal-accent-defense');
+    // Same default footprint as building modals
+    if (modal.dataset.moved !== '1') {
+      modal.style.width = '1000px';
+      modal.style.height = '720px';
+      modal.dataset.width = '1000';
+      modal.dataset.height = '720';
+    }
+  }
   if (overlay) overlay.style.display = 'flex';
+  const body = document.getElementById('turret-modal-body');
+  if (body) {
+    body.dataset.turretId = '';
+    body.dataset.mode = '';
+    body.dataset.layoutVer = '';
+    body.className = 'storage-modal-body storage-modal-body-lab';
+    body.style.padding = '12px';
+    body.innerHTML = '';
+  }
   renderTurretModal();
   const place = () => centerFloatingWindow(overlay, modal, TURRET_LAYOUT_KEY);
   place();
@@ -177,61 +200,104 @@ export function renderTurretModal() {
   turret.powerUsage = getTurretPowerUsage(turret);
   turret.powerCapacity = getTurretPowerCapacity(turret);
   turret.power = Math.max(0, Math.min(turret.power || 0, turret.powerCapacity));
-  if (body.dataset.turretId !== String(turret.id) || body.dataset.mode !== 'details') {
+  const LAYOUT_VER = 'tu-v6-footer';
+  if (body.dataset.turretId !== String(turret.id) || body.dataset.layoutVer !== LAYOUT_VER) {
     body.dataset.turretId = String(turret.id);
     body.dataset.mode = 'details';
+    body.dataset.layoutVer = LAYOUT_VER;
     body.innerHTML = `
-      <div class="storage-modal-hero">
-        <div class="storage-modal-hero-row">
-          <div class="storage-modal-hero-pad">
-            <span id="turret-modal-name" class="storage-modal-name"></span>
-            <button id="turret-rename-hero-btn" title="Rename Turret" class="storage-modal-rename-btn">✎</button>
+      <div class="lab-layout st-layout tu-layout" data-turret-id="${turret.id}" data-module-id="${turret.id}">
+        <div class="lab-hero">
+          <div class="lab-hero-left">
+            <div class="lab-hero-name-row">
+              <span id="turret-modal-name" class="storage-modal-name lab-hero-name"></span>
+              <button id="turret-rename-hero-btn" type="button" title="Rename Turret" class="storage-modal-rename-btn">✎</button>
+              <div id="turret-operational-banner" class="lab-status-pill">ONLINE</div>
+            </div>
+            <div class="lab-meter">
+              <div class="lab-meter-head">
+                <span class="lab-meter-label">Health</span>
+                <span id="turret-health-value" class="lab-meter-value"></span>
+              </div>
+              <div class="lab-meter-track"><div id="turret-health-bar" class="lab-meter-bar"></div></div>
+            </div>
           </div>
-          <div class="storage-modal-hero-pad">
-            <div id="turret-tier-pill" class="storage-modal-tier-pill" style="background:#ff5d5d;color:#fff;"></div>
+          <div id="turret-tier-pill" class="lab-tier-badge">TIER I</div>
+        </div>
+
+        <div class="mod-tabs sm-tabs">
+          <button type="button" class="mod-tab sm-tab on" data-tab="details" onclick="setModuleModalTab(this,'details')">
+            <span class="ms-icon">circles</span> DETAILS
+          </button>
+          <button type="button" class="mod-tab sm-tab" data-tab="network" onclick="setModuleModalTab(this,'network')">
+            <span class="ms-icon">hub</span> NETWORK
+          </button>
+        </div>
+
+        <div class="mod-tab-body">
+          <div class="mod-tab-pane on" data-pane="details">
+            <div class="mod-details-grid st-details-grid">
+              <div class="st-left-col">
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ POWER</div>
+                  <div class="lab-power-block">
+                    <div class="lab-meter-head">
+                      <span class="lab-meter-label"><span class="lab-power-icon">ϟ</span>Power</span>
+                      <span id="turret-power-value" class="lab-meter-value"></span>
+                    </div>
+                    <div class="lab-power-meta">
+                      <span>Usage <strong id="turret-power-usage"></strong></span>
+                      <span>Capacity</span>
+                    </div>
+                    <div class="lab-meter-track"><div id="turret-power-bar" class="lab-meter-bar lab-meter-bar-power"></div></div>
+                    <div id="turret-no-power-warning" class="storage-no-power-warning" style="display:none;margin-top:8px;">WARNING: NO POWER</div>
+                  </div>
+                </div>
+                <div class="sm-info-block sm-info-block-fill">
+                  <div class="blk-title">◈ SYSTEMS</div>
+                  <div class="sm-info-row"><span class="k">STATUS</span><span class="val" id="turret-sys-status">ONLINE</span></div>
+                  <div class="sm-info-row"><span class="k">TYPE</span><span class="val" id="turret-sys-type">—</span></div>
+                </div>
+              </div>
+              <div class="sm-info-block sm-info-block-fill tu-defense-col">
+                <div class="blk-title">◈ DEFENSE</div>
+                <div class="tu-stat-grid">
+                  <div class="tu-stat-card">
+                    <span class="ms-icon tu-stat-icon" id="turret-stat-damage-icon">swords</span>
+                    <span class="tu-stat-label" id="turret-stat-damage-label">DAMAGE</span>
+                    <span class="tu-stat-value" id="turret-stat-damage">—</span>
+                  </div>
+                  <div class="tu-stat-card">
+                    <span class="ms-icon tu-stat-icon">speed</span>
+                    <span class="tu-stat-label">FIRE RATE</span>
+                    <span class="tu-stat-value" id="turret-stat-fire-rate">—</span>
+                  </div>
+                  <div class="tu-stat-card">
+                    <span class="ms-icon tu-stat-icon">radar</span>
+                    <span class="tu-stat-label">RANGE</span>
+                    <span class="tu-stat-value" id="turret-stat-range">—</span>
+                  </div>
+                  <div class="tu-stat-card" id="turret-stat-special-row" hidden>
+                    <span class="ms-icon tu-stat-icon">bolt</span>
+                    <span class="tu-stat-label" id="turret-stat-special-head">POWER DRIVE</span>
+                    <span class="tu-stat-value" id="turret-stat-special">—</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mod-tab-pane" data-pane="network">${getNetworkPanelHtml()}</div>
+        </div>
+
+        <div class="lab-footer">
+          <div class="lab-actions">
+            <button id="turret-upgrade-btn" class="btn primary" type="button">UPGRADE</button>
+            <button id="turret-repair-btn" class="btn" type="button" style="display:none;">REPAIR</button>
+            <button id="turret-move-btn" class="btn" type="button">MOVE</button>
+            <button id="turret-rename-btn" class="btn" type="button">RENAME</button>
+            <button id="turret-sell-btn" class="btn danger" type="button">SELL</button>
           </div>
         </div>
-      </div>
-      <div class="module-health-card bp-health-card ok">
-        <div class="module-health-head">
-          <div class="module-health-label">HEALTH</div>
-          <div id="turret-health-value" class="module-health-value"></div>
-        </div>
-        <div class="module-health-track"><div id="turret-health-bar" class="module-health-bar"></div></div>
-      </div>
-      <div id="turret-operational-banner" class="module-status-banner module-status-banner-online" style="margin-bottom:10px;">ONLINE</div>
-      <div class="module-section-label-tight module-divider-top">◈ DEFENSE</div>
-      <div class="power-station-fuel-table-wrap" style="margin-bottom:10px;">
-        <table class="power-station-fuel-table">
-          <thead><tr><th>Damage</th><th>Fire Rate</th><th>Range</th><th id="turret-stat-special-head" style="display:none;">Power Drive</th></tr></thead>
-          <tbody><tr><td id="turret-stat-damage"></td><td id="turret-stat-fire-rate"></td><td id="turret-stat-range"></td><td id="turret-stat-special" style="display:none;"></td></tr></tbody>
-        </table>
-      </div>
-      <div class="module-divider-top">
-        <div class="module-section-label-tight">◈ POWER</div>
-        <div class="storage-power-panel">
-          <div class="storage-power-head">
-            <span class="storage-power-icon">ϟ</span>
-            <span class="storage-power-title">POWER GRID</span>
-          </div>
-          <table class="storage-power-table">
-            <thead><tr><th>Usage</th><th>Capacity</th><th>Connected</th></tr></thead>
-            <tbody><tr><td id="turret-power-usage"></td><td id="turret-power-value"></td><td id="turret-power-connected"></td></tr></tbody>
-          </table>
-          <div class="module-bar-row">
-            <span class="storage-power-icon">ϟ</span>
-            <div class="module-meter-track" style="flex:1;"><div id="turret-power-bar" class="module-meter-bar" style="background:linear-gradient(90deg,#caa020,#ffe066);transition:width 0.3s;"></div></div>
-          </div>
-        </div>
-        <div id="turret-no-power-warning" class="storage-no-power-warning" style="display:none;">WARNING: NO POWER</div>
-      </div>
-      <div class="module-section-label-tight">◈ UPGRADE</div>
-      <div id="turret-upgrade-reqs" class="bp-craft-reqs" style="margin-bottom:8px;"></div>
-      <div class="module-upgrade-grid" style="grid-template-columns:repeat(4,1fr);">
-        <button id="turret-upgrade-btn" class="btn primary module-btn-small">UPGRADE</button>
-        <button id="turret-move-btn" class="btn module-btn-small module-btn-move">MOVE</button>
-        <button id="turret-rename-btn" class="btn module-btn-small module-btn-rename">RENAME</button>
-        <button id="turret-sell-btn" class="btn danger module-btn-small">SELL</button>
       </div>
     `;
   }
@@ -251,8 +317,6 @@ export function renderTurretModal() {
   const rangeLabel = turret.range >= turretMaxRange ? `${turret.range} tiles (MAX)` : `${turret.range} tiles`;
   const canUpgrade = !atMaxLevel && state.coins >= upgCost.coins
     && Object.entries(upgCost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-  const networkInfo = getPowerModuleNetworkInfo(turret.id, state.modules, state.turrets);
-  const connectedPoleNames = networkInfo.poles.map((pole) => pole.name).filter(Boolean);
   const setTextIfChanged = (selector, value) => {
     const el = body.querySelector(selector);
     if (el && el.textContent !== value) el.textContent = value;
@@ -261,13 +325,28 @@ export function renderTurretModal() {
     const el = body.querySelector(selector);
     if (el && el.innerHTML !== value) el.innerHTML = value;
   };
+  const tierLvl = Math.max(1, Math.min(10, turret.level || 1));
+  const tierColor = MINE_TIERS[tierLvl]?.color || '#ff6a5a';
   setTextIfChanged('#turret-modal-name', `⬡ ${turret.name || turretDef.name}`);
-  setTextIfChanged('#turret-tier-pill', `TIER ${toRoman(Math.max(1, Math.min(10, turret.level || 1)))}`);
+  setTextIfChanged('#turret-tier-pill', `TIER ${toRoman(tierLvl)}`);
+  const tierPill = body.querySelector('#turret-tier-pill');
+  if (tierPill) {
+    const light = isLightColor(tierColor) || tierColor.toLowerCase() === '#ffffff';
+    tierPill.style.background = light
+      ? `linear-gradient(180deg, #fff 0%, #e8eef8 100%)`
+      : tierColor;
+    tierPill.style.color = light ? '#111' : '#fff';
+    tierPill.style.border = light ? '1px solid rgba(0,0,0,0.18)' : '1px solid transparent';
+    tierPill.style.textShadow = light ? 'none' : '0 0 10px rgba(0,0,0,0.35)';
+  }
   const renameHeroBtn = body.querySelector('#turret-rename-hero-btn');
   if (renameHeroBtn) renameHeroBtn.onclick = () => window.openTurretRenameOverlay?.(turret.id);
   setTextIfChanged('#turret-health-value', `${fmt(turret.health)} / ${fmt(turret.maxHealth)}`);
   const healthValue = body.querySelector('#turret-health-value');
-  if (healthValue) healthValue.style.color = hpColor;
+  if (healthValue) {
+    healthValue.style.color = hpColor;
+    healthValue.classList.toggle('warn', hpPct <= 60);
+  }
   const healthBar = body.querySelector('#turret-health-bar');
   if (healthBar) {
     healthBar.style.width = `${hpPct}%`;
@@ -276,45 +355,80 @@ export function renderTurretModal() {
   const banner = body.querySelector('#turret-operational-banner');
   if (banner) {
     banner.textContent = offline ? (noPower ? 'NO POWER' : 'OFFLINE') : 'ONLINE';
-    banner.className = `module-status-banner ${offline ? 'module-status-banner-offline' : 'module-status-banner-online'}`;
+    banner.className = `lab-status-pill${offline ? ' offline' : ''}`;
   }
-  setTextIfChanged('#turret-stat-damage', turretDef.baseDamage > 0 ? String(turret.damage) : `${turret.stunDuration.toFixed(2).replace(/\.00$/, '')}s Stun`);
+  const isEmp = !(turretDef.baseDamage > 0);
+  const dmgLabel = body.querySelector('#turret-stat-damage-label');
+  if (dmgLabel) dmgLabel.textContent = isEmp ? 'STUN' : 'DAMAGE';
+  const dmgIcon = body.querySelector('#turret-stat-damage-icon');
+  if (dmgIcon) dmgIcon.textContent = isEmp ? 'electric_bolt' : 'swords';
+  setTextIfChanged(
+    '#turret-stat-damage',
+    isEmp
+      ? `${(turret.stunDuration || 0).toFixed(2).replace(/\.00$/, '')}s`
+      : String(turret.damage),
+  );
   setTextIfChanged('#turret-stat-fire-rate', formatTurretFireRate(turret));
-  setTextIfChanged('#turret-stat-range', rangeLabel);
-  const specialHead = body.querySelector('#turret-stat-special-head');
-  const specialValue = body.querySelector('#turret-stat-special');
-  if (specialHead && specialValue) {
+  setTextIfChanged('#turret-stat-range', rangeLabel.toUpperCase());
+  const specialRow = body.querySelector('#turret-stat-special-row');
+  if (specialRow) {
     const showPowerDrive = powerDrive > 0;
-    specialHead.style.display = showPowerDrive ? '' : 'none';
-    specialValue.style.display = showPowerDrive ? '' : 'none';
+    specialRow.hidden = !showPowerDrive;
     if (showPowerDrive) setTextIfChanged('#turret-stat-special', String(powerDrive));
   }
   setTextIfChanged('#turret-power-usage', `${(turret.powerUsage || getTurretPowerUsage(turret)).toFixed(1).replace(/\.0$/, '')}/s`);
   setTextIfChanged('#turret-power-value', `${fmt(Math.round(turret.power || 0))} / ${fmt(turret.powerCapacity || 0)}`);
-  const connectedHtml = connectedPoleNames.length
-    ? connectedPoleNames.map((name) => escapeHtml(name)).join('<br>')
-    : 'None';
-  setHtmlIfChanged('#turret-power-connected', connectedHtml);
-  const connectedEl = body.querySelector('#turret-power-connected');
-  if (connectedEl) connectedEl.style.fontSize = '13px';
+  setTextIfChanged('#turret-sys-status', offline ? (noPower ? 'NO POWER' : 'OFFLINE') : 'ONLINE');
+  const sysStatus = body.querySelector('#turret-sys-status');
+  if (sysStatus) {
+    sysStatus.classList.toggle('green', !offline);
+    sysStatus.classList.toggle('warn', offline);
+  }
+  setTextIfChanged('#turret-sys-type', turretDef.name || 'Turret');
   const powerBar = body.querySelector('#turret-power-bar');
   if (powerBar) powerBar.style.width = `${powerPct}%`;
   const noPowerWarning = body.querySelector('#turret-no-power-warning');
   if (noPowerWarning) noPowerWarning.style.display = noPower ? '' : 'none';
+  // Network tab only — same as building modals
+  const layoutRoot = body.querySelector('.lab-layout[data-module-id]');
+  if (layoutRoot?.querySelector('.mod-tab.on[data-tab="network"]')) {
+    patchEntityNetworkPanel(layoutRoot, turret);
+  }
   const reqsHtml = (() => {
+    if (atMaxLevel) return '';
     const c1 = state.coins >= upgCost.coins;
     const reqEntries = Object.entries(upgCost.reqs);
-    const pill  = (met, label) => '<span class="bp-craft-req '+(met?'met':'unmet')+'">'+label+'</span>';
-    const cpill = (met, label) => '<span class="bp-craft-req" style="border-color:'+(met?'#2a7a43':'#802020')+';background:'+(met?'rgba(10,60,24,0.42)':'rgba(60,10,10,0.4)')+';color:'+(met?'#6fff9a':'#f88')+';">'+label+'</span>';
-    return cpill(c1, '$'+fmt(upgCost.coins)) + reqEntries.map(([r, n]) => pill((state.resources[r]||0) >= n, `${r[0].toUpperCase()+r.slice(1)}: ${fmt(n)}`)).join('');
+    const pill = (met, label) => `<span class="bp-craft-req ${met ? 'met' : 'unmet'}">${label}</span>`;
+    const cpill = (met, label) => `<span class="bp-craft-req" style="border-color:${met ? '#2a7a43' : '#802020'};background:${met ? 'rgba(10,60,24,0.42)' : 'rgba(60,10,10,0.4)'};color:${met ? '#6fff9a' : '#f88'};">${label}</span>`;
+    return cpill(c1, `$${fmt(upgCost.coins)}`)
+      + reqEntries.map(([r, n]) => pill((state.resources[r] || 0) >= n, `${r[0].toUpperCase() + r.slice(1)}: ${fmt(n)}`)).join('');
   })();
-  const reqsEl = body.querySelector('#turret-upgrade-reqs');
-  if (reqsEl && reqsEl.innerHTML !== reqsHtml) reqsEl.innerHTML = reqsHtml;
   const upgradeBtn = body.querySelector('#turret-upgrade-btn');
   if (upgradeBtn) {
     upgradeBtn.textContent = atMaxLevel ? '★ MAX' : 'UPGRADE';
     upgradeBtn.disabled = !canUpgrade;
+    upgradeBtn.title = canUpgrade || atMaxLevel
+      ? ''
+      : `Need ${reqsHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`;
     upgradeBtn.onclick = () => window.upgradeTurret?.(turret.id);
+  }
+  // Repair — cost = missing HP × rank (same as buildings)
+  const missingHp = Math.max(0, Math.ceil((turret.maxHealth || 0) - (turret.health || 0)));
+  const repairRank = Math.max(1, Math.floor(turret.level || 1));
+  const repairCost = missingHp * repairRank;
+  const repairBtn = body.querySelector('#turret-repair-btn');
+  if (repairBtn) {
+    if (missingHp <= 0) {
+      repairBtn.style.display = 'none';
+      repairBtn.disabled = true;
+    } else {
+      const canRepair = (state.coins || 0) >= repairCost;
+      repairBtn.style.display = '';
+      repairBtn.disabled = !canRepair;
+      repairBtn.classList.toggle('primary', canRepair);
+      repairBtn.textContent = `REPAIR $${fmt(repairCost)}`;
+      repairBtn.onclick = () => window.repairTurret?.(turret.id);
+    }
   }
   const moveBtn = body.querySelector('#turret-move-btn');
   if (moveBtn) moveBtn.onclick = () => window.startMoveTurret?.(turret.id);
@@ -323,6 +437,32 @@ export function renderTurretModal() {
   const sellBtn = body.querySelector('#turret-sell-btn');
   if (sellBtn) sellBtn.onclick = () => window.confirmScrapTurret?.(turret.id);
 }
+
+window.repairTurret = function(id) {
+  const turret = state.turrets.find((t) => t.id === id);
+  if (!turret) return;
+  const maxH = Math.max(0, turret.maxHealth || 0);
+  const curH = Math.max(0, turret.health || 0);
+  const missing = Math.max(0, Math.ceil(maxH - curH));
+  if (missing <= 0 || maxH <= 0) {
+    addLog(`${turret.name || 'Turret'} is already at full integrity.`);
+    renderTurretModal();
+    return;
+  }
+  const rank = Math.max(1, Math.floor(turret.level || 1));
+  const cost = missing * rank;
+  if ((state.coins || 0) < cost) {
+    addLog(`⚠ Not enough coins to repair ${turret.name || 'turret'} ($${fmt(cost)}).`);
+    return;
+  }
+  spendCoins(cost);
+  turret.health = maxH;
+  invalidateNetworkCache();
+  addLog(`🔧 ${turret.name || getTurretTypeDef(turret.type).name} repaired +${fmt(missing)} HP (×${rank}) → ${fmt(turret.health)}/${fmt(turret.maxHealth)}`);
+  if (refresh.ui) refresh.ui();
+  if (refresh.resources) refresh.resources();
+  renderTurretModal();
+};
 
 export function patchTurretModal() {
   if (!state.selectedTurret) return;

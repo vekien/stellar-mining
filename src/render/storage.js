@@ -28,8 +28,7 @@ const powerPoleImage = new Image();
 powerPoleImage.src = 'assets/images/buildings/power_pole.png';
 const powerPoleHoverImage = new Image();
 powerPoleHoverImage.src = 'assets/images/buildings/power_pole_hover.png';
-const noPowerImage = new Image();
-noPowerImage.src = 'assets/images/buildings/no-power.png';
+
 const droneLabImage = new Image();
 droneLabImage.src = 'assets/images/buildings/drone_lab.png';
 const droneLabHoverImage = new Image();
@@ -93,10 +92,158 @@ function getModuleSprite(module, hovered) {
   return { ...defs, image };
 }
 
+function drawMsStatusIcon(cx, cy, iconName, {
+  size = 22,
+  pulse = 0.5,
+  color = '#ff6a3a',
+  glow = 'rgba(255, 90, 40, 0.95)',
+} = {}) {
+  ctx.save();
+  ctx.font = `400 ${size}px "Material Symbols Outlined"`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (ctx.fontKerning !== undefined) ctx.fontKerning = 'normal';
+  const alpha = 0.85 + pulse * 0.15;
+
+  // Soft bloom under the glyph
+  ctx.globalAlpha = 0.28 + pulse * 0.18;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.62, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Strong outer glow
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = 18 + pulse * 14;
+  ctx.fillStyle = color;
+  ctx.fillText(iconName, cx, cy);
+
+  // Hot core pass
+  ctx.shadowBlur = 8 + pulse * 5;
+  ctx.shadowColor = 'rgba(255,255,255,0.9)';
+  ctx.globalAlpha = 0.4 + pulse * 0.2;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(iconName, cx, cy);
+
+  // Crisp colored glyph on top
+  ctx.shadowBlur = 12 + pulse * 8;
+  ctx.shadowColor = glow;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fillText(iconName, cx, cy);
+  ctx.restore();
+}
+
+function drawDestroyedIcon(cx, cy, size = 22, pulse = 0.5) {
+  drawMsStatusIcon(cx, cy, 'mode_heat', {
+    size,
+    pulse,
+    color: '#ff6a3a',
+    glow: 'rgba(255, 90, 30, 1)',
+  });
+}
+
+/** Glowing glyph only — no disc behind it (easier to spot on busy sprites). */
+function drawCrisisAlertIcon(cx, cy, size = 24, pulse = 0.5) {
+  const color = '#ff3a3a';
+  const glow = 'rgba(255, 50, 50, 1)';
+  const alpha = 0.9 + pulse * 0.1;
+  ctx.save();
+  ctx.font = `400 ${size}px "Material Symbols Outlined"`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (ctx.fontKerning !== undefined) ctx.fontKerning = 'normal';
+  // Strong red bloom on the glyph
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = 22 + pulse * 18;
+  ctx.fillStyle = color;
+  ctx.fillText('crisis_alert', cx, cy);
+  // Hot white core
+  ctx.shadowBlur = 10 + pulse * 8;
+  ctx.shadowColor = 'rgba(255,255,255,0.95)';
+  ctx.globalAlpha = 0.55 + pulse * 0.35;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('crisis_alert', cx, cy);
+  // Crisp red top pass
+  ctx.shadowBlur = 14 + pulse * 10;
+  ctx.shadowColor = glow;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fillText('crisis_alert', cx, cy);
+  ctx.restore();
+}
+
+/** Modules that have taken at least one hit this raid. */
+function getCrisisHitModuleIds() {
+  const hit = state.activeRaid?.hitModuleIds;
+  if (!hit) return null;
+  return hit;
+}
+
+function isModuleCrisisAlert(module, hitIds) {
+  if (!module || (module.health || 0) <= 0) return false;
+  if (!state.activeRaid) return false;
+  const map = hitIds || getCrisisHitModuleIds();
+  return !!(map && map[module.id]);
+}
+
+function drawNoPowerIcon(cx, cy, size = 22, pulse = 0.5) {
+  drawMsStatusIcon(cx, cy, 'power_off', {
+    size,
+    pulse,
+    color: '#ffe066',
+    glow: 'rgba(255, 220, 80, 1)',
+  });
+}
+
+function drawNeedsRepairIcon(cx, cy, size = 16, pulse = 0.5) {
+  drawMsStatusIcon(cx, cy, 'build', {
+    size,
+    pulse,
+    color: '#7ec8ff',
+    glow: 'rgba(100, 190, 255, 0.95)',
+  });
+}
+
+function moduleNeedsRepair(module) {
+  const maxH = module?.maxHealth || 0;
+  const hp = module?.health || 0;
+  return maxH > 0 && hp > 0 && hp < maxH - 0.5;
+}
+
+/** Health bar above building when damaged (below 100%). */
+function drawModuleHealthBar(module) {
+  const maxH = module?.maxHealth || 0;
+  const hp = Math.max(0, module?.health || 0);
+  if (maxH <= 0 || hp >= maxH - 0.5) return;
+  const { x, y } = gridToIso(module.col, module.row);
+  const cx = x;
+  // Sit above the footprint / sprite
+  const barY = y + TILE_H / 2 - 52;
+  const barW = 36;
+  const barH = 4;
+  const pct = Math.max(0, Math.min(1, hp / maxH));
+  const fill = pct > 0.5 ? '#4d8' : pct > 0.25 ? '#fa4' : '#f44';
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(cx - barW / 2, barY, barW, barH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cx - barW / 2 + 0.5, barY + 0.5, barW - 1, barH - 1);
+  if (pct > 0) {
+    ctx.fillStyle = fill;
+    ctx.fillRect(cx - barW / 2, barY, barW * pct, barH);
+  }
+  ctx.restore();
+}
+
 function drawModuleSprite(module, hovered, options = {}) {
   const sprite = getModuleSprite(module, hovered);
   if (!sprite) return false;
   const showEffects = state.settings?.showVisualEffects !== false;
+  const destroyed = !!options.destroyed;
 
   const { x, y } = gridToIso(module.col, module.row);
   const cx = x;
@@ -105,13 +252,19 @@ function drawModuleSprite(module, hovered, options = {}) {
   const imageY = cy - sprite.height + sprite.offsetY;
 
   ctx.save();
-  if (options.disabledFlash) {
+  if (destroyed) {
+    const pulse = options.disabledFlash || 0.5;
+    ctx.filter = `grayscale(1) brightness(${(0.5 + pulse * 0.12).toFixed(2)})`;
+    ctx.globalAlpha = 0.62 + pulse * 0.1;
+  } else if (options.disabledFlash) {
     const pulse = options.disabledFlash;
     const brightness = 0.62 + (pulse * 0.2);
     ctx.filter = `grayscale(1) brightness(${brightness.toFixed(2)})`;
     ctx.globalAlpha = 0.72 + (pulse * 0.18);
   }
-  ctx.shadowColor = options.shadowColor || 'rgba(80,200,255,0.14)';
+  ctx.shadowColor = destroyed
+    ? 'rgba(40,40,40,0.35)'
+    : (options.shadowColor || 'rgba(80,200,255,0.14)');
   ctx.shadowBlur = showEffects ? sprite.shadow : 0;
   ctx.drawImage(sprite.image, imageX, imageY, sprite.width, sprite.height);
   ctx.restore();
@@ -121,17 +274,16 @@ function drawModuleSprite(module, hovered, options = {}) {
     ctx.fillRect(imageX, imageY, sprite.width, sprite.height);
   }
 
-  if (showEffects && options.disabledFlash && noPowerImage.complete && noPowerImage.naturalWidth > 0) {
-    const pulse = options.disabledFlash;
-    const overlaySize = 64;
-    const overlayX = cx - (overlaySize / 2);
-    const overlayY = imageY + 8;
-    ctx.save();
-    ctx.globalAlpha = 0.45 + (pulse * 0.45);
-    ctx.shadowColor = 'rgba(255,214,64,0.22)';
-    ctx.shadowBlur = 8 + (pulse * 6);
-    ctx.drawImage(noPowerImage, overlayX, overlayY, overlaySize, overlaySize);
-    ctx.restore();
+  const pulse = options.disabledFlash || (0.5 + 0.5 * Math.sin(performance.now() / 220));
+  if (destroyed) {
+    drawDestroyedIcon(cx, imageY + sprite.height * 0.4, 22, pulse);
+  } else if (showEffects && options.crisisAlert) {
+    drawCrisisAlertIcon(cx, imageY + sprite.height * 0.38, 26, pulse);
+  } else if (showEffects && options.disabledFlash) {
+    drawNoPowerIcon(cx, imageY + sprite.height * 0.38, 22, pulse);
+  } else if (showEffects && options.needsRepair) {
+    // Small repair badge above the building
+    drawNeedsRepairIcon(cx, imageY + 6, 16, pulse);
   }
 
   return true;
@@ -191,19 +343,67 @@ function drawModuleRange(module) {
   ctx.restore();
 }
 
+function getHoveredNetworkEntityId() {
+  if (canvasState.storageHoverId != null) return canvasState.storageHoverId;
+  if (state.selectedModule != null) return state.selectedModule;
+  if (state.selectedTurret != null) return state.selectedTurret;
+  const hc = canvasState.turretHoverCol;
+  const hr = canvasState.turretHoverRow;
+  if (Number.isFinite(hc) && Number.isFinite(hr) && hc >= 0 && hr >= 0) {
+    const t = (state.turrets || []).find((x) => x.col === hc && x.row === hr);
+    if (t) return t.id;
+  }
+  return null;
+}
+
+function lineOpacity(key, fallback = 1) {
+  const v = state.settings?.[key];
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(0.05, Math.min(1, v));
+}
+
 export function drawPowerLinks() {
+  const always = state.settings?.showPowerLines !== false;
+  const onHover = state.settings?.showPowerLinesOnHover === true;
+  if (!always && !onHover) return;
   if (!state.modules.length && !state.turrets.length) return;
+  const hoverId = getHoveredNetworkEntityId();
+  if (!always && onHover && hoverId == null) return;
+
   const { activeEdges, entityById, turretIds } = getPowerNetworkState(state.modules, state.turrets);
   if (!activeEdges.length) return;
   const byId = entityById;
   const noFuelIds = getNoFuelNetworkIds(state.modules, state.turrets);
+  // Rank nodes for flow direction: station (2) > pole (1) > consumer/turret (0)
+  const flowRank = (id, ent) => {
+    if (!ent) return 0;
+    if (isPowerStationModule(ent)) return 2;
+    if (ent.type === POWER_POLE_ID) return 1;
+    if (turretIds.has(id)) return 0;
+    return 0;
+  };
   const pulse = state.settings?.showVisualEffects !== false ? 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 220))) : 0.45;
+  const opacity = lineOpacity('powerLineOpacity', 1);
+  // Continuous offset (no modulo) — same smooth marquee as lab node links
   ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.setLineDash([7, 5]);
+  ctx.lineDashOffset = -performance.now() / 70;
   for (let i = 0; i < activeEdges.length; i++) {
     const edge = activeEdges[i];
-    const from = byId.get(edge.fromId);
-    const to = byId.get(edge.toId);
+    if (!always && onHover) {
+      if (edge.fromId !== hoverId && edge.toId !== hoverId) continue;
+    }
+    let fromId = edge.fromId;
+    let toId = edge.toId;
+    let from = byId.get(fromId);
+    let to = byId.get(toId);
     if (!from || !to) continue;
+    // Normalize: higher rank (station/pole) draws first so dashes flow outward
+    if (flowRank(fromId, from) < flowRank(toId, to)) {
+      const swapE = from; from = to; to = swapE;
+      const swapI = fromId; fromId = toId; toId = swapI;
+    }
     const fromIso = gridToIso(from.col, from.row);
     const toIso = gridToIso(to.col, to.row);
     const fromX = fromIso.x;
@@ -211,37 +411,45 @@ export function drawPowerLinks() {
     const toX = toIso.x;
     const toY = toIso.y + TILE_H / 2;
     if (!isSegmentInView(fromX, fromY, toX, toY)) continue;
-    const alert = noFuelIds.has(edge.fromId) && noFuelIds.has(edge.toId);
+    const alert = noFuelIds.has(fromId) && noFuelIds.has(toId);
+    const turretLink = turretIds.has(fromId) || turretIds.has(toId);
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
-    const turretLink = turretIds.has(edge.fromId) || turretIds.has(edge.toId);
-    if (turretLink) ctx.setLineDash([7, 5]);
-    ctx.lineDashOffset = turretLink ? -(performance.now() / 70) % 12 : 0;
     ctx.strokeStyle = alert ? `rgba(255,110,110,${0.45 + pulse})` : 'rgba(255,220,90,0.85)';
-    ctx.lineWidth = turretLink ? 1.8 : 2.2;
+    ctx.lineWidth = turretLink ? 0.8 : 1.2;
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.strokeStyle = alert ? `rgba(255,210,210,${0.18 + (pulse * 0.5)})` : 'rgba(255,245,180,0.38)';
-    ctx.lineWidth = 0.9;
+    ctx.lineWidth = 0.6;
     ctx.stroke();
-    if (turretLink) ctx.setLineDash([]);
   }
+  ctx.setLineDash([]);
   ctx.restore();
 }
 
 export function drawLabLinks() {
+  const always = state.settings?.showResearchLines !== false;
+  const onHover = state.settings?.showResearchLinesOnHover === true;
+  if (!always && !onHover) return;
   if (!state.modules.length) return;
+  const hoverId = getHoveredNetworkEntityId();
+  if (!always && onHover && hoverId == null) return;
+
   const { activeEdges, nodeEdges } = getLabNetworkState(state.modules, state.nodes, state.base.level);
   if (!activeEdges.length && !nodeEdges.length) return;
-  // Reuse cached power-net entity map (includes all modules)
   const byId = getPowerNetworkState(state.modules, state.turrets).entityById;
   const pulse = state.settings?.showVisualEffects !== false ? 0.45 + (0.25 * (0.5 + 0.5 * Math.sin(performance.now() / 240))) : 0.45;
+  const opacity = lineOpacity('researchLineOpacity', 1);
   ctx.save();
+  ctx.globalAlpha = opacity;
   for (let i = 0; i < activeEdges.length; i++) {
     const edge = activeEdges[i];
+    if (!always && onHover) {
+      if (edge.fromId !== hoverId && edge.toId !== hoverId) continue;
+    }
     const from = byId.get(edge.fromId);
     const to = byId.get(edge.toId);
     if (!from || !to) continue;
@@ -256,19 +464,20 @@ export function drawLabLinks() {
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.strokeStyle = `rgba(88,201,143,${0.78 + (pulse * 0.12)})`;
-    ctx.lineWidth = 2.1;
+    ctx.lineWidth = 1.1;
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.strokeStyle = `rgba(180,255,220,${0.18 + (pulse * 0.18)})`;
-    ctx.lineWidth = 0.9;
+    ctx.lineWidth = 0.6;
     ctx.stroke();
   }
   ctx.setLineDash([7, 5]);
   ctx.lineDashOffset = -performance.now() / 80;
   for (let i = 0; i < nodeEdges.length; i++) {
     const edge = nodeEdges[i];
+    if (!always && onHover && edge.towerId !== hoverId) continue;
     const tower = byId.get(edge.towerId);
     if (!tower) continue;
     const fromIso = gridToIso(tower.col, tower.row);
@@ -282,36 +491,43 @@ export function drawLabLinks() {
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.strokeStyle = 'rgba(110,255,190,0.9)';
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 0.6;
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.strokeStyle = 'rgba(210,255,236,0.35)';
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = 0.5;
     ctx.stroke();
   }
   ctx.restore();
 }
 
-function drawStorageModule(module, hovered, phase = 'all') {
-  const noPower = (module.power || 0) <= 0 && (module.health || 0) > 0;
+function drawStorageModule(module, hovered, phase = 'all', crisisHitIds = null) {
+  const destroyed = (module.health || 0) <= 0;
+  const needsRepair = !destroyed && moduleNeedsRepair(module);
+  const noPower = !destroyed && (module.power || 0) <= 0;
+  const crisisAlert = isModuleCrisisAlert(module, crisisHitIds);
   const flash = 0.5 + 0.5 * Math.sin(performance.now() / 140);
   const isResearchLab = isResearchLabModule(module);
-  const bodyFill = noPower
+  const bodyFill = destroyed
+    ? 'rgba(70,70,74,0.88)'
+    : noPower
     ? (flash > 0.5 ? 'rgba(255,232,96,0.98)' : 'rgba(255,214,64,0.98)')
     : isResearchLab
       ? (hovered ? 'rgba(44,92,74,0.9)' : 'rgba(30,70,56,0.86)')
       : hovered ? 'rgba(82,88,102,0.9)' : 'rgba(62,68,80,0.86)';
-  const baseFill = noPower
+  const baseFill = destroyed
+    ? 'rgba(48,48,52,0.7)'
+    : noPower
     ? (flash > 0.5 ? 'rgba(255,222,72,0.22)' : 'rgba(255,202,50,0.32)')
     : isResearchLab
       ? (hovered ? 'rgba(42,88,68,0.72)' : 'rgba(28,64,50,0.62)')
       : hovered ? 'rgba(76,82,96,0.72)' : 'rgba(56,62,74,0.62)';
-  const stroke = noPower ? '#ffe066' : isResearchLab ? (hovered ? '#8ff0c4' : '#58c98f') : hovered ? '#cdd6e4' : '#9aa7bb';
-  const wallTop = noPower ? '#fff2a8' : isResearchLab ? (hovered ? '#b9f5db' : '#8fdcb8') : hovered ? '#dde4ef' : '#bcc6d6';
-  const wallSide = noPower ? '#e0bb32' : isResearchLab ? (hovered ? '#3f8f6d' : '#2f7056') : hovered ? '#6f7c90' : '#566274';
-  const wallOther = noPower ? '#f0cd4c' : isResearchLab ? '#285844' : '#454f5f';
+  const stroke = destroyed ? '#7a7a82' : noPower ? '#ffe066' : isResearchLab ? (hovered ? '#8ff0c4' : '#58c98f') : hovered ? '#cdd6e4' : '#9aa7bb';
+  const wallTop = destroyed ? '#9a9aa2' : noPower ? '#fff2a8' : isResearchLab ? (hovered ? '#b9f5db' : '#8fdcb8') : hovered ? '#dde4ef' : '#bcc6d6';
+  const wallSide = destroyed ? '#5a5a62' : noPower ? '#e0bb32' : isResearchLab ? (hovered ? '#3f8f6d' : '#2f7056') : hovered ? '#6f7c90' : '#566274';
+  const wallOther = destroyed ? '#4a4a52' : noPower ? '#f0cd4c' : isResearchLab ? '#285844' : '#454f5f';
 
   const tl = gridToIso(module.col - 1, module.row - 1);
   const tr = gridToIso(module.col + 1, module.row - 1);
@@ -342,10 +558,19 @@ function drawStorageModule(module, hovered, phase = 'all') {
   if (phase === 'footprint') return;
 
   if (drawModuleSprite(module, hovered, {
-    shadowColor: noPower ? 'rgba(255,214,64,0.18)' : 'rgba(80,200,255,0.14)',
-    disabledFlash: noPower ? flash : null,
+    shadowColor: destroyed ? 'rgba(40,40,40,0.3)' : noPower ? 'rgba(255,214,64,0.18)' : 'rgba(80,200,255,0.14)',
+    disabledFlash: (destroyed || noPower) ? flash : null,
+    destroyed,
+    needsRepair,
+    crisisAlert,
   })) {
     return;
+  }
+
+  ctx.save();
+  if (destroyed) {
+    ctx.filter = 'grayscale(1) brightness(0.55)';
+    ctx.globalAlpha = 0.7;
   }
 
   ctx.beginPath();
@@ -399,8 +624,7 @@ function drawStorageModule(module, hovered, phase = 'all') {
     ctx.stroke();
   }
 
-  ctx.save();
-  ctx.fillStyle = noPower ? '#ffe066' : isResearchLab ? '#8ff0c4' : '#d9e1ec';
+  ctx.fillStyle = destroyed ? '#aaa' : noPower ? '#ffe066' : isResearchLab ? '#8ff0c4' : '#d9e1ec';
   ctx.font = 'bold 9px Orbitron, monospace';
   ctx.textAlign = 'center';
   ctx.shadowColor = 'rgba(0,0,0,0.95)';
@@ -409,20 +633,31 @@ function drawStorageModule(module, hovered, phase = 'all') {
   ctx.shadowOffsetY = 1;
   ctx.fillText(isResearchLabModule(module) ? 'RESEARCH' : isDroneLabModule(module) ? 'DRONE LAB' : 'STORAGE', cx, cy - 34);
   ctx.restore();
+  if (destroyed) drawDestroyedIcon(cx, cy - 16, 22, flash);
+  else if (crisisAlert) drawCrisisAlertIcon(cx, cy - 16, 26, flash);
+  else if (noPower) drawNoPowerIcon(cx, cy - 16, 22, flash);
+  else if (needsRepair) drawNeedsRepairIcon(cx, cy - 36, 16, flash);
 }
 
-function drawPowerStationModule(module, hovered, phase = 'all') {
-  const noFuel = !hasPowerStationFuel(module) && (module.health || 0) > 0;
+function drawPowerStationModule(module, hovered, phase = 'all', crisisHitIds = null) {
+  const destroyed = (module.health || 0) <= 0;
+  const needsRepair = !destroyed && moduleNeedsRepair(module);
+  const noFuel = !destroyed && !hasPowerStationFuel(module);
+  const crisisAlert = isModuleCrisisAlert(module, crisisHitIds);
   const flash = 0.5 + 0.5 * Math.sin(performance.now() / 220);
   const half = getModuleFootprintHalf(module.type || POWER_STATION_ID);
-  const bodyFill = noFuel
+  const bodyFill = destroyed
+    ? 'rgba(70,70,74,0.88)'
+    : noFuel
     ? (flash > 0.5 ? 'rgba(255,198,108,0.96)' : 'rgba(255,166,72,0.96)')
     : hovered ? 'rgba(70,52,26,0.9)' : 'rgba(52,38,18,0.86)';
-  const baseFill = noFuel
+  const baseFill = destroyed
+    ? 'rgba(48,48,52,0.7)'
+    : noFuel
     ? (flash > 0.5 ? 'rgba(255,208,88,0.24)' : 'rgba(255,170,54,0.3)')
     : hovered ? 'rgba(72,56,24,0.72)' : 'rgba(52,40,18,0.62)';
-  const stroke = noFuel ? '#ffe066' : hovered ? '#ffd98f' : '#d9b15a';
-  const accent = noFuel ? '#fff0a8' : hovered ? '#ffe8b8' : '#f0d38a';
+  const stroke = destroyed ? '#7a7a82' : noFuel ? '#ffe066' : hovered ? '#ffd98f' : '#d9b15a';
+  const accent = destroyed ? '#aaa' : noFuel ? '#fff0a8' : hovered ? '#ffe8b8' : '#f0d38a';
 
   const tl = gridToIso(module.col - half, module.row - half);
   const tr = gridToIso(module.col + half, module.row - half);
@@ -453,10 +688,19 @@ function drawPowerStationModule(module, hovered, phase = 'all') {
   if (phase === 'footprint') return;
 
   if (drawModuleSprite(module, hovered, {
-    shadowColor: noFuel ? 'rgba(255,166,72,0.18)' : 'rgba(255,220,90,0.14)',
-    disabledFlash: noFuel ? flash : null,
+    shadowColor: destroyed ? 'rgba(40,40,40,0.3)' : noFuel ? 'rgba(255,166,72,0.18)' : 'rgba(255,220,90,0.14)',
+    disabledFlash: (destroyed || noFuel) ? flash : null,
+    destroyed,
+    needsRepair,
+    crisisAlert,
   })) {
     return;
+  }
+
+  ctx.save();
+  if (destroyed) {
+    ctx.filter = 'grayscale(1) brightness(0.55)';
+    ctx.globalAlpha = 0.7;
   }
 
   ctx.beginPath();
@@ -479,12 +723,12 @@ function drawPowerStationModule(module, hovered, phase = 'all') {
   ctx.closePath();
   ctx.fillStyle = 'rgba(122,88,18,0.92)';
   if (noFuel) ctx.fillStyle = 'rgba(108,70,18,0.95)';
+  if (destroyed) ctx.fillStyle = 'rgba(60,60,64,0.95)';
   ctx.fill();
   ctx.strokeStyle = accent;
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  ctx.save();
   ctx.fillStyle = accent;
   ctx.font = 'bold 9px Orbitron, monospace';
   ctx.textAlign = 'center';
@@ -492,22 +736,33 @@ function drawPowerStationModule(module, hovered, phase = 'all') {
   ctx.shadowBlur = 3;
   ctx.fillText('POWER', cx, cy - 34);
   ctx.restore();
+  if (destroyed) drawDestroyedIcon(cx, cy - 16, 22, flash);
+  else if (crisisAlert) drawCrisisAlertIcon(cx, cy - 16, 26, flash);
+  else if (noFuel) drawNoPowerIcon(cx, cy - 16, 22, flash);
+  else if (needsRepair) drawNeedsRepairIcon(cx, cy - 36, 16, flash);
 }
 
-function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null) {
+function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null, crisisHitIds = null) {
   const isPole = module.type === 'power_pole';
   const isLabTower = module.type === LAB_TOWER_ID;
+  const destroyed = (module.health || 0) <= 0;
+  const needsRepair = !destroyed && moduleNeedsRepair(module);
+  const crisisAlert = isModuleCrisisAlert(module, crisisHitIds);
   const alertIds = noFuelIds || getNoFuelNetworkIds(state.modules, state.turrets);
-  const alert = (isPole && alertIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module));
+  const alert = !destroyed && ((isPole && alertIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module)));
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
-  const fill = alert
+  const fill = destroyed
+    ? 'rgba(90,90,96,0.88)'
+    : alert
     ? (hovered ? `rgba(220,90,110,${0.82 + (pulse * 0.12)})` : `rgba(178,52,78,${0.78 + (pulse * 0.1)})`)
     : isLabTower ? (hovered ? 'rgba(110,238,170,0.96)' : 'rgba(76,201,143,0.92)') : hovered ? 'rgba(255,224,110,0.94)' : 'rgba(242,196,54,0.92)';
-  const glow = alert
+  const glow = destroyed
+    ? 'rgba(60,60,66,0.55)'
+    : alert
     ? (hovered ? `rgba(255,156,156,${0.2 + (pulse * 0.18)})` : `rgba(255,110,110,${0.12 + (pulse * 0.14)})`)
     : isLabTower ? (hovered ? 'rgba(160,255,214,0.38)' : 'rgba(88,201,143,0.24)') : hovered ? 'rgba(255,236,160,0.4)' : 'rgba(255,214,90,0.26)';
-  const stroke = alert ? (hovered ? '#ffe2e2' : '#ffb0b0') : isLabTower ? (hovered ? '#d8fff0' : '#8ff0c4') : hovered ? '#fff1b8' : '#ffd85a';
-  const accent = alert ? (hovered ? '#fff4f4' : '#ffdede') : isLabTower ? (hovered ? '#effff8' : '#c7ffe7') : hovered ? '#fff8da' : '#fff0a8';
+  const stroke = destroyed ? '#7a7a82' : alert ? (hovered ? '#ffe2e2' : '#ffb0b0') : isLabTower ? (hovered ? '#d8fff0' : '#8ff0c4') : hovered ? '#fff1b8' : '#ffd85a';
+  const accent = destroyed ? '#aaa' : alert ? (hovered ? '#fff4f4' : '#ffdede') : isLabTower ? (hovered ? '#effff8' : '#c7ffe7') : hovered ? '#fff8da' : '#fff0a8';
   let cx, cy;
   if (phase !== 'sprite') {
     const result = drawDiamond(module.col, module.row, glow, stroke, 1.4);
@@ -519,11 +774,23 @@ function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null) 
 
   if (phase === 'footprint') return;
 
+  // Poles: alert = no power on network → show power_off (not destroyed heat icon)
+  const noPowerPole = isPole && alert;
   if (drawModuleSprite(module, hovered, {
-    shadowColor: alert ? 'rgba(255,110,110,0.2)' : 'rgba(255,220,90,0.14)',
-    disabledFlash: alert ? pulse : null,
+    shadowColor: destroyed ? 'rgba(40,40,40,0.3)' : alert ? 'rgba(255,110,110,0.2)' : 'rgba(255,220,90,0.14)',
+    disabledFlash: (destroyed || alert) ? pulse : null,
+    destroyed,
+    needsRepair,
+    crisisAlert,
+    noPower: noPowerPole || (!destroyed && alert && !isLabTower),
   })) {
     return;
+  }
+
+  ctx.save();
+  if (destroyed) {
+    ctx.filter = 'grayscale(1) brightness(0.55)';
+    ctx.globalAlpha = 0.7;
   }
 
   ctx.beginPath();
@@ -554,22 +821,26 @@ function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null) 
     ctx.lineTo(cx + 10, cy + 2);
     ctx.lineTo(cx - 10, cy + 2);
     ctx.closePath();
-      ctx.fillStyle = 'rgba(122,88,18,0.92)';
+    ctx.fillStyle = 'rgba(122,88,18,0.92)';
     if (alert) ctx.fillStyle = 'rgba(108,22,40,0.95)';
+    if (destroyed) ctx.fillStyle = 'rgba(60,60,64,0.95)';
     ctx.fill();
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1.1;
     ctx.stroke();
   }
 
-  ctx.save();
   ctx.fillStyle = accent;
   ctx.font = 'bold 8px Orbitron, monospace';
   ctx.textAlign = 'center';
   ctx.shadowColor = 'rgba(0,0,0,0.95)';
   ctx.shadowBlur = 3;
-    ctx.fillText(isLabTower ? 'LAB' : isPole ? 'POLE' : 'POWER', cx, cy - 24);
+  ctx.fillText(isLabTower ? 'LAB' : isPole ? 'POLE' : 'POWER', cx, cy - 24);
   ctx.restore();
+  if (destroyed) drawDestroyedIcon(cx, cy - 12, 20, pulse);
+  else if (crisisAlert) drawCrisisAlertIcon(cx, cy - 12, 24, pulse);
+  else if (noPowerPole || (alert && isPole)) drawNoPowerIcon(cx, cy - 12, 20, pulse);
+  else if (needsRepair) drawNeedsRepairIcon(cx, cy - 28, 15, pulse);
 }
 
 function isoDepth(module) { return module.col + module.row; }
@@ -592,7 +863,7 @@ function getSortedModules() {
   return _sortedModules;
 }
 
-function drawModuleForPhase(module, phase, noFuelIds) {
+function drawModuleForPhase(module, phase, noFuelIds, crisisHitIds) {
   const { x, y } = gridToIso(module.col, module.row);
   // Always draw selected / hovered / range-preview modules even if slightly offscreen
   const forceDraw = canvasState.storageHoverId === module.id
@@ -605,9 +876,17 @@ function drawModuleForPhase(module, phase, noFuelIds) {
     const showRange = !state.placingModule && (module.type === POWER_POLE_ID || module.type === LAB_TOWER_ID) && (hovered || state.selectedModule === module.id);
     if (showRange) drawModuleRange(module);
   }
-  if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) drawStorageModule(module, hovered, phase);
-  else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) drawPowerStationModule(module, hovered, phase);
-  else drawSingleTileModule(module, hovered, phase, noFuelIds);
+  if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) {
+    drawStorageModule(module, hovered, phase, crisisHitIds);
+  } else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) {
+    drawPowerStationModule(module, hovered, phase, crisisHitIds);
+  } else {
+    drawSingleTileModule(module, hovered, phase, noFuelIds, crisisHitIds);
+  }
+  // Health bar on sprite pass only (once per building)
+  if (phase === 'sprite' || phase === 'all') {
+    drawModuleHealthBar(module);
+  }
 }
 
 export function drawStorageFootprints() {
@@ -615,8 +894,9 @@ export function drawStorageFootprints() {
   const modules = state.modules;
   if (!modules.length) return;
   const noFuelIds = getNoFuelNetworkIds(modules, state.turrets);
+  const crisisHitIds = getCrisisHitModuleIds();
   const sorted = getSortedModules();
-  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'footprint', noFuelIds);
+  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'footprint', noFuelIds, crisisHitIds);
 }
 
 export function drawStorageSprites() {
@@ -624,8 +904,9 @@ export function drawStorageSprites() {
   const modules = state.modules;
   if (!modules.length) return;
   const noFuelIds = getNoFuelNetworkIds(modules, state.turrets);
+  const crisisHitIds = getCrisisHitModuleIds();
   const sorted = getSortedModules();
-  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'sprite', noFuelIds);
+  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'sprite', noFuelIds, crisisHitIds);
 }
 
 export function drawStorageFacilities() {

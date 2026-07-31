@@ -60,6 +60,14 @@ export let state = {
     showGrid: true,
     showBackgroundStars: true,
     showVisualEffects: true,
+    showCameraShake: true,
+    focusOnEvents: true,
+    showPowerLines: true,
+    showPowerLinesOnHover: false,
+    powerLineOpacity: 1,
+    showResearchLines: true,
+    showResearchLinesOnHover: false,
+    researchLineOpacity: 1,
     renderFps: 45,
   },
 
@@ -74,6 +82,10 @@ export let state = {
   upgradesTutActive: false,
   seenMsgs: {},
   eventCounts: {},
+
+  // Pirate pressure (Overview threat / status)
+  pirateKills: 0,
+  pirateStatus: 0,
 
   // Unlocks + defenses
   researchUnlocks: {},
@@ -108,6 +120,10 @@ export let state = {
   nextEventTimer: null,
   nextEventSol: null,
   activeWarning: null,
+
+  // Combat runtime (not persisted mid-raid — cleared on load)
+  enemies: [],
+  activeRaid: null,
 
   // Runtime visual effects
   baseRangeAnim: null,
@@ -164,6 +180,8 @@ export function saveGame() {
       nextEventTimer: state.nextEventTimer, nextEventSol: state.nextEventSol, eventCounts: state.eventCounts,
       blackHole: state.blackHole,
       researchUnlocks: state.researchUnlocks,
+      pirateKills: state.pirateKills || 0,
+      pirateStatus: state.pirateStatus || 0,
       hpBoostCount: state.hpBoostCount, shieldBoostCount: state.shieldBoostCount,
       antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
       autoRegenCount: state.autoRegenCount,
@@ -177,14 +195,21 @@ export function saveGame() {
       turretCraftTimers: state.turretCraftTimers,
       buildingCraftTimers: state.buildingCraftTimers,
       saveVersion: SAVE_VERSION,
-        ships: state.ships.map(s => ({
+        ships: state.ships.filter(s => !s.isHqSupport).map(s => ({
           id:s.id, name:s.name, type:s.type,
           capacity:s.capacity, flySpeed:s.flySpeed, mineSpeed:s.mineSpeed, mineTier:s.mineTier,
           mineBonus: s.mineBonus ?? 0.1,
           loadSpeed: s.loadSpeed ?? 0,
+          hp: s.hp ?? 0,
+          currentHp: s.currentHp ?? s.hp ?? 0,
+          attack: s.attack ?? 0,
+          attackSpeed: s.attackSpeed ?? 0,
           capacityLevel:s.capacityLevel, flySpeedLevel:s.flySpeedLevel, mineSpeedLevel:s.mineSpeedLevel,
           mineBonusLevel: s.mineBonusLevel ?? 0,
           loadSpeedLevel: s.loadSpeedLevel ?? 0,
+          hpLevel: s.hpLevel ?? 0,
+          attackLevel: s.attackLevel ?? 0,
+          atkRateLevel: s.atkRateLevel ?? 0,
           targetNode: s.targetNode,
           depotType: s.depotType,
           depotId: s.depotId,
@@ -217,6 +242,14 @@ export function loadGame() {
       showGrid: d.settings?.showGrid ?? true,
       showBackgroundStars: d.settings?.showBackgroundStars ?? true,
       showVisualEffects: d.settings?.showVisualEffects ?? true,
+      showCameraShake: d.settings?.showCameraShake ?? true,
+      focusOnEvents: d.settings?.focusOnEvents ?? true,
+      showPowerLines: d.settings?.showPowerLines ?? true,
+      showPowerLinesOnHover: d.settings?.showPowerLinesOnHover ?? false,
+      powerLineOpacity: Number.isFinite(d.settings?.powerLineOpacity) ? d.settings.powerLineOpacity : 1,
+      showResearchLines: d.settings?.showResearchLines ?? true,
+      showResearchLinesOnHover: d.settings?.showResearchLinesOnHover ?? false,
+      researchLineOpacity: Number.isFinite(d.settings?.researchLineOpacity) ? d.settings.researchLineOpacity : 1,
       renderFps: d.settings?.renderFps ?? 45,
     };
     state.solStarted = d.solStarted ?? false;
@@ -231,6 +264,8 @@ export function loadGame() {
     state.eventCounts = d.eventCounts ?? {};
     state.blackHole = d.blackHole ?? null;
     state.researchUnlocks = d.researchUnlocks ?? {};
+    state.pirateKills = Math.max(0, Math.floor(d.pirateKills || 0));
+    state.pirateStatus = Math.max(0, Math.min(100, Number(d.pirateStatus) || 0));
     // ── Migrations ──────────────────────────────────────────────
     // hp_boost → health_increase
     if (state.researchUnlocks.hp_boost) { state.researchUnlocks.health_increase = true; delete state.researchUnlocks.hp_boost; }
@@ -302,6 +337,8 @@ export function loadGame() {
     state.base.health = Math.min(state.base.health ?? state.base.maxHealth, state.base.maxHealth);
     // scheduleNextEvent() called by main.js after loadGame() if nextEventTimer === null
     state.activeWarning = null;
+    state.enemies = [];
+    state.activeRaid = null;
     shipIdCounter = d.shipIdCounter ?? 1;
     state.drones = [];          // always reset — drones respawn fresh from the lab on load
     state.droneIdCounter = 1;
@@ -320,9 +357,10 @@ export function loadGame() {
           mineBonusLevel: sd.mineBonusLevel ?? 0,
           mineBonus: mineBonusFromLevel(sd.mineBonusLevel ?? 0),
           loadSpeed:   sd.loadSpeed   ?? defaultLoadSpeed,
-          hp:          sd.hp          ?? 0,
-          attack:      sd.attack      ?? 0,
-          attackSpeed: sd.attackSpeed ?? 0,
+          hp:          sd.hp          ?? (SHIP_DEFS[sd.type]?.hp ?? 0),
+          currentHp:   sd.currentHp   ?? sd.hp ?? (SHIP_DEFS[sd.type]?.hp ?? 0),
+          attack:      sd.attack      ?? (SHIP_DEFS[sd.type]?.attack ?? 0),
+          attackSpeed: sd.attackSpeed ?? (SHIP_DEFS[sd.type]?.attackSpeed ?? 0),
           mineTier:sd.mineTier ?? 1,
           capacityLevel:  sd.capacityLevel  ?? 0,
           flySpeedLevel:  sd.flySpeedLevel  ?? 0,
@@ -338,7 +376,7 @@ export function loadGame() {
            loadBuffer: sd.loadBuffer ?? 0,
            loadingPickup: false,
            unloadingDepot: false,
-           status:'idle', targetNode: sd.targetNode ?? null,
+           status:'idle', targetNode: sd.targetNode ?? null, targetEnemyId: null,
         depotType: sd.depotType === 'research_lab' ? 'base' : (sd.depotType || 'base'),
         depotId: sd.depotType === 'research_lab' ? null : (sd.depotId ?? null),
         heading: Math.random() * Math.PI * 2,

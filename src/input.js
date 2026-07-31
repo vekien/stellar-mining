@@ -345,6 +345,10 @@ export function initInput(canvas) {
         window.closeModuleUpgradeOverlay?.();
         return;
       }
+      if (document.getElementById('ship-upgrade-overlay')?.classList.contains('show')) {
+        window.closeShipUpgradeOverlay?.();
+        return;
+      }
       if (document.getElementById('fuel-picker-overlay')?.classList.contains('show')) {
         window.closeFuelPickerOverlay?.();
         return;
@@ -588,9 +592,8 @@ function handleCanvasClick(canvas, clientX, clientY) {
     }
   }
 
-  // Clicked map but not a resource node: clear current ship selection
-  if (state.selectedShip !== null || state.pendingAssign !== null) {
-    state.selectedShip = null;
+  // Empty map click while assigning: cancel assign mode only — keep ship window open
+  if (state.pendingAssign !== null) {
     state.pendingAssign = null;
     canvas.style.cursor = '';
     removeReassignTooltip();

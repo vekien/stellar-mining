@@ -5,8 +5,10 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
 import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE, BASE_TIER_REQS } from '../data/base.js';
-import { fmt, showHintTooltip, hideTooltip, isLightColor } from '../helpers.js';
+import { fmt, fmtCompact, showHintTooltip, hideTooltip, isLightColor, spendCoins, addLog } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
+import { invalidateNetworkCache } from '../data/modules.js';
+import { refresh } from './refresh.js';
 import { renderTutPointers } from './tutorial.js';
 import {
   HEALTH_INCREASE_HP_PER_PURCHASE,
@@ -184,10 +186,170 @@ function collectInstallations() {
   };
 }
 
-let _basePanelTab = 'details'; // details | installations
+let _basePanelTab = 'details'; // details | controls | installations
+let _lastRepairPanelSig = '';
+let _lastRepairRebuildTs = 0;
+const REPAIR_PANEL_MIN_MS = 400;
+
+function normalizeBasePanelTab(tab) {
+  if (tab === 'installations' || tab === 'controls') return tab;
+  return 'details';
+}
+
+/** Stable sig so Controls pane only rebuilds when repair set / affordability changes. */
+function repairPanelSig(items) {
+  // Id set + total cost (not per-frame HP chatter on every tile)
+  const ids = (items || []).map((i) => `${i.kind}:${i.id}`).sort().join(',');
+  const total = (items || []).reduce((s, i) => s + i.cost, 0);
+  const can = (state.coins || 0) >= total && total > 0 ? 1 : 0;
+  return `${ids}|n:${(items || []).length}|t:${total}|a:${can}`;
+}
+
+const REPAIR_ICONS = {
+  storage_facility: 'warehouse',
+  research_lab: 'science',
+  power_station: 'bolt',
+  power_pole: 'electrical_services',
+  lab_tower: 'cell_tower',
+  drone_lab: 'drone_2',
+  turret: 'crisis_alert',
+  laser_turret: 'flashlight_on',
+  emp_turret: 'electric_bolt',
+};
+
+function repairIconFor(type, kind) {
+  if (REPAIR_ICONS[type]) return REPAIR_ICONS[type];
+  return kind === 'turret' ? 'crisis_alert' : 'apartment';
+}
+
+/** Damaged modules + turrets — cost = missing HP × rank. */
+export function collectRepairTargets() {
+  const items = [];
+  for (const m of state.modules || []) {
+    const maxH = Math.max(0, m.maxHealth || 0);
+    const curH = Math.max(0, m.health || 0);
+    if (maxH <= 0) continue;
+    const missing = Math.max(0, Math.ceil(maxH - curH));
+    if (missing <= 0) continue;
+    const rank = Math.max(1, Math.floor(m.level || 1));
+    items.push({
+      kind: 'module',
+      id: m.id,
+      type: m.type || 'storage_facility',
+      name: m.name || m.type || 'Building',
+      icon: repairIconFor(m.type, 'module'),
+      rank,
+      missing,
+      cost: missing * rank,
+    });
+  }
+  for (const t of state.turrets || []) {
+    const maxH = Math.max(0, t.maxHealth || 0);
+    const curH = Math.max(0, t.health || 0);
+    if (maxH <= 0) continue;
+    const missing = Math.max(0, Math.ceil(maxH - curH));
+    if (missing <= 0) continue;
+    const rank = Math.max(1, Math.floor(t.level || 1));
+    items.push({
+      kind: 'turret',
+      id: t.id,
+      type: t.type || 'turret',
+      name: t.name || t.type || 'Turret',
+      icon: repairIconFor(t.type, 'turret'),
+      rank,
+      missing,
+      cost: missing * rank,
+    });
+  }
+  items.sort((a, b) => b.cost - a.cost);
+  return items;
+}
+
+function buildControlsPaneHtml(repairItems) {
+  const totalCost = repairItems.reduce((s, r) => s + r.cost, 0);
+  const canAfford = (state.coins || 0) >= totalCost && totalCost > 0;
+  const gridHtml = repairItems.length
+    ? `<div class="cmd-repair-grid">${repairItems.map((r) => `
+        <div class="cmd-repair-tile" title="${r.name}">
+          <span class="ms-icon cmd-repair-tile-icon">${r.icon || 'build'}</span>
+          <span class="cmd-repair-tile-name">${r.name}</span>
+          <span class="cmd-repair-tile-cost">$${fmtCompact(r.cost)}</span>
+        </div>`).join('')}</div>`
+    : `<div class="cmd-repair-empty">All structures at full integrity.</div>`;
+  return `
+    <div class="cmd-controls bp-controls">
+      <div class="cmd-control-card">
+        <div class="cmd-control-head">
+          <span class="ms-icon cmd-control-icon">build</span>
+          <div>
+            <div class="cmd-control-title">REPAIR ALL</div>
+            <div class="cmd-control-sub">Restore damaged buildings &amp; turrets — cost × rank</div>
+          </div>
+        </div>
+        ${gridHtml}
+        <div class="cmd-repair-footer">
+          <button class="btn cmd-repair-all-btn${canAfford ? ' primary' : ''}" type="button"
+            ${canAfford ? '' : 'disabled'}
+            onclick="repairAllStructures()">${totalCost > 0
+              ? `REPAIR ALL — <span class="cmd-repair-btn-cost">$${fmt(totalCost)}</span>`
+              : 'NOTHING TO REPAIR'}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+window.repairAllStructures = function() {
+  const items = collectRepairTargets();
+  if (!items.length) {
+    addLog('All structures are already at full integrity.');
+    _lastRepairPanelSig = '';
+    renderBasePanel();
+    return;
+  }
+  const totalCost = items.reduce((s, r) => s + r.cost, 0);
+  if ((state.coins || 0) < totalCost) {
+    addLog(`⚠ Not enough coins to repair all ($${fmt(totalCost)} needed).`);
+    return;
+  }
+  spendCoins(totalCost);
+  let repaired = 0;
+  let totalHp = 0;
+  for (const item of items) {
+    if (item.kind === 'module') {
+      const m = (state.modules || []).find((x) => x.id === item.id);
+      if (!m) continue;
+      const maxH = Math.max(0, m.maxHealth || 0);
+      const missing = Math.max(0, Math.ceil(maxH - (m.health || 0)));
+      if (missing <= 0) continue;
+      m.health = maxH;
+      totalHp += missing;
+      repaired += 1;
+    } else if (item.kind === 'turret') {
+      const t = (state.turrets || []).find((x) => x.id === item.id);
+      if (!t) continue;
+      const maxH = Math.max(0, t.maxHealth || 0);
+      const missing = Math.max(0, Math.ceil(maxH - (t.health || 0)));
+      if (missing <= 0) continue;
+      t.health = maxH;
+      totalHp += missing;
+      repaired += 1;
+    }
+  }
+  invalidateNetworkCache();
+  addLog(`🔧 Repaired ${repaired} structure${repaired === 1 ? '' : 's'} (+${fmt(totalHp)} HP) for $${fmt(totalCost)}.`);
+  _lastRepairPanelSig = '';
+  if (refresh.ui) refresh.ui();
+  if (refresh.resources) refresh.resources();
+  renderBasePanel();
+};
 
 window.setBasePanelTab = function(tab) {
-  _basePanelTab = tab === 'installations' ? 'installations' : 'details';
+  _basePanelTab = normalizeBasePanelTab(tab);
+  // Force a fresh Controls rebuild when opening that tab
+  if (_basePanelTab === 'controls') {
+    _lastRepairPanelSig = '';
+    _lastRepairRebuildTs = 0;
+  }
   const root = document.getElementById('bp-body');
   if (!root) return;
   root.querySelectorAll('.bp-tab').forEach((btn) => {
@@ -196,6 +358,7 @@ window.setBasePanelTab = function(tab) {
   root.querySelectorAll('.bp-tab-pane').forEach((pane) => {
     pane.classList.toggle('on', pane.dataset.pane === _basePanelTab);
   });
+  if (_basePanelTab === 'controls') renderBasePanel();
 };
 
 function buildStructureHtml(ctx) {
@@ -203,8 +366,10 @@ function buildStructureHtml(ctx) {
     bl, maxShips, nextCost, nextResReqs, tierColor, hasShield,
     installedUpgrades, combatUpgrades, unlockedPerks, shieldPerSec,
   } = ctx;
-  const tab = _basePanelTab;
+  const tab = normalizeBasePanelTab(_basePanelTab);
   const installCount = installedUpgrades.length + combatUpgrades.length + unlockedPerks.length;
+  const repairItems = collectRepairTargets();
+  const repairCount = repairItems.length;
 
   const upgradeFooter = nextCost ? (() => {
     const ntColor = MINE_TIERS[bl + 1]?.color || '#8ab';
@@ -254,6 +419,10 @@ function buildStructureHtml(ctx) {
         <button type="button" class="bp-tab sm-tab${tab === 'details' ? ' on' : ''}" data-tab="details" onclick="setBasePanelTab('details')">
           <span class="ms-icon">circles</span> DETAILS
         </button>
+        <button type="button" class="bp-tab sm-tab${tab === 'controls' ? ' on' : ''}" data-tab="controls" onclick="setBasePanelTab('controls')">
+          <span class="ms-icon">tune</span> CONTROLS
+          <span class="bp-tab-count${repairCount > 0 ? ' alert' : ''}" id="bp-repair-count"${repairCount > 0 ? '' : ' hidden'}>${repairCount}</span>
+        </button>
         <button type="button" class="bp-tab sm-tab${tab === 'installations' ? ' on' : ''}" data-tab="installations" onclick="setBasePanelTab('installations')">
           <span class="ms-icon">construction</span> INSTALLATIONS
           <span class="bp-tab-count" id="bp-install-count">${installCount}</span>
@@ -288,6 +457,12 @@ function buildStructureHtml(ctx) {
           </div>
         </div>
 
+        <div class="bp-tab-pane${tab === 'controls' ? ' on' : ''}" data-pane="controls">
+          <div id="bp-controls-root" class="bp-controls-root">
+            ${buildControlsPaneHtml(repairItems)}
+          </div>
+        </div>
+
         <div class="bp-tab-pane${tab === 'installations' ? ' on' : ''}" data-pane="installations">
           <div class="sm-info-block sm-info-block-fill bp-install-panel">
             <div class="bp-install-scroll">
@@ -316,7 +491,29 @@ function patchLiveValues(root, ctx) {
     bl, maxShips, nextCost, nextResReqs, canUpgrade,
     hpPct, maxShield, shield, shieldPerSec, shipCount,
     online, hpCol, hpW, shW, missingHp, repairCost, canRepair,
+    repairItems,
   } = ctx;
+
+  const repairCount = repairItems?.length || 0;
+  const repairBadge = root.querySelector('#bp-repair-count');
+  if (repairBadge) {
+    const countStr = String(repairCount);
+    if (repairBadge.textContent !== countStr) repairBadge.textContent = countStr;
+    const hide = repairCount <= 0;
+    if (repairBadge.hidden !== hide) repairBadge.hidden = hide;
+    repairBadge.classList.toggle('alert', repairCount > 0);
+  }
+  // Rebuild Controls only on Controls tab, and only when data changes (throttled)
+  const controlsRoot = root.querySelector('#bp-controls-root');
+  if (controlsRoot && repairItems && _basePanelTab === 'controls') {
+    const sig = repairPanelSig(repairItems);
+    const now = performance.now();
+    if (sig !== _lastRepairPanelSig && (now - _lastRepairRebuildTs >= REPAIR_PANEL_MIN_MS || !_lastRepairPanelSig)) {
+      _lastRepairPanelSig = sig;
+      _lastRepairRebuildTs = now;
+      controlsRoot.innerHTML = buildControlsPaneHtml(repairItems);
+    }
+  }
 
   setText(root.querySelector('#bp-name'), `⬡ ${state.base.name || 'Base Station'}`);
 
@@ -519,6 +716,7 @@ export function renderBasePanel() {
     missingHp,
     repairCost,
     canRepair,
+    repairItems: collectRepairTargets(),
   });
 
   if (justOpened) {

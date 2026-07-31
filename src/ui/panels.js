@@ -20,6 +20,11 @@ import { TURRET_BASE_STATS } from '../data/turrets.js';
 import { MODULE_DEFS, getModuleDef, getModuleStats, getPowerFuelOutput, POWER_DISABLED_RESOURCES, POWER_RESOURCE_CONSUMPTION, STORAGE_FACILITY_ID, DRONE_LAB_ID, isDroneLabModule } from '../data/modules.js';
 import { SYNTHESIS_RECIPES, SYNTHESIS_CRAFT_TIMES, getSynthesisCraftTime } from '../data/synthesis.js';
 import { fmt, fmtCompact, resourceIconHtml } from '../helpers.js';
+import {
+  getThreatBreakdown,
+  getPirateStatusLabel,
+  PIRATE_STATUS_RAID_AT,
+} from '../data/combat.js';
 import { isTracked, refreshTrackButtons } from './craftTracker.js';
 import { getSellPrice } from '../systems/market.js';
 import { cancelTurretPlacement } from './turretUI.js';
@@ -351,7 +356,7 @@ export function patchSolPanel(what) {
     const el = document.getElementById('sol-sector-label');
     if (el) el.textContent = `◈ KEPLER-7 SECTOR — SOL ${state.sol}`;
   }
-  if (what === 'power') {
+  if (what === 'power' || what === 'threat' || !what) {
     const shipPow   = getFleetShipPower();
     const turretPow = getFleetTurretPower();
     const basePow   = getFleetBasePower();
@@ -359,6 +364,27 @@ export function patchSolPanel(what) {
     const bd = document.getElementById('sol-fleet-breakdown');
     if (el) el.textContent = shipPow + turretPow + basePow;
     if (bd) bd.textContent = `SHP ${shipPow} · TUR ${turretPow} · BASE ${basePow}`;
+  }
+  if (what === 'pirate' || what === 'threat' || what === 'power' || !what) {
+    const threat = getThreatBreakdown(state);
+    const pct = Math.max(0, Math.min(PIRATE_STATUS_RAID_AT, Math.floor(state.pirateStatus || 0)));
+    const statusEl = document.getElementById('sol-pirate-status');
+    const barEl = document.getElementById('sol-pirate-bar');
+    const pctEl = document.getElementById('sol-pirate-pct');
+    const threatEl = document.getElementById('sol-threat-level');
+    const threatBd = document.getElementById('sol-threat-breakdown');
+    if (statusEl) statusEl.textContent = getPirateStatusLabel(pct);
+    if (barEl) barEl.style.width = `${pct}%`;
+    if (pctEl) {
+      pctEl.textContent = pct >= PIRATE_STATUS_RAID_AT
+        ? `${pct}% — raid inbound`
+        : `${pct}% aggression · raid at ${PIRATE_STATUS_RAID_AT}%`;
+    }
+    if (threatEl) threatEl.textContent = String(threat.level);
+    if (threatBd) {
+      threatBd.textContent =
+        `FLT ${threat.shipPts} · DEF ${threat.turretPts} · INF ${threat.buildingPts} · KILL ${threat.killPts}`;
+    }
   }
 }
 
@@ -593,17 +619,9 @@ function craftTrackBtn(kind, id) {
   return `<button type="button" class="cf-track${tracked ? ' ct-tracked' : ''}" data-ct-kind="${kind}" data-ct-id="${id}" title="${tracked ? 'Untrack' : 'Track in craft queue'}" ${!tracked && atMax ? 'disabled' : ''} onclick="event.stopPropagation();toggleTrackCraft('${kind}','${id}')"><span class="ms-icon${tracked ? ' ms-icon-fill' : ''}" aria-hidden="true">bookmark</span></button>`;
 }
 
-function craftMatGridHtml(costCoins, reqs) {
+function craftMatGridHtml(reqs) {
+  // Credits shown on the BUILD button — materials grid is resources only
   const cells = [];
-  if (Number.isFinite(costCoins) && costCoins > 0) {
-    const met = state.coins >= costCoins;
-    cells.push(`<div class="cf-mat ${met ? 'ok' : 'bad'}" title="$${fmt(costCoins)}">
-      <span class="cf-mat-check">${met ? '✓' : '!'}</span>
-      <span class="cf-mat-icon cash">$</span>
-      <div class="cf-mat-name">Credits</div>
-      <div class="cf-mat-amt">${fmtCompact(costCoins)}</div>
-    </div>`);
-  }
   for (const [r, n] of Object.entries(reqs || {})) {
     const met = (state.resources[r] || 0) >= n;
     const label = RESOURCE_DEFS[r]?.label || r;
@@ -643,7 +661,8 @@ function craftBuildBtnHtml({ id, kind, label, can, timer, placeQueued, placeOncl
     </button>`;
   }
   return `<button class="cf-build" type="button" ${can ? '' : 'disabled'} onclick="${buildOnclick}">
-    <span class="ms-icon ms-icon-fill" aria-hidden="true">build</span> ${label}
+    <span class="ms-icon ms-icon-fill" aria-hidden="true">build</span>
+    <span class="bp-craft-btn-label">${label}</span>
   </button>`;
 }
 
@@ -888,6 +907,12 @@ export function openHdrPanel(type, options = {}) {
     const turretPow = getFleetTurretPower();
     const basePow   = getFleetBasePower();
     const fleetPower = shipPow + turretPow + basePow;
+    const threat = getThreatBreakdown(state);
+    const piratePct = Math.max(0, Math.min(PIRATE_STATUS_RAID_AT, Math.floor(state.pirateStatus || 0)));
+    const pirateLabel = getPirateStatusLabel(piratePct);
+    const pirateHint = piratePct >= PIRATE_STATUS_RAID_AT
+      ? `${piratePct}% — raid inbound`
+      : `${piratePct}% aggression · raid at ${PIRATE_STATUS_RAID_AT}%`;
     body.innerHTML = `
       <div class="overview-hero">
         <div class="overview-galaxy">ANDROMEDA</div>
@@ -902,11 +927,14 @@ export function openHdrPanel(type, options = {}) {
         </div>
         <div class="overview-card pirate">
           <div class="overview-card-label pirate">⚑ PIRATE STATUS</div>
-          <div class="overview-card-val pirate">Unknown</div>
+          <div id="sol-pirate-status" class="overview-card-val pirate">${pirateLabel}</div>
+          <div class="overview-gauge"><div id="sol-pirate-bar" class="overview-gauge-fill" style="width:${piratePct}%"></div></div>
+          <div id="sol-pirate-pct" class="overview-breakdown">${pirateHint}</div>
         </div>
         <div class="overview-card threat">
           <div class="overview-card-label threat">⬡ THREAT LEVEL</div>
-          <div class="overview-card-val threat">Moderate</div>
+          <div id="sol-threat-level" class="overview-card-val threat">${threat.level}</div>
+          <div id="sol-threat-breakdown" class="overview-breakdown">FLT ${threat.shipPts} · DEF ${threat.turretPts} · INF ${threat.buildingPts} · KILL ${threat.killPts}</div>
         </div>
       </div>
       <div class="overview-probe-wrap">
@@ -928,7 +956,7 @@ export function openHdrPanel(type, options = {}) {
       { id: 'bounties', label: 'BOUNTIES', icon: '⚑' },
       { id: 'rep',      label: 'REP',      icon: '★' },
     ];
-    const activeCmd = body.dataset.cmdTab || 'missions';
+    const activeCmd = body.dataset.cmdTab === 'controls' ? 'missions' : (body.dataset.cmdTab || 'missions');
     const tabBar = cmdTabs.map(t => `<button class="command-tab${activeCmd===t.id?' active':''}" onclick="setCmdTab('${t.id}')">${t.icon} ${t.label}</button>`).join('');
     const placeholders = {
       missions: { icon: '◈', title: 'MAIN MISSIONS', desc: 'Story-driven command missions with NPC transmissions, objectives, and sector-altering consequences. Follow the Andromeda narrative arc.' },
@@ -1232,10 +1260,8 @@ export function openHdrPanel(type, options = {}) {
 
     let detailHtml = '<div class="cf-empty">Select an item to craft.</div>';
     if (selected) {
-      const buildLabel = selected.kind === 'ship' ? 'BUILD SHIP'
-        : selected.kind === 'drone' ? 'BUILD DRONE'
-        : selected.kind === 'turret' ? `BUILD ${selected.name.toUpperCase()}`
-        : `BUILD ${selected.name.toUpperCase()}`;
+      const coinCost = Math.max(0, selected.cost || 0);
+      const buildLabel = coinCost > 0 ? `BUILD - $${fmt(coinCost)}` : 'BUILD';
       detailHtml = `
         <div class="cf-hero" style="--rank:${selected.roleColor}">
           <div class="cf-portrait">
@@ -1247,7 +1273,7 @@ export function openHdrPanel(type, options = {}) {
           <div class="cf-hero-blurb">${selected.blurb}</div>
         </div>
         <div class="cf-sec">◈ MATERIALS REQUIRED</div>
-        ${craftMatGridHtml(selected.cost, selected.reqs)}
+        ${craftMatGridHtml(selected.reqs)}
         <div class="cf-actions">
           ${craftBuildBtnHtml({
             id: selected.id,
@@ -1674,12 +1700,12 @@ export function openHdrPanel(type, options = {}) {
         },
         {
           role: 'combat', label: '⚔  COMBAT SHIPS', color: '#ff6060',
-          cols: ['SHIP','TIER','HP','ATTACK','ATK RATE','FLY SPD'],
+          cols: ['SHIP','TIER','HP','ATTACK','ATK RATE','RANGE'],
           row: (id, s) => [
             withMax((s.hp||0).toLocaleString(), profileMax(HP_PROFILE, id) !== null ? profileMax(HP_PROFILE, id).toLocaleString() : null),
             withMax(s.attack||0, profileMax(ATTACK_PROFILE, id)),
             withMax(formatAtkRatePercent(s.attackSpeed||0), profileMax(ATK_RATE_PROFILE, id) !== null ? `${Math.round(profileMax(ATK_RATE_PROFILE, id)*100)}%` : null),
-            withMax(formatFlySpeed(s.flySpeed), profileMax(FLY_SPEED_PROFILE, id) !== null ? formatFlySpeed(profileMax(FLY_SPEED_PROFILE, id)) : null),
+            '155 (shared)',
           ],
         },
         {
@@ -1870,6 +1896,11 @@ export function openHdrPanel(type, options = {}) {
           id: 'black_hole', label: 'Black Hole',
           desc: 'A temporary spatial anomaly forms somewhere in the sector, slowing ships that cross through its field until it collapses.',
           effect: 'Lasts about 60 seconds. Ships whose route crosses the anomaly are slowed to 20% speed while it is active.',
+        },
+        {
+          id: 'pirate_raid', label: 'Pirate Raid',
+          desc: 'Hostile craft enter the sector and attack your buildings. Combat ships and powered turrets auto-engage.',
+          effect: 'Pirate Status climbs each SOL and with expansion. At 100%, a raid hits. Threat Level (ships, turrets, buildings, kills) speeds aggression and HQ cost.',
         },
       ];
       tabContent = eventDefs.map(ev => {

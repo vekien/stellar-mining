@@ -221,20 +221,247 @@ export function drawBlackHole() {
   _ctx.restore();
 }
 
+// ── Combat beams (enemy/player weapon fire) ──
+const combatBeams = [];
+
+/**
+ * Short laser/bolt from shooter → target.
+ * @param {{x:number,y:number}} from
+ * @param {{x:number,y:number}} to
+ * @param {{ color?: string, duration?: number, width?: number }} [opts]
+ */
+export function spawnCombatBeam(from, to, opts = {}) {
+  if (!from || !to) return;
+  combatBeams.push({
+    x1: from.x,
+    y1: from.y,
+    x2: to.x,
+    y2: to.y,
+    color: opts.color || '#ff5d5d',
+    duration: opts.duration ?? 0.2,
+    width: opts.width ?? 2.2,
+    /** Hold full brightness this long before fading (laser beams). */
+    hold: opts.hold ?? 0,
+    /** Follow a living enemy (and optional turret origin) each frame. */
+    trackEnemyId: opts.trackEnemyId ?? null,
+    trackTurretId: opts.trackTurretId ?? null,
+    age: 0,
+  });
+}
+
+export function tickCombatBeams(dt) {
+  for (const b of combatBeams) {
+    b.age += dt;
+    // Laser tracking: stick beam end to the target ship
+    if (b.trackEnemyId != null) {
+      const e = (state.enemies || []).find((x) => x.id === b.trackEnemyId && (x.hp || 0) > 0);
+      if (e) {
+        b.x2 = e.x;
+        b.y2 = e.y;
+      }
+    }
+    if (b.trackTurretId != null) {
+      const t = (state.turrets || []).find((x) => x.id === b.trackTurretId && (x.health || 0) > 0);
+      if (t) {
+        const w = gridToWorld(t.col, t.row);
+        b.x1 = w.x;
+        b.y1 = w.y + TILE_H / 2 - 14;
+      }
+    }
+  }
+  for (let i = combatBeams.length - 1; i >= 0; i--) {
+    if (combatBeams[i].age >= combatBeams[i].duration) combatBeams.splice(i, 1);
+  }
+}
+
+export function drawCombatBeams() {
+  if (!combatBeams.length || !_ctx) return;
+  if (state.settings?.showVisualEffects === false) return;
+  _ctx.save();
+  _ctx.lineCap = 'round';
+  for (const b of combatBeams) {
+    const t = Math.max(0, Math.min(1, b.age / b.duration));
+    // Lasers hold bright longer then fade; bolts fade steadily
+    const hold = b.hold ?? 0;
+    let alpha;
+    if (hold > 0 && b.age < hold) {
+      alpha = 0.95;
+    } else {
+      const fadeT = hold > 0
+        ? Math.max(0, Math.min(1, (b.age - hold) / Math.max(0.05, b.duration - hold)))
+        : t;
+      alpha = (1 - fadeT) * 0.95;
+    }
+    const pulse = 0.75 + 0.25 * Math.sin(b.age * 40);
+
+    // Outer glow
+    _ctx.beginPath();
+    _ctx.moveTo(b.x1, b.y1);
+    _ctx.lineTo(b.x2, b.y2);
+    _ctx.strokeStyle = b.color;
+    _ctx.globalAlpha = alpha * 0.4;
+    _ctx.lineWidth = b.width * 3.4 * pulse;
+    _ctx.stroke();
+
+    // Colored core
+    _ctx.beginPath();
+    _ctx.moveTo(b.x1, b.y1);
+    _ctx.lineTo(b.x2, b.y2);
+    _ctx.strokeStyle = b.color;
+    _ctx.globalAlpha = alpha * 0.85;
+    _ctx.lineWidth = b.width * 1.4 * pulse;
+    _ctx.stroke();
+
+    // Hot white core
+    _ctx.beginPath();
+    _ctx.moveTo(b.x1, b.y1);
+    _ctx.lineTo(b.x2, b.y2);
+    _ctx.strokeStyle = '#ffffff';
+    _ctx.globalAlpha = alpha * 0.9;
+    _ctx.lineWidth = Math.max(1, b.width * 0.55 * pulse);
+    _ctx.stroke();
+
+    // Impact bloom on target
+    const impactR = 5 + (1 - t) * 12;
+    _ctx.beginPath();
+    _ctx.arc(b.x2, b.y2, impactR, 0, Math.PI * 2);
+    _ctx.fillStyle = b.color;
+    _ctx.globalAlpha = alpha * 0.4;
+    _ctx.fill();
+    _ctx.beginPath();
+    _ctx.arc(b.x2, b.y2, impactR * 0.4, 0, Math.PI * 2);
+    _ctx.fillStyle = '#ffffff';
+    _ctx.globalAlpha = alpha * 0.8;
+    _ctx.fill();
+  }
+  _ctx.restore();
+}
+
+// ── EMP blasts / turret explosions ──
+const empBlasts = [];
+const combatExplosions = [];
+
+/** Expanding EMP shockwave (default ~0.5s). */
+export function spawnEmpBlast(x, y, radius, opts = {}) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  empBlasts.push({
+    x,
+    y,
+    radius: Math.max(20, radius || 80),
+    duration: opts.duration ?? 0.5,
+    color: opts.color || '#5ec8ff',
+    age: 0,
+  });
+}
+
+export function spawnCombatExplosion(x, y, opts = {}) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  combatExplosions.push({
+    x,
+    y,
+    radius: opts.radius ?? 40,
+    duration: opts.duration ?? 0.45,
+    color: opts.color || '#ff6a3a',
+    age: 0,
+  });
+}
+
+export function tickEmpBlasts(dt) {
+  for (const b of empBlasts) b.age += dt;
+  for (let i = empBlasts.length - 1; i >= 0; i--) {
+    if (empBlasts[i].age >= empBlasts[i].duration) empBlasts.splice(i, 1);
+  }
+  for (const e of combatExplosions) e.age += dt;
+  for (let i = combatExplosions.length - 1; i >= 0; i--) {
+    if (combatExplosions[i].age >= combatExplosions[i].duration) combatExplosions.splice(i, 1);
+  }
+}
+
+export function drawEmpBlasts() {
+  if (!_ctx) return;
+  if (state.settings?.showVisualEffects === false) return;
+  if (!empBlasts.length && !combatExplosions.length) return;
+  _ctx.save();
+  for (const b of empBlasts) {
+    const t = Math.max(0, Math.min(1, b.age / b.duration));
+    // Smooth expand over full duration, soft fade after peak
+    const ease = 1 - Math.pow(1 - t, 2.2);
+    const r = b.radius * (0.08 + 0.92 * ease);
+    const alpha = t < 0.35
+      ? 0.25 + (t / 0.35) * 0.7
+      : 0.95 * (1 - (t - 0.35) / 0.65);
+    // Soft fill
+    const grd = _ctx.createRadialGradient(b.x, b.y, r * 0.08, b.x, b.y, r);
+    grd.addColorStop(0, `rgba(200,250,255,${alpha * 0.5})`);
+    grd.addColorStop(0.35, `rgba(100,210,255,${alpha * 0.32})`);
+    grd.addColorStop(0.75, `rgba(50,140,255,${alpha * 0.14})`);
+    grd.addColorStop(1, 'rgba(40,100,255,0)');
+    _ctx.globalAlpha = 1;
+    _ctx.fillStyle = grd;
+    _ctx.beginPath();
+    _ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+    _ctx.fill();
+    // Outer shock ring
+    _ctx.beginPath();
+    _ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+    _ctx.strokeStyle = b.color;
+    _ctx.globalAlpha = alpha * 0.95;
+    _ctx.lineWidth = 2.5 + (1 - t) * 6;
+    _ctx.stroke();
+    // Inner ring lag
+    const r2 = r * 0.72;
+    _ctx.beginPath();
+    _ctx.arc(b.x, b.y, r2, 0, Math.PI * 2);
+    _ctx.strokeStyle = 'rgba(200,245,255,0.9)';
+    _ctx.globalAlpha = alpha * 0.55;
+    _ctx.lineWidth = 1.5;
+    _ctx.stroke();
+    _ctx.globalAlpha = 1;
+  }
+  for (const e of combatExplosions) {
+    const t = Math.max(0, Math.min(1, e.age / e.duration));
+    const r = e.radius * (0.3 + 0.9 * t);
+    const alpha = 1 - t;
+    const grd = _ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
+    grd.addColorStop(0, `rgba(255,220,120,${alpha * 0.85})`);
+    grd.addColorStop(0.4, `rgba(255,100,40,${alpha * 0.5})`);
+    grd.addColorStop(1, 'rgba(80,20,0,0)');
+    _ctx.globalAlpha = 1;
+    _ctx.fillStyle = grd;
+    _ctx.beginPath();
+    _ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+    _ctx.fill();
+    _ctx.beginPath();
+    _ctx.arc(e.x, e.y, r * 0.85, 0, Math.PI * 2);
+    _ctx.strokeStyle = e.color;
+    _ctx.globalAlpha = alpha * 0.9;
+    _ctx.lineWidth = 2.5;
+    _ctx.stroke();
+    _ctx.globalAlpha = 1;
+  }
+  _ctx.restore();
+}
+
 // ── Screen Shake ──
 let screenShake = { active:false, duration:0, age:0, intensity:8 };
 
-export function startScreenShake(duration) {
-  screenShake = { active:true, duration, age:0, intensity:10 };
+export function startScreenShake(duration, intensity = 10) {
+  if (state.settings?.showCameraShake === false) return;
+  screenShake = { active:true, duration, age:0, intensity };
 }
 
 export function tickScreenShake(dt) {
+  if (state.settings?.showCameraShake === false) {
+    screenShake.active = false;
+    return;
+  }
   if (!screenShake.active) return;
   screenShake.age += dt;
   if (screenShake.age >= screenShake.duration) screenShake.active = false;
 }
 
 export function getShakeOffset() {
+  if (state.settings?.showCameraShake === false) return { x:0, y:0 };
   if (!screenShake.active) return { x:0, y:0 };
   const t = screenShake.age / screenShake.duration;
   const mag = screenShake.intensity * (1-t);

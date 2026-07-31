@@ -10,8 +10,7 @@ import { moduleContainsCell } from '../data/modules.js';
 
 let ctx = null;
 export function setTurretCtx(c) { ctx = c; }
-const noPowerImage = new Image();
-noPowerImage.src = 'assets/images/buildings/no-power.png';
+
 
 function rgbFromHex(hex, fallback = '80,220,80') {
   return typeof hex === 'string' && hex.startsWith('#')
@@ -26,7 +25,8 @@ export function drawTurrets() {
 
   for (const turret of state.turrets) {
     const isMoveSourceGhost = state.placingTurret && state.movingTurret === turret.id;
-    const noPower = !isMoveSourceGhost && ((turret.power || 0) <= 0 || (turret.health || 0) <= 0);
+    const destroyed = !isMoveSourceGhost && (turret.health || 0) <= 0;
+    const noPower = !isMoveSourceGhost && !destroyed && (turret.power || 0) <= 0;
     const {x, y} = gridToIso(turret.col, turret.row);
     const cx = x, cy = y+TILE_H/2;
     if (!isMoveSourceGhost && state.selectedTurret !== turret.id && !isInView(cx, cy)) continue;
@@ -42,7 +42,10 @@ export function drawTurrets() {
 
     // Base platform
     ctx.save();
-    if (noPower) {
+    if (destroyed) {
+      ctx.filter = 'grayscale(1) brightness(0.52)';
+      ctx.globalAlpha = 0.68;
+    } else if (noPower) {
       ctx.filter = 'grayscale(1) brightness(0.72)';
       ctx.globalAlpha = 0.82;
     }
@@ -69,7 +72,7 @@ export function drawTurrets() {
       ctx.fillRect(cx-6,cy-18,12,10); ctx.strokeRect(cx-6,cy-18,12,10);
     }
 
-    // Periodic directional scan with long pause and short turn.
+    // Face combat target when aiming; otherwise idle scan
     if (!turret.scan) {
       const initialAngle = Math.random() * Math.PI * 2;
       turret.scan = {
@@ -84,24 +87,41 @@ export function drawTurrets() {
     }
 
     const scan = turret.scan;
-    if (!scan.turning && t >= scan.nextTurnAt) {
-      scan.turning = true;
-      scan.turnStart = t;
-      scan.from = scan.angle;
-      scan.to = Math.random() * Math.PI * 2;
-    }
+    const isEmp = typeDef.shape === 'triangle_orbit';
+    const tracking = !isEmp && !destroyed && !noPower && Number.isFinite(turret.aimAngle)
+      && turret.trackEnemyId != null;
 
-    if (scan.turning) {
-      const p = Math.max(0, Math.min(1, (t - scan.turnStart) / scan.turnDuration));
-      const smooth = p * p * (3 - 2 * p);
-      let delta = scan.to - scan.from;
+    if (tracking) {
+      // aimAngle is atan2 world dir; barrels draw along local -Y → +π/2
+      const desired = turret.aimAngle + Math.PI / 2;
+      let delta = desired - scan.angle;
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
-      scan.angle = scan.from + delta * smooth;
-      if (p >= 1) {
-        scan.turning = false;
-        scan.angle = scan.to;
-        scan.nextTurnAt = t + 8 + Math.random() * 4;
+      const turnSpeed = 7.5; // rad/s — snappy combat track
+      const now = performance.now();
+      const dtVis = Math.min(0.05, Math.max(0.008, (now - (scan._lastT || now)) / 1000 || 0.016));
+      scan._lastT = now;
+      scan.angle += Math.sign(delta) * Math.min(Math.abs(delta), turnSpeed * dtVis);
+      scan.turning = false;
+    } else if (!isEmp) {
+      if (!scan.turning && t >= scan.nextTurnAt) {
+        scan.turning = true;
+        scan.turnStart = t;
+        scan.from = scan.angle;
+        scan.to = Math.random() * Math.PI * 2;
+      }
+      if (scan.turning) {
+        const p = Math.max(0, Math.min(1, (t - scan.turnStart) / scan.turnDuration));
+        const smooth = p * p * (3 - 2 * p);
+        let delta = scan.to - scan.from;
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        scan.angle = scan.from + delta * smooth;
+        if (p >= 1) {
+          scan.turning = false;
+          scan.angle = scan.to;
+          scan.nextTurnAt = t + 8 + Math.random() * 4;
+        }
       }
     }
 
@@ -109,7 +129,7 @@ export function drawTurrets() {
     const bLen = 14, bW = 3;
     ctx.save();
     ctx.translate(cx, cy-14);
-    if (typeDef.shape !== 'triangle_orbit') ctx.rotate(angle);
+    if (!isEmp) ctx.rotate(angle);
     ctx.fillStyle = barrelFill; ctx.strokeStyle = barrelStroke; ctx.lineWidth = 1;
     if (typeDef.shape === 'single_rifle') {
       ctx.fillRect(-2, -bLen - 2, 4, bLen + 2);
@@ -134,6 +154,69 @@ export function drawTurrets() {
     }
     ctx.restore();
 
+    // EMP visuals: recharge (cooldown) + charge-up wind-up
+    if (!destroyed && !noPower && isEmp) {
+      const ox = cx;
+      const oy = cy - 10;
+      ctx.save();
+      if (turret.empCharging) {
+        // Active 2s arming — bright rising charge
+        const charge = Math.max(0, Math.min(1, (turret.empChargeT || 0) / 2));
+        const pulse = 0.55 + 0.45 * Math.sin(t * 16);
+        const grd = ctx.createRadialGradient(ox, oy, 2, ox, oy, 20 + charge * 26);
+        grd.addColorStop(0, `rgba(180,250,255,${0.4 + charge * 0.5 * pulse})`);
+        grd.addColorStop(0.5, `rgba(70,190,255,${0.22 + charge * 0.3})`);
+        grd.addColorStop(1, 'rgba(40,120,255,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 20 + charge * 26, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(140, 230, 255, ${0.55 + pulse * 0.45})`;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 13 + charge * 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * charge);
+        ctx.stroke();
+        // Ready flash near end
+        if (charge > 0.85) {
+          ctx.strokeStyle = `rgba(255,255,255,${(charge - 0.85) / 0.15 * 0.8})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(ox, oy, 16 + pulse * 4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      } else if ((turret.atkCd || 0) > 0) {
+        // Recharging after blast — slow cool cyan ring filling back up
+        const maxCd = Math.max(0.1, turret.empCooldownMax || turret.fireRate || 45);
+        const remaining = Math.min(maxCd, turret.atkCd || 0);
+        const filled = 1 - (remaining / maxCd); // 0 just fired → 1 ready
+        const pulse = 0.4 + 0.25 * Math.sin(t * 4);
+        ctx.strokeStyle = `rgba(60, 140, 200, ${0.25 + pulse * 0.2})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 12, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(100, 200, 255, ${0.45 + filled * 0.4})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * filled);
+        ctx.stroke();
+        // Dim core
+        ctx.fillStyle = `rgba(40,100,160,${0.12 + filled * 0.15})`;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 7, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Fully charged idle — soft ready pulse
+        const pulse = 0.5 + 0.5 * Math.sin(t * 3.2);
+        ctx.strokeStyle = `rgba(120, 220, 255, ${0.25 + pulse * 0.35})`;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 11 + pulse * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
 
     // Health bar
@@ -142,11 +225,40 @@ export function drawTurrets() {
     ctx.fillStyle = hpPct > 0.5 ? '#4d8' : hpPct > 0.25 ? '#fa4' : '#f44';
     ctx.fillRect(cx-12,cy+6,24*hpPct,3);
 
-    if (noPower && noPowerImage.complete && noPowerImage.naturalWidth > 0) {
-      const overlaySize = 32;
+    const needsRepair = !destroyed && (turret.maxHealth || 0) > 0
+      && (turret.health || 0) > 0
+      && (turret.health || 0) < (turret.maxHealth || 0) - 0.5;
+    if (destroyed || noPower || needsRepair) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+      const icon = destroyed ? 'mode_heat' : noPower ? 'power_off' : 'build';
+      const color = destroyed ? '#ff6a3a' : noPower ? '#ffe066' : '#7ec8ff';
+      const glow = destroyed ? 'rgba(255, 90, 30, 1)' : noPower ? 'rgba(255, 220, 80, 1)' : 'rgba(100, 190, 255, 0.95)';
+      const size = needsRepair && !destroyed && !noPower ? 15 : 20;
+      const iy = cy - (needsRepair && !destroyed && !noPower ? 30 : 24);
       ctx.save();
-      ctx.globalAlpha = 0.92;
-      ctx.drawImage(noPowerImage, cx - (overlaySize / 2), cy - 42, overlaySize, overlaySize);
+      ctx.font = `400 ${size}px "Material Symbols Outlined"`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = 0.35 + pulse * 0.2;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, iy, size * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.85 + pulse * 0.15;
+      ctx.shadowColor = glow;
+      ctx.shadowBlur = 16 + pulse * 12;
+      ctx.fillStyle = color;
+      ctx.fillText(icon, cx, iy);
+      ctx.shadowBlur = 6 + pulse * 4;
+      ctx.shadowColor = '#fff';
+      ctx.globalAlpha = 0.35 + pulse * 0.2;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(icon, cx, iy);
+      ctx.shadowBlur = 10 + pulse * 6;
+      ctx.shadowColor = glow;
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = color;
+      ctx.fillText(icon, cx, iy);
       ctx.restore();
     }
 
