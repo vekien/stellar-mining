@@ -81,9 +81,9 @@ function readiness(data) {
 function matCellHtml(label, amount, have, iconHtml) {
   const ok = have >= amount;
   return `<div class="ct-mat ${ok ? 'ok' : 'bad'}" title="${label}: ${fmt(have)} / ${fmt(amount)}">
-    <span class="ct-mat-check">${ok ? '✓' : '!'}</span>
     ${iconHtml}
-    <div class="ct-mat-amt">${fmtCompact(amount)}</div>
+    <span class="ct-mat-amt">${fmtCompact(amount)}</span>
+    <span class="ct-mat-check">${ok ? '✓' : '!'}</span>
   </div>`;
 }
 
@@ -122,11 +122,11 @@ export function renderCraftTracker() {
     }
     for (const [r, n] of Object.entries(data.reqs)) {
       const label = RESOURCE_DEFS[r]?.label || r;
-      const icon = resourceIconHtml(r, 22) || `<span class="ct-mat-cash">?</span>`;
+      const icon = resourceIconHtml(r, 14) || `<span class="ct-mat-cash">?</span>`;
       mats.push(matCellHtml(label, n, state.resources[r] || 0, icon));
     }
 
-    return `<div class="ct-card${readyAll ? ' ready' : ''}">
+    return `<div class="ct-card${readyAll ? ' ready' : ''}" role="button" tabindex="0" title="Open in Craft" onclick="openCraftToItem('${kind}','${id}')">
       <div class="ct-card-head">
         <span class="ms-icon ct-kind-icon" aria-hidden="true">${kindIcon}</span>
         <div class="ct-card-titles">
@@ -136,18 +136,18 @@ export function renderCraftTracker() {
             <span class="ct-ready-label ${readyAll ? 'ok' : ''}">${ready.met}/${ready.total}</span>
           </div>
         </div>
-        <button class="ct-remove-btn" onclick="toggleTrackCraft('${kind}','${id}')" title="Untrack">✕</button>
+        <button class="ct-remove-btn" onclick="event.stopPropagation();toggleTrackCraft('${kind}','${id}')" title="Untrack">✕</button>
       </div>
       <div class="ct-progress"><div class="ct-progress-fill" style="width:${ready.pct}%"></div></div>
-      <div class="ct-mat-grid">${mats.join('') || '<div class="ct-empty">No materials</div>'}</div>
+      <div class="ct-mat-row">${mats.join('') || '<div class="ct-empty">No materials</div>'}</div>
     </div>`;
   }).join('');
 
   el.innerHTML = `
-    <div class="ct-title">
+    <button type="button" class="ct-title" title="Open Craft panel" onclick="openHdrPanel('craft')">
       <span class="ms-icon ms-icon-fill" aria-hidden="true">bookmark</span>
       TRACKED
       <span class="ct-count">${tracked.length}/${MAX_TRACKED}</span>
-    </div>
+    </button>
     ${cards}`;
 }

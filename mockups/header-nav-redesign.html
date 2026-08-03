@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Header Nav Redesign — B+C Hybrid</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #d8e6f8;
+      --muted: #8aa6c4;
+      --dim: #5a7a9a;
+      --blue: #5ab8ff;
+      --gold: #ffe066;
+      --purple: #b07cff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      font-family: 'Share Tech Mono', ui-monospace, monospace;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 1000px 520px at 18% -10%, rgba(50,110,200,.14), transparent 55%),
+        radial-gradient(ellipse 800px 420px at 90% 10%, rgba(90,40,160,.08), transparent 50%),
+        #03060e;
+      overflow-x: hidden;
+    }
+
+    .ms {
+      font-family: 'Material Symbols Outlined', sans-serif;
+      font-size: 18px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      user-select: none;
+    }
+    .ms.fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+    .sky {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(1.2px 1.2px at 12% 22%, rgba(255,255,255,.55), transparent),
+        radial-gradient(1px 1px at 28% 58%, rgba(180,220,255,.4), transparent),
+        radial-gradient(1.4px 1.4px at 61% 18%, rgba(255,255,255,.45), transparent),
+        radial-gradient(1px 1px at 74% 72%, rgba(160,200,255,.35), transparent),
+        radial-gradient(1.2px 1.2px at 88% 34%, rgba(255,255,255,.5), transparent),
+        radial-gradient(1px 1px at 45% 80%, rgba(140,180,255,.3), transparent);
+      opacity: .7;
+      z-index: 0;
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      padding: 28px 28px 60px;
+      max-width: 1480px;
+      margin: 0 auto;
+    }
+
+    h1.page-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      letter-spacing: 3px;
+      color: var(--blue);
+      margin-bottom: 8px;
+    }
+    .page-sub {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 28px;
+      line-height: 1.55;
+      max-width: 860px;
+    }
+
+    .section-label {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--dim);
+      margin: 0 0 14px;
+    }
+
+    /* Map preview so floating chrome reads correctly */
+    .stage {
+      position: relative;
+      min-height: 320px;
+      border-radius: 18px;
+      border: 1px solid rgba(60,100,160,.22);
+      background:
+        radial-gradient(ellipse 70% 90% at 50% 45%, rgba(24,56,110,.18), transparent 65%),
+        linear-gradient(180deg, #060c18, #040810);
+      overflow: hidden;
+      padding: 18px 20px 40px;
+    }
+    .stage::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(1px 1px at 18% 28%, rgba(255,255,255,.4), transparent),
+        radial-gradient(1px 1px at 62% 48%, rgba(180,220,255,.35), transparent),
+        radial-gradient(1.2px 1.2px at 38% 72%, rgba(255,255,255,.3), transparent),
+        radial-gradient(1px 1px at 82% 22%, rgba(200,230,255,.35), transparent);
+      opacity: .85;
+      pointer-events: none;
+    }
+    .stage-hint {
+      position: absolute;
+      left: 50%;
+      top: 58%;
+      transform: translate(-50%, -50%);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 3px;
+      color: rgba(90,130,180,.28);
+      pointer-events: none;
+    }
+
+    /* ═══════ HYBRID: C float + B underline + planet identity ═══════ */
+    .hud {
+      --hud-h: 48px;
+      --hud-pad: 4px;
+      --hud-inner: calc(var(--hud-h) - var(--hud-pad) * 2);
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      column-gap: 12px;
+      width: 100%;
+      height: var(--hud-h);
+    }
+
+    .island {
+      display: inline-flex;
+      align-items: center;
+      height: var(--hud-h);
+      padding: var(--hud-pad);
+      border-radius: 999px;
+      background: rgba(6, 12, 26, 0.78);
+      border: 1px solid rgba(100, 160, 255, 0.22);
+      box-shadow:
+        0 12px 36px rgba(0,0,0,.45),
+        inset 0 1px 0 rgba(160,200,255,.1);
+      backdrop-filter: blur(18px) saturate(1.25);
+      -webkit-backdrop-filter: blur(18px) saturate(1.25);
+    }
+
+    /* SOL / identity — left */
+    .island.sol {
+      justify-self: start;
+      gap: 10px;
+      padding-right: 16px;
+    }
+    .island.sol .mark {
+      width: var(--hud-inner);
+      height: var(--hud-inner);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      background:
+        radial-gradient(circle at 32% 28%, rgba(180,220,255,.55), transparent 42%),
+        radial-gradient(circle at 70% 70%, rgba(80,40,160,.35), transparent 50%),
+        linear-gradient(145deg, #4a88c8 0%, #2a5088 45%, #1a2848 100%);
+      border: 1px solid rgba(140,190,255,.35);
+      box-shadow:
+        0 0 16px rgba(90,180,255,.28),
+        inset 0 0 10px rgba(40,80,140,.4);
+      color: #c8e8ff;
+    }
+    .island.sol .mark .ms {
+      font-size: 20px;
+      color: #d0ecff;
+      filter: drop-shadow(0 0 6px rgba(140,200,255,.5));
+    }
+    .island.sol .meta {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1;
+      min-width: 0;
+      padding-bottom: 1px;
+    }
+    .island.sol .meta .s {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      color: #eef6ff;
+      text-shadow: 0 0 12px rgba(90,184,255,.25);
+    }
+    .island.sol .meta .t {
+      font-size: 12px;
+      color: var(--gold);
+      opacity: .95;
+      letter-spacing: 0.2px;
+    }
+
+    /* Main nav — true center of the bar */
+    .island.nav {
+      justify-self: center;
+      width: max-content;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    .island.nav nav {
+      display: flex;
+      align-items: stretch;
+      justify-content: flex-start;
+      gap: 2px;
+      width: max-content;
+      height: 100%;
+      flex-wrap: nowrap;
+    }
+    .island.nav button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      letter-spacing: 1.2px;
+      line-height: 1;
+      height: 100%;
+      padding: 0 16px;
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      transition: color .15s, background .15s;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .island.nav button:hover {
+      color: #f2f7ff;
+      background: rgba(90,160,255,.1);
+    }
+    .island.nav button.on {
+      color: #fff;
+      background: rgba(90,160,255,.16);
+    }
+    /* Underline sits under label, equal inset from pill edges */
+    .island.nav button.on::after {
+      content: '';
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 7px;
+      height: 2px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, transparent, var(--blue), transparent);
+      box-shadow: 0 0 10px rgba(90,184,255,.55);
+      pointer-events: none;
+    }
+    .island.nav button.pulse {
+      animation: craftPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes craftPulse {
+      0%, 100% { box-shadow: none; }
+      50% { box-shadow: 0 0 16px rgba(90,184,255,.22); }
+    }
+
+    /* Tools — right */
+    .island.tools {
+      justify-self: end;
+      gap: 2px;
+    }
+    .island.tools button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      width: var(--hud-inner);
+      height: var(--hud-inner);
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: .15s;
+      line-height: 1;
+      padding: 0;
+    }
+    .island.tools button .ms { font-size: 20px; }
+    .island.tools button:hover {
+      color: #fff;
+      background: rgba(90,160,255,.16);
+    }
+    .island.tools button.new {
+      width: auto;
+      padding: 0 14px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      gap: 6px;
+    }
+
+    /* Compact alt (narrower screens feel) */
+    .section-label + .stage { margin-bottom: 8px; }
+
+    .notes {
+      margin-top: 32px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .note {
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(70,120,190,.18);
+      background: rgba(8,16,36,.4);
+    }
+    .note h3 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      color: var(--blue);
+      margin-bottom: 8px;
+    }
+    .note p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .note strong { color: #cde; font-weight: 400; }
+    .pick { color: #5dffa0; }
+  </style>
+</head>
+<body>
+  <div class="sky"></div>
+  <div class="page">
+    <h1 class="page-title">HEADER NAV · B + C HYBRID</h1>
+    <p class="page-sub">
+      Floating capsule islands over the map (C), planet identity + faded active underline (B),
+      uniform 52px height, no galaxy label. <strong style="color:#cde">Depot removed</strong>.
+    </p>
+
+    <div class="section-label">PRIMARY · FULL WIDTH FLOAT</div>
+    <div class="stage">
+      <div class="hud">
+        <div class="island sol">
+          <div class="mark" title="System"><span class="ms fill">public</span></div>
+          <div class="meta">
+            <div class="s">KEPLER-7</div>
+            <div class="t">SOL 6 · 02:45</div>
+          </div>
+        </div>
+
+        <div class="island nav">
+          <nav data-nav>
+            <button type="button" class="on">OVERVIEW</button>
+            <button type="button">COMMAND</button>
+            <button type="button">RESOURCES</button>
+            <button type="button" class="pulse">CRAFT</button>
+            <button type="button">TRADE</button>
+            <button type="button">SHIPS</button>
+            <button type="button">RESEARCH</button>
+            <button type="button">CODEX</button>
+          </nav>
+        </div>
+
+        <div class="island tools">
+          <button type="button" title="Dev"><span class="ms">terminal</span></button>
+          <button type="button" title="About"><span class="ms">help</span></button>
+          <button type="button" title="Settings"><span class="ms">settings</span></button>
+          <button type="button" class="new" title="New Game"><span class="ms">refresh</span> NEW</button>
+        </div>
+      </div>
+      <div class="stage-hint">MAP · NO DEPOT STRIP</div>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>FROM B</h3>
+        <p>Planet mark + <strong>KEPLER-7 / SOL</strong> on the left (no galaxy line).
+        Active nav uses the soft blue <strong>fade underline</strong>.</p>
+      </div>
+      <div class="note">
+        <h3>FROM C</h3>
+        <p>Three floating islands (identity · nav · tools) with glass blur and pill geometry.
+        No second chrome bar. More map breathing room.</p>
+      </div>
+      <div class="note">
+        <h3>TYPE</h3>
+        <p>Nav labels <strong>12px</strong> Orbitron, values <strong>13px</strong>, system name <strong>15px</strong>,
+        SOL clock <strong>13px</strong> — up from the tighter C mock.</p>
+      </div>
+      <div class="note">
+        <h3>DEPOT <span class="pick">REMOVED</span></h3>
+        <p>No resource strip. Advanced mats + craft queues would overflow anyway.
+        Counts stay on Trade / Ships / Research chips; stockpile lives in Resources.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('[data-nav]').forEach((nav) => {
+      nav.addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn || !nav.contains(btn)) return;
+        nav.querySelectorAll('button').forEach((b) => b.classList.remove('on'));
+        btn.classList.add('on');
+      });
+    });
+  </script>
+</body>
+</html>

@@ -23,7 +23,7 @@ import {
   tickFloaties, tickSolarFlare, tickBlackHole, tickComet,
   tickScreenShake, tickRangePulses, tickNodeParticles, tickCombatBeams, tickEmpBlasts,
 } from './render/animations.js';
-import { scheduleNextEvent, tickSOL, rollMarketDemands } from './systems/sol.js';
+import { scheduleNextEvent, tickSOL, rollMarketDemands, rollMarketVariance, sanitizeMarketDemands } from './systems/sol.js';
 import { fireRandomEvent } from './systems/events.js';
 import { tickAdmiral, showTransmissionMessage, showOnce } from './ui/transmissions.js';
 import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
@@ -118,6 +118,10 @@ setStarsEnabled(state.settings?.showBackgroundStars !== false);
 setRenderFps(state.settings?.renderFps ?? 45);
 initNodes();
 if (window.syncShipCraftTimers) window.syncShipCraftTimers();
+import('./systems/craftQueue.js').then((cq) => {
+  cq.migrateLegacyCraftTimers();
+  cq.syncCraftQueue();
+}).catch(() => {});
 if (!loaded) spawnShip('scout');
 
 // Schedule first event if not already scheduled
@@ -130,11 +134,15 @@ if (!state.shownAboutWindow) {
   document.getElementById('about-overlay').classList.add('show');
 }
 
-// Ensure a market boost exists from the very first SOL
+// Ensure market demand + variance exist from the very first SOL
+sanitizeMarketDemands();
 if (!state.marketBoost) {
-  rollMarketDemands();
-} else if (!state.marketBoost.multiplier) {
-  state.marketBoost.multiplier = 1.5;
+  rollMarketDemands(); // also rolls variance
+} else {
+  if (!state.marketBoost.multiplier) state.marketBoost.multiplier = 1.5;
+  if (!state.marketVariance || !Object.keys(state.marketVariance).length) {
+    rollMarketVariance();
+  }
 }
 
 // Normalise ships missing mineTier (e.g. from old saves)
@@ -275,6 +283,7 @@ window.openSettings   = () => {
   setChk('setting-visual-effects', s.showVisualEffects !== false);
   setChk('setting-camera-shake', s.showCameraShake !== false);
   setChk('setting-focus-events', s.focusOnEvents !== false);
+  setChk('setting-close-ship-after-assign', s.closeShipAfterAssign !== false);
   setChk('setting-power-lines', s.showPowerLines !== false);
   setChk('setting-power-lines-hover', s.showPowerLinesOnHover === true);
   setChk('setting-research-lines', s.showResearchLines !== false);
@@ -299,34 +308,49 @@ window.closeSettings  = () => {
   const overlay = document.getElementById('settings-overlay');
   if (overlay) overlay.classList.remove('show');
 };
+function persistSettings() {
+  try { saveGame(); } catch (_) { /* ignore */ }
+}
 window.toggleShowGrid = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showGrid = !!enabled;
+  persistSettings();
 };
 window.toggleBackgroundStars = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showBackgroundStars = !!enabled;
   setStarsEnabled(state.settings.showBackgroundStars);
+  persistSettings();
 };
 window.toggleVisualEffects = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showVisualEffects = !!enabled;
+  persistSettings();
 };
 window.toggleCameraShake = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showCameraShake = !!enabled;
+  persistSettings();
 };
 window.toggleFocusOnEvents = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.focusOnEvents = !!enabled;
+  persistSettings();
+};
+window.toggleCloseShipAfterAssign = (enabled) => {
+  if (!state.settings) state.settings = {};
+  state.settings.closeShipAfterAssign = !!enabled;
+  persistSettings();
 };
 window.togglePowerLines = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showPowerLines = !!enabled;
+  persistSettings();
 };
 window.togglePowerLinesOnHover = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showPowerLinesOnHover = !!enabled;
+  persistSettings();
 };
 window.setPowerLineOpacity = (pct) => {
   if (!state.settings) state.settings = {};
@@ -334,14 +358,17 @@ window.setPowerLineOpacity = (pct) => {
   state.settings.powerLineOpacity = n / 100;
   const lab = document.getElementById('setting-power-line-opacity-val');
   if (lab) lab.textContent = `${n}%`;
+  persistSettings();
 };
 window.toggleResearchLines = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showResearchLines = !!enabled;
+  persistSettings();
 };
 window.toggleResearchLinesOnHover = (enabled) => {
   if (!state.settings) state.settings = {};
   state.settings.showResearchLinesOnHover = !!enabled;
+  persistSettings();
 };
 window.setResearchLineOpacity = (pct) => {
   if (!state.settings) state.settings = {};
@@ -349,11 +376,13 @@ window.setResearchLineOpacity = (pct) => {
   state.settings.researchLineOpacity = n / 100;
   const lab = document.getElementById('setting-research-line-opacity-val');
   if (lab) lab.textContent = `${n}%`;
+  persistSettings();
 };
 window.setFpsSetting = (fps) => {
   if (!state.settings) state.settings = {};
   state.settings.renderFps = Number(fps);
   setRenderFps(state.settings.renderFps);
+  persistSettings();
 };
 window.switchTab      = function(tab) {
   dismissHdrModal();

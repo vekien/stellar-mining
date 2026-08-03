@@ -1,13 +1,14 @@
 // ============================================================
 // COMBAT SYSTEM — daily raids, enemy AI, player engage, HQ support
 // ============================================================
-import { state, bumpShipIdCounter } from '../state.js';
+import { state, bumpShipIdCounter, saveGame } from '../state.js';
 import {
   ENEMY_DEFS,
-  ENEMY_WAVE_TYPES,
   RAID_WAVE_SIZE,
   RAID_WARNING_DURATION_MS,
   RAID_SPAWN_DELAY_MS,
+  getRaidDifficulty,
+  buildRaidRoster,
   DOGFIGHT_ROAM_MIN_S,
   DOGFIGHT_ROAM_MAX_S,
   DOGFIGHT_ENGAGE_MIN_S,
@@ -35,15 +36,24 @@ import {
   ENGAGE_STANDOFF_JITTER,
   HQ_ENGAGE_STANDOFF,
   HQ_ENGAGE_STANDOFF_JITTER,
+  GARRISON_HOLD_MIN,
+  GARRISON_HOLD_MAX,
+  FIGHTER_BREAKAWAY_MIN_S,
+  FIGHTER_BREAKAWAY_MAX_S,
+  FIGHTER_BREAKAWAY_DIST_MIN,
+  FIGHTER_BREAKAWAY_DIST_MAX,
+  FIGHTER_BREAKAWAY_MAX_S_TRAVEL,
   SHIP_SEPARATION,
   HQ_SHIP_SEPARATION,
   FIRE_CONE_RAD,
   EMP_SLOW_MULT,
   COMBAT_TURN_RATE,
+  GARRISON_TURN_RATE,
   ENEMY_TURN_RATE,
   BUILDING_TURN_RATE,
   BUILDING_BANK_BOOST,
   COMBAT_BANK_BOOST,
+  GARRISON_BANK_BOOST,
   TURRET_COMBAT_ENABLED,
   scaleEnemyStats,
   getEnemyLoot,
@@ -54,6 +64,14 @@ import {
   isCombatRole,
 } from '../data/combat.js';
 import { SHIP_DEFS } from '../data/ships.js';
+import { RESOURCE_DEFS, isStorableResource } from '../data/resources.js';
+import {
+  normalizeShipAttachments,
+  getAttachmentDef,
+  getShipHpMultiplier,
+  getShipBoostCdMult,
+  getShipRegenPerSec,
+} from '../data/attachments.js';
 import { eventTitleHtml } from '../data/events.js';
 import { NPCS } from '../data/npcs.js';
 import { BASE_POS, gridToWorld, focusOnBaseEvent, getViewBounds } from '../render/camera.js';
@@ -137,13 +155,14 @@ function flySmooth(ent, destX, destY, speed, dt) {
     return true;
   }
 
-  const turnRateFar = 3.2;
-  const turnRateNear = 9.5;
-  const directBlendDistance = 70;
+  const isGarrison = !ent.isEnemy && SHIP_DEFS[ent.type]?.role === 'garrison';
+  const turnRateFar = isGarrison ? 1.1 : 3.2;
+  const turnRateNear = isGarrison ? 2.4 : 9.5;
+  const directBlendDistance = isGarrison ? 40 : 70;
   const turnT = Math.max(0, Math.min(1, 1 - dist / 500));
   const turnVariance = Number.isFinite(ent.turnRadiusRandomness) ? ent.turnRadiusRandomness : 0;
-  const farVariance = dist > 300 ? turnVariance * 1.1 : 0;
-  const TURN_RATE = Math.max(0.5, turnRateFar + ((turnRateNear - turnRateFar) * turnT) + farVariance);
+  const farVariance = dist > 300 ? turnVariance * (isGarrison ? 0.4 : 1.1) : 0;
+  const TURN_RATE = Math.max(0.35, turnRateFar + ((turnRateNear - turnRateFar) * turnT) + farVariance);
   const targetAngle = Math.atan2(dy, dx) + Math.PI / 2;
   let da = normalizeAngle(targetAngle - ent.heading);
   ent.heading += Math.sign(da) * Math.min(Math.abs(da), TURN_RATE * dt);
@@ -211,15 +230,22 @@ function flyCombat(ent, destX, destY, baseSpeed, dt, opts = {}) {
 
 const BUILDING_FLIGHT = { turnRate: BUILDING_TURN_RATE, bankBoost: BUILDING_BANK_BOOST };
 const PLAYER_FLIGHT = { turnRate: COMBAT_TURN_RATE, bankBoost: COMBAT_BANK_BOOST };
+const GARRISON_FLIGHT = { turnRate: GARRISON_TURN_RATE, bankBoost: GARRISON_BANK_BOOST };
 const ENEMY_FLIGHT = { turnRate: ENEMY_TURN_RATE, bankBoost: COMBAT_BANK_BOOST };
+
+function getPlayerFlightOpts(ship) {
+  if (SHIP_DEFS[ship?.type]?.role === 'garrison') return GARRISON_FLIGHT;
+  return PLAYER_FLIGHT;
+}
 
 /** Shared afterburner — all combat hulls (player / HQ / enemy). */
 function startCombatBoost(ent) {
   if (!ent) return;
   ent.combatBoostTimer = randRange(COMBAT_BOOST_DURATION_MIN_S, COMBAT_BOOST_DURATION_MAX_S);
   ent.combatBoostMult = randRange(COMBAT_BOOST_MULT_MIN, COMBAT_BOOST_MULT_MAX);
+  const cdMult = (!ent.isEnemy && !ent.isHqSupport) ? getShipBoostCdMult(ent) : 1;
   ent.combatBoostCd = ent.combatBoostTimer
-    + randRange(COMBAT_BOOST_CD_MIN_S, COMBAT_BOOST_CD_MAX_S);
+    + randRange(COMBAT_BOOST_CD_MIN_S, COMBAT_BOOST_CD_MAX_S) * cdMult;
   ent.combatBoost = 1;
 }
 
@@ -240,11 +266,33 @@ function tickCombatBoost(ent, dt) {
   }
 }
 
-/** Cruise ± boost ± EMP slow. Same base for everyone. */
+/** Player/HQ weapon range in world units (garrison range is tile-based). */
+function getPlayerShipShootRange(ship) {
+  if (!ship) return PLAYER_SHOOT_RANGE;
+  if (ship.isHqSupport) return HQ_SHOOT_RANGE;
+  const def = SHIP_DEFS[ship.type];
+  if (def?.role === 'garrison') {
+    const tiles = Number.isFinite(ship.range) && ship.range > 0
+      ? ship.range
+      : (def.range || 8);
+    return Math.round(tiles * 36);
+  }
+  if (Number.isFinite(def?.range) && def.range > 0) {
+    return Math.round(def.range * 36);
+  }
+  return PLAYER_SHOOT_RANGE;
+}
+
+/** Cruise ± boost ± EMP slow. Enemies may override cruise (e.g. garrison crawl). */
 function getCombatMoveSpeed(ent, phaseMult = 1) {
+  const cruise = Number.isFinite(ent?.flySpeed) && ent.flySpeed > 0
+    ? ent.flySpeed
+    : COMBAT_CRUISE_SPEED;
   const boost = (ent?.combatBoostTimer || 0) > 0 ? (ent.combatBoostMult || 1.6) : 1;
+  // Bosses get milder afterburners — still a heavy crawl
+  const boostAmt = ent?.isBoss ? 1 + (boost - 1) * 0.35 : boost;
   const emp = ent?.isEnemy && (ent.stunTimer || 0) > 0 ? EMP_SLOW_MULT : 1;
-  return COMBAT_CRUISE_SPEED * boost * phaseMult * emp;
+  return cruise * boostAmt * phaseMult * emp;
 }
 
 /** Holding-style orbit point around an anchor (progressive angle). */
@@ -402,20 +450,92 @@ function fireAtTarget(fromEnt, toX, toY, opts = {}) {
   if (opts.shake) startScreenShake(0.12, opts.shake);
 }
 
-function getShipMaxHp(ship) {
+function getShipBaseHp(ship) {
   return Math.max(1, ship.hp || SHIP_DEFS[ship.type]?.hp || 1);
 }
 
+export function getShipMaxHp(ship) {
+  const base = getShipBaseHp(ship);
+  if (ship?.isHqSupport || ship?.isEnemy) return base;
+  return Math.max(1, Math.round(base * getShipHpMultiplier(ship)));
+}
+
+function markShipDestroyed(ship) {
+  if (!ship || ship.isHqSupport) return;
+  ship.currentHp = 0;
+  ship.status = 'destroyed';
+  ship.targetEnemyId = null;
+  const bp = baseWorld();
+  ship.destX = bp.x;
+  ship.destY = bp.y;
+}
+
+export function getShipRepairCost(ship) {
+  if (!ship) return 0;
+  ensureShipCombatHp(ship);
+  const maxHp = getShipMaxHp(ship);
+  const missing = Math.max(0, Math.ceil(maxHp - (ship.currentHp || 0)));
+  if (missing <= 0) return 0;
+  const rank = Math.max(1, Math.floor(ship.mineTier || ship.hpLevel || 1));
+  return missing * rank;
+}
+
+export function repairShip(shipId) {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return false;
+  const role = SHIP_DEFS[ship.type]?.role;
+  if (!isCombatRole(role) && !ship.isHqSupport) return false;
+  ensureShipCombatHp(ship);
+  const maxHp = getShipMaxHp(ship);
+  const missing = Math.max(0, Math.ceil(maxHp - (ship.currentHp || 0)));
+  if (missing <= 0) {
+    addLog(`${ship.name} is already at full integrity.`);
+    return false;
+  }
+  const cost = getShipRepairCost(ship);
+  if ((state.coins || 0) < cost) {
+    addLog(`⚠ Not enough coins to repair ${ship.name} ($${fmt(cost)}).`);
+    return false;
+  }
+  spendCoins(cost);
+  ship.currentHp = maxHp;
+  if (ship.status === 'destroyed' || ship.status === 'returning_repair') {
+    ship.status = 'idle';
+    ship.targetEnemyId = null;
+  }
+  addLog(`🔧 ${ship.name} repaired +${fmt(missing)} HP → ${fmt(Math.round(ship.currentHp))}/${fmt(maxHp)}`);
+  if (refresh.ui) refresh.ui();
+  if (refresh.resources) refresh.resources();
+  return true;
+}
+
+window.repairShip = function(shipId) {
+  if (!repairShip(shipId)) return;
+  if (typeof window.renderActionPanel === 'function') window.renderActionPanel();
+};
+
 export function ensureShipCombatHp(ship) {
   if (!ship) return;
+  const role = SHIP_DEFS[ship.type]?.role;
+  if (isCombatRole(role) && !ship.isHqSupport) {
+    normalizeShipAttachments(ship, role);
+  }
   const maxHp = getShipMaxHp(ship);
   if (!Number.isFinite(ship.currentHp)) ship.currentHp = maxHp;
   ship.currentHp = Math.max(0, Math.min(maxHp, ship.currentHp));
-  const role = SHIP_DEFS[ship.type]?.role;
-  if (isCombatRole(role) || ship.isHqSupport) {
-    // Fixed shared cruise — fly speed is not an upgrade
+  if (role === 'combat' || ship.isHqSupport) {
+    // Fighters share fixed cruise — fly speed is not an upgrade
     ship.flySpeed = COMBAT_CRUISE_SPEED;
     ship.flySpeedLevel = 0;
+  } else if (role === 'garrison') {
+    // Super-slow hulls — keep def cruise (~¼ fighter speed)
+    const defSpd = SHIP_DEFS[ship.type]?.flySpeed;
+    ship.flySpeed = Number.isFinite(defSpd) && defSpd > 0
+      ? defSpd
+      : Math.round(COMBAT_CRUISE_SPEED / 4);
+    ship.flySpeedLevel = 0;
+  }
+  if (isCombatRole(role) || ship.isHqSupport) {
     if (!Number.isFinite(ship.attack) || ship.attack <= 0) {
       ship.attack = SHIP_DEFS[ship.type]?.attack || ship.attack || 0;
     }
@@ -423,8 +543,217 @@ export function ensureShipCombatHp(ship) {
       ship.attackSpeed = SHIP_DEFS[ship.type]?.attackSpeed || ship.attackSpeed || 1;
     }
     if (!Number.isFinite(ship.hp) || ship.hp <= 0) {
-      ship.hp = maxHp;
-      if (ship.currentHp <= 0) ship.currentHp = maxHp;
+      ship.hp = getShipBaseHp(ship);
+      if (ship.currentHp <= 0 && ship.status !== 'destroyed') ship.currentHp = getShipMaxHp(ship);
+    }
+  }
+}
+
+// ── Attachment projectiles (cluster bombs) ───────────────────
+const _clusterProjectiles = [];
+
+function spawnClusterBombs(ship, def) {
+  const n = Math.max(3, def.clusterCount || 6);
+  const speed = def.clusterSpeed || 200;
+  const life = def.clusterLife || 1.2;
+  const dmg = Math.max(1, Math.round((ship.attack || 0) * (def.damageMult || 0.5)));
+  const baseAng = moveAngleOf(ship);
+  for (let i = 0; i < n; i++) {
+    const ang = baseAng + (Math.random() - 0.5) * Math.PI * 1.4 + (i / n) * Math.PI * 0.3;
+    _clusterProjectiles.push({
+      x: ship.x,
+      y: ship.y,
+      vx: Math.cos(ang) * speed * (0.75 + Math.random() * 0.5),
+      vy: Math.sin(ang) * speed * (0.75 + Math.random() * 0.5),
+      life,
+      age: 0,
+      dmg,
+      radius: def.explosionRadius || 48,
+      ownerId: ship.id,
+      color: def.color || '#ff9060',
+    });
+  }
+}
+
+function tickClusterProjectiles(dt) {
+  for (let i = _clusterProjectiles.length - 1; i >= 0; i--) {
+    const p = _clusterProjectiles[i];
+    p.age += dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    let hit = false;
+    for (const e of state.enemies || []) {
+      if ((e.hp || 0) <= 0) continue;
+      if (dist2(p.x, p.y, e.x, e.y) > 22) continue;
+      hit = true;
+      // Splash
+      for (const e2 of state.enemies || []) {
+        if ((e2.hp || 0) <= 0) continue;
+        if (dist2(p.x, p.y, e2.x, e2.y) > p.radius) continue;
+        e2.hp = Math.max(0, (e2.hp || 0) - p.dmg);
+        markEnemyEngaged(e2);
+        if (e2.hp <= 0) destroyEnemy(e2, 'Cluster Bomb');
+      }
+      spawnCombatExplosion(p.x, p.y, { color: p.color, radius: p.radius * 0.7, duration: 0.35 });
+      break;
+    }
+    if (hit || p.age >= p.life) {
+      if (!hit && p.age >= p.life) {
+        // Airburst
+        for (const e2 of state.enemies || []) {
+          if ((e2.hp || 0) <= 0) continue;
+          if (dist2(p.x, p.y, e2.x, e2.y) > p.radius) continue;
+          e2.hp = Math.max(0, (e2.hp || 0) - p.dmg);
+          markEnemyEngaged(e2);
+          if (e2.hp <= 0) destroyEnemy(e2, 'Cluster Bomb');
+        }
+        spawnCombatExplosion(p.x, p.y, { color: p.color, radius: p.radius * 0.55, duration: 0.3 });
+      }
+      _clusterProjectiles.splice(i, 1);
+    }
+  }
+}
+
+export function drawClusterProjectiles(ctx) {
+  if (!ctx || !_clusterProjectiles.length) return;
+  if (state.settings?.showVisualEffects === false) return;
+  for (const p of _clusterProjectiles) {
+    const t = 1 - p.age / Math.max(0.05, p.life);
+    ctx.save();
+    ctx.globalAlpha = 0.55 + t * 0.45;
+    ctx.fillStyle = p.color || '#ff9060';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function tickShipAttachments(ship, enemy, dt, shootRange) {
+  if (!ship.attachmentCds) ship.attachmentCds = {};
+  const cds = ship.attachmentCds;
+  // Garrisons are turret-like — full 360° fire arc
+  const omni = SHIP_DEFS[ship.type]?.role === 'garrison';
+  const facing = !!(enemy && (omni || isFacing(ship, enemy.x, enemy.y)));
+  const inRange = enemy && dist2(ship.x, ship.y, enemy.x, enemy.y) < shootRange;
+  const atk = ship.attack || 0;
+  const atkRate = Math.max(0.05, ship.attackSpeed || 1);
+
+  // Tick all cooldowns
+  for (const id of Object.keys(cds)) {
+    if (cds[id] > 0) cds[id] = Math.max(0, cds[id] - dt);
+  }
+
+  // Active spiral sweep
+  if ((ship._spiralT || 0) > 0 && ship._spiralDef) {
+    ship._spiralT -= dt;
+    const def = ship._spiralDef;
+    const tickEvery = 1 / Math.max(4, def.tickRate || 18);
+    ship._spiralAcc = (ship._spiralAcc || 0) + dt;
+    while (ship._spiralAcc >= tickEvery) {
+      ship._spiralAcc -= tickEvery;
+      ship._spiralAng = (ship._spiralAng || 0) + 0.55;
+      const dmg = Math.max(1, Math.round(atk * (def.damageMult || 0.35)));
+      // Twin beams left/right of heading
+      for (const side of [-1, 1]) {
+        const ang = moveAngleOf(ship) + side * (Math.PI / 2) + ship._spiralAng * side;
+        const reach = shootRange * 0.85;
+        const tx = ship.x + Math.cos(ang) * reach;
+        const ty = ship.y + Math.sin(ang) * reach;
+        fireAtTarget(ship, tx, ty, { color: def.color || '#c080ff', width: 1.6, duration: 0.08 });
+        for (const e of state.enemies || []) {
+          if ((e.hp || 0) <= 0) continue;
+          // Point-to-segment distance approx: near ray
+          const dx = e.x - ship.x;
+          const dy = e.y - ship.y;
+          const proj = dx * Math.cos(ang) + dy * Math.sin(ang);
+          if (proj < 0 || proj > reach) continue;
+          const px = ship.x + Math.cos(ang) * proj;
+          const py = ship.y + Math.sin(ang) * proj;
+          if (dist2(px, py, e.x, e.y) > 28) continue;
+          e.hp = Math.max(0, e.hp - dmg);
+          markEnemyEngaged(e);
+          if (e.hp <= 0) destroyEnemy(e, ship.name);
+        }
+      }
+    }
+    if (ship._spiralT <= 0) {
+      ship._spiralT = 0;
+      ship._spiralDef = null;
+    }
+  }
+
+  const attachments = ship.attachments || [];
+  let hasPulse = false;
+  for (const id of attachments) {
+    const def = getAttachmentDef(id);
+    if (!def || def.kind !== 'offense') continue;
+    if (def.fireMode === 'pulse') hasPulse = true;
+
+    if (def.fireMode === 'stun' && enemy && inRange && facing) {
+      if ((cds.stun || 0) <= 0) {
+        enemy.stunTimer = Math.max(enemy.stunTimer || 0, def.stunDuration || 2);
+        enemy.combatBoostTimer = 0;
+        enemy.combatBoost = 0;
+        markEnemyEngaged(enemy);
+        fireAtTarget(ship, enemy.x, enemy.y, { color: def.color || '#a0e0ff', width: 3.2, duration: 0.28 });
+        spawnEmpBlast(enemy.x, enemy.y, 36, { duration: 0.35, color: '#8ad8ff' });
+        cds.stun = def.cooldown || 30;
+      }
+    }
+
+    if (def.fireMode === 'beam' && enemy && inRange && facing) {
+      if ((cds.beam_laser || 0) <= 0) {
+        const dmg = Math.max(1, Math.round(atk * (def.damageMult || 3)));
+        enemy.hp = Math.max(0, (enemy.hp || 0) - dmg);
+        markEnemyEngaged(enemy);
+        fireAtTarget(ship, enemy.x, enemy.y, {
+          color: def.color || '#ffd060',
+          width: 3.4,
+          duration: def.beamDuration || 0.45,
+        });
+        cds.beam_laser = def.cooldown || 3;
+        if (enemy.hp <= 0) destroyEnemy(enemy, ship.name);
+      }
+    }
+
+    if (def.fireMode === 'cluster') {
+      if ((cds.cluster_bombs || 0) <= 0) {
+        spawnClusterBombs(ship, def);
+        cds.cluster_bombs = def.cooldown || 4.5;
+      }
+    }
+
+    if (def.fireMode === 'spiral') {
+      if ((cds.spiral_laser || 0) <= 0 && (ship._spiralT || 0) <= 0) {
+        ship._spiralT = def.duration || 1;
+        ship._spiralDef = def;
+        ship._spiralAng = 0;
+        ship._spiralAcc = 0;
+        cds.spiral_laser = def.cooldown || 10;
+      }
+    }
+  }
+
+  // Pulse lasers (one or more): standard forward fire
+  if (hasPulse && enemy && inRange && facing) {
+    if ((ship.atkCd || 0) <= 0 && atk > 0) {
+      const pulses = attachments.filter((id) => getAttachmentDef(id)?.fireMode === 'pulse').length || 1;
+      const dmg = atk * pulses; // stack if multiple pulse mounts
+      enemy.hp = Math.max(0, (enemy.hp || 0) - dmg);
+      markEnemyEngaged(enemy);
+      fireAtTarget(ship, enemy.x, enemy.y, { color: '#5ec8ff', width: 2.1, duration: 0.14 });
+      ship.atkCd = 1 / atkRate;
+      if (enemy.hp <= 0) destroyEnemy(enemy, ship.name);
+    }
+  }
+
+  // Regen passive
+  const regen = getShipRegenPerSec(ship);
+  if (regen > 0) {
+    const maxHp = getShipMaxHp(ship);
+    if ((ship.currentHp || 0) > 0 && ship.currentHp < maxHp) {
+      ship.currentHp = Math.min(maxHp, ship.currentHp + maxHp * regen * dt);
     }
   }
 }
@@ -434,15 +763,9 @@ function getCombatShips() {
     if (s.isHqSupport) return (s.currentHp ?? s.hp ?? 0) > 0;
     const role = SHIP_DEFS[s.type]?.role;
     if (!isCombatRole(role)) return false;
+    if (s.status === 'destroyed') return false;
     ensureShipCombatHp(s);
-    // Idle/holding at base with 0 HP — restore so they can scramble
-    if ((s.currentHp ?? 0) <= 0) {
-      if (s.status === 'idle' || s.status === 'holding' || !s.status) {
-        s.currentHp = getShipMaxHp(s);
-      } else {
-        return false;
-      }
-    }
+    if ((s.currentHp ?? 0) <= 0) return false;
     return true;
   });
 }
@@ -455,6 +778,21 @@ export function hasCombatDefenses() {
   return getCombatShips().length > 0 || getActiveTurrets().length > 0;
 }
 
+/** True while any module or turret is still standing. */
+function hasLivingStructures() {
+  for (const m of state.modules || []) {
+    if ((m.health || 0) > 0) return true;
+  }
+  for (const t of state.turrets || []) {
+    if ((t.health || 0) > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Raid AI priority: living buildings/turrets first.
+ * Only when every structure is down do enemies target the Base.
+ */
 function pickRaidTarget() {
   const pool = [];
   for (const m of state.modules || []) {
@@ -462,7 +800,6 @@ function pickRaidTarget() {
     const w = gridToWorld(m.col, m.row);
     pool.push({ kind: 'module', id: m.id, x: w.x, y: w.y - 10, label: m.name || m.type });
   }
-  // Enemies can also assault defensive turrets
   for (const t of state.turrets || []) {
     if ((t.health || 0) <= 0) continue;
     const w = gridToWorld(t.col, t.row);
@@ -471,38 +808,57 @@ function pickRaidTarget() {
   if (pool.length) {
     return { ...pool[Math.floor(Math.random() * pool.length)] };
   }
+  // Structures clear — only then assault the HQ
   if ((state.base.health || 0) > 0) {
     const bp = baseWorld();
     return { kind: 'base', id: 0, x: bp.x, y: bp.y, label: state.base.name || 'Base Station' };
   }
-  const bp = baseWorld();
-  return { kind: 'base', id: 0, x: bp.x, y: bp.y, label: 'Base Station' };
+  return null;
 }
 
 function resolveTargetPos(target) {
   const bp = baseWorld();
-  if (!target) return { x: bp.x, y: bp.y };
+  // Never sit on base while structures still stand
+  if (!target || (target.kind === 'base' && hasLivingStructures())) {
+    const next = pickRaidTarget();
+    if (next) {
+      if (target) Object.assign(target, next);
+      else if (arguments.length) { /* no-op */ }
+      return { x: next.x, y: next.y, label: next.label, kind: next.kind };
+    }
+    return { x: bp.x, y: bp.y, label: state.base.name || 'Base Station', kind: 'base' };
+  }
   if (target.kind === 'module') {
     const m = state.modules.find((x) => x.id === target.id);
     if (m && (m.health || 0) > 0) {
       const w = gridToWorld(m.col, m.row);
-      return { x: w.x, y: w.y - 10, label: m.name || target.label };
+      return { x: w.x, y: w.y - 10, label: m.name || target.label, kind: 'module' };
     }
     const next = pickRaidTarget();
-    Object.assign(target, next);
-    return { x: next.x, y: next.y, label: next.label };
+    if (next) {
+      Object.assign(target, next);
+      return { x: next.x, y: next.y, label: next.label, kind: next.kind };
+    }
+    return { x: bp.x, y: bp.y, label: state.base.name || 'Base Station', kind: 'base' };
   }
   if (target.kind === 'turret') {
     const t = (state.turrets || []).find((x) => x.id === target.id);
     if (t && (t.health || 0) > 0) {
       const w = gridToWorld(t.col, t.row);
-      return { x: w.x, y: w.y - 8, label: t.name || target.label || 'Turret' };
+      return { x: w.x, y: w.y - 8, label: t.name || target.label || 'Turret', kind: 'turret' };
     }
     const next = pickRaidTarget();
-    Object.assign(target, next);
-    return { x: next.x, y: next.y, label: next.label };
+    if (next) {
+      Object.assign(target, next);
+      return { x: next.x, y: next.y, label: next.label, kind: next.kind };
+    }
+    return { x: bp.x, y: bp.y, label: state.base.name || 'Base Station', kind: 'base' };
   }
-  return { x: bp.x, y: bp.y, label: state.base.name || 'Base Station' };
+  // Base assault
+  if ((state.base.health || 0) <= 0) {
+    return { x: bp.x, y: bp.y, label: state.base.name || 'Base Station', kind: 'base', destroyed: true };
+  }
+  return { x: bp.x, y: bp.y, label: state.base.name || 'Base Station', kind: 'base' };
 }
 
 function destroyTurret(turret) {
@@ -530,14 +886,15 @@ function spawnPointAroundBase() {
   };
 }
 
-function createEnemy(typeId, target) {
+function createEnemy(typeId, target, raidTier = 0) {
   const baseDef = ENEMY_DEFS[typeId] || ENEMY_DEFS.raider;
-  const def = scaleEnemyStats(baseDef, state.sol);
+  const def = scaleEnemyStats(baseDef, { sol: state.sol, raidTier });
   const spawn = spawnPointAroundBase();
+  const isBoss = !!def.isBoss;
   return {
     id: _enemyIdCounter++,
     type: def.id,
-    name: `${def.label} #${_enemyIdCounter}`,
+    name: isBoss ? def.label : `${def.label} #${_enemyIdCounter}`,
     x: spawn.x,
     y: spawn.y,
     destX: target.x,
@@ -547,9 +904,10 @@ function createEnemy(typeId, target) {
     maxHp: def.hp,
     attack: def.attack,
     attackSpeed: def.attackSpeed,
-    flySpeed: COMBAT_CRUISE_SPEED,
+    flySpeed: def.flySpeed || COMBAT_CRUISE_SPEED,
     color: def.color,
     size: def.size,
+    isBoss,
     target: { ...target },
     status: 'inbound',
     engaged: false,
@@ -578,6 +936,8 @@ function markCrisisHit(target) {
 function applyDamageToTarget(target, dmg) {
   if (!target || dmg <= 0) return 0;
   if (target.kind === 'base') {
+    // Structures must fall before HQ can be damaged
+    if (hasLivingStructures()) return 0;
     let remaining = dmg;
     const shield = state.base.shield || 0;
     if (shield > 0) {
@@ -586,7 +946,13 @@ function applyDamageToTarget(target, dmg) {
       remaining -= absorbed;
     }
     if (remaining > 0) {
-      state.base.health = Math.max(0, (state.base.health || 0) - remaining);
+      const prev = state.base.health || 0;
+      state.base.health = Math.max(0, prev - remaining);
+      if (prev > 0 && state.base.health <= 0) {
+        markCrisisHit(target);
+        onBaseDestroyedByRaid();
+        return dmg;
+      }
     }
     markCrisisHit(target);
     return dmg;
@@ -622,7 +988,8 @@ function applyDamageToTarget(target, dmg) {
 }
 
 function grantLoot(enemy, killerPos) {
-  const loot = getEnemyLoot(enemy.type, state.sol);
+  const raidTier = state.activeRaid?.raidTier ?? state.raidsDefeated ?? 0;
+  const loot = getEnemyLoot(enemy.type, state.sol, raidTier);
   const pos = killerPos || { x: enemy.x, y: enemy.y };
   for (const entry of loot) {
     state.resources[entry.type] = Math.min(
@@ -631,13 +998,18 @@ function grantLoot(enemy, killerPos) {
     );
     spawnFloatie(entry.type, entry.amount, pos);
   }
-  const coins = Math.round(40 + state.sol * 8 + enemy.maxHp * 0.05);
-  addCoins(coins);
+  const bossBonus = enemy.isBoss ? 800 + raidTier * 200 : 0;
+  const coins = Math.round(40 + state.sol * 8 + enemy.maxHp * 0.05 + bossBonus);
+  const before = state.coins || 0;
+  addCoins(coins, { silent: true });
+  const gained = Math.max(0, (state.coins || 0) - before);
+  const tag = enemy.isBoss ? '☠ BOSS ' : '';
+  const coinPart = gained > 0 ? ` — +$${fmt(gained)}` : '';
   addLog(
-    `💀 Destroyed ${enemy.name} — +$${fmt(coins)}` +
-      (loot.length ? `, ${loot.map((l) => `${fmt(l.amount)} ${l.label}`).join(', ')}` : ''),
+    `💀 ${tag}Destroyed ${enemy.name}${coinPart}` +
+      (loot.length ? `${coinPart ? ',' : ' —'} ${loot.map((l) => `${fmt(l.amount)} ${l.label}`).join(', ')}` : ''),
   );
-  return { loot, coins };
+  return { loot, coins: gained };
 }
 
 function destroyEnemy(enemy, byLabel = 'defenses') {
@@ -680,7 +1052,81 @@ export function bumpPirateStatusOnExpand() {
 function checkRaidComplete() {
   if (!state.activeRaid) return;
   if ((state.enemies || []).length > 0) return;
+  // If HQ was sacked, defeat path already fired
+  if (state.activeRaid.sacked) {
+    endRaid(false);
+    return;
+  }
   endRaid(true);
+}
+
+/**
+ * Base destroyed mid-raid: pirates loot 5–20% of coins + materials, then withdraw.
+ * Resets pirate aggression. Not a full game-over.
+ */
+function onBaseDestroyedByRaid() {
+  if (!state.activeRaid || state.activeRaid.sacked) return;
+  state.activeRaid.sacked = true;
+
+  const pct = 0.05 + Math.random() * 0.15; // 5–20%
+  const stolen = [];
+  const coinTake = Math.floor((state.coins || 0) * pct);
+  if (coinTake > 0) {
+    state.coins = Math.max(0, (state.coins || 0) - coinTake);
+    stolen.push(`$${fmt(coinTake)}`);
+  }
+  for (const [type, def] of Object.entries(RESOURCE_DEFS || {})) {
+    if (!isStorableResource(type) || !def || def.special) continue;
+    const have = state.resources[type] || 0;
+    const take = Math.floor(have * pct);
+    if (take <= 0) continue;
+    state.resources[type] = have - take;
+    stolen.push(`${fmt(take)} ${def.label || type}`);
+  }
+
+  // All hostiles break off and flee the sector
+  const bp = baseWorld();
+  for (const e of state.enemies || []) {
+    e.status = 'fleeing';
+    e.engaged = false;
+    e.target = null;
+    e.engageTargetId = null;
+    e.phaseTimer = 10;
+    const ang = Math.atan2(e.y - bp.y, e.x - bp.x) || (Math.random() * Math.PI * 2);
+    const dist = 2400 + Math.random() * 800;
+    e.destX = e.x + Math.cos(ang) * dist;
+    e.destY = e.y + Math.sin(ang) * dist;
+  }
+
+  startScreenShake(0.45, 7);
+  if (stolen.length) {
+    const preview = stolen.slice(0, 6).join(', ') + (stolen.length > 6 ? '…' : '');
+    addLog(`🏴‍☠️ BASE DESTROYED — pirates looted ~${Math.round(pct * 100)}%: ${preview}`);
+  } else {
+    addLog('🏴‍☠️ BASE DESTROYED — pirates found nothing worth taking and withdrew.');
+  }
+  showTransmissionMessage(
+    stolen.length
+      ? `Commander — the station is down. Hostiles stripped the vaults (~<strong>${Math.round(pct * 100)}%</strong> of stores) and are breaking off. Repair the Base and rebuild. Pirate pressure has reset — for now.`
+      : `Commander — the station is offline. Hostiles swept the sector, found nothing of value, and are withdrawing. Repair the Base. Pirate pressure has reset.`,
+    18,
+    'juno',
+  );
+
+  // Clear aggression immediately; finish raid after a short flee window
+  state.pirateStatus = 0;
+  hideHqSupportPanel();
+  if (refresh.ui) refresh.ui();
+  if (refresh.resources) refresh.resources();
+  if (refresh.header) refresh.header();
+
+  if (_raidSpawnTimer) {
+    clearTimeout(_raidSpawnTimer);
+    _raidSpawnTimer = null;
+  }
+  setTimeout(() => {
+    if (state.activeRaid?.sacked) endRaid(false);
+  }, 2800);
 }
 
 function endRaid(victory) {
@@ -691,14 +1137,27 @@ function endRaid(victory) {
   hideHqSupportPanel();
 
   if (victory) {
-    addLog(`⚔ Raid defeated — ${raid.kills || 0} hostiles destroyed.`);
+    state.raidsDefeated = (state.raidsDefeated || 0) + 1;
+    const next = getRaidDifficulty(state.raidsDefeated);
+    addLog(
+      `⚔ Raid defeated — ${raid.kills || 0} hostiles destroyed. ` +
+      `Next wing scales to rank ${next.tier + 1} (${next.waveSize}+ craft` +
+      `${next.garrisonCount ? `, ${next.garrisonCount} Garrison` : ''}).`,
+    );
     showTransmissionMessage(
       NPCS.dax?.transmissionLines?.raid_won?.(raid.kills || 0)
-        || `Sector clear, Commander. <strong>${raid.kills || 0}</strong> hostiles neutralized. Combat ships returning for repair.`,
+        || `Sector clear, Commander. <strong>${raid.kills || 0}</strong> hostiles neutralized. Expect a harder response next time — they're learning.`,
       14,
       'dax',
     );
+  } else {
+    // Defeat / sack — aggression already zeroed; keep raidsDefeated as-is
+    state.pirateStatus = 0;
+    if (!raid.sacked) {
+      addLog('⚔ Hostiles withdrew from the sector.');
+    }
   }
+  try { saveGame(); } catch (_) { /* ignore */ }
 
   // Send combat + HQ ships home (HQ mercs despawn after docking)
   const bp = baseWorld();
@@ -718,6 +1177,7 @@ function endRaid(victory) {
   if (hqRtb > 0) addLog(`🛡 HQ wing RTB (${hqRtb}) — will depart after docking.`);
   if (refresh.ui) refresh.ui();
   if (refresh.resources) refresh.resources();
+  if (refresh.header) refresh.header();
 }
 
 function engagePlayerCombatShips() {
@@ -726,14 +1186,10 @@ function engagePlayerCombatShips() {
   for (const ship of state.ships) {
     const role = SHIP_DEFS[ship.type]?.role;
     if (!ship.isHqSupport && !isCombatRole(role)) continue;
-    // Still limping home — let them dock first
-    if (ship.status === 'returning_repair' && (ship.currentHp || 0) <= 0) {
-      const bp = baseWorld();
-      if (dist2(ship.x, ship.y, bp.x, bp.y) > 40) continue;
-      ship.currentHp = getShipMaxHp(ship);
-    }
+    // Destroyed hulls limp home and wait for manual repair
+    if (ship.status === 'destroyed' || (ship.currentHp || 0) <= 0) continue;
+    if (ship.status === 'returning_repair') continue;
     ensureShipCombatHp(ship);
-    if ((ship.currentHp || 0) <= 0) ship.currentHp = getShipMaxHp(ship);
     if ((ship.currentHp || 0) <= 0) continue;
     // Combat hulls never haul ore — scramble from any non-cargo state
     if ((ship.cargo || 0) > 0) continue;
@@ -811,6 +1267,14 @@ function showHqSupportPanel(cost) {
   if (panel) panel.classList.add('visible');
 }
 
+/** Refresh HQ call button affordability while panel is open (money changes). */
+export function patchHqSupportPanel() {
+  if (!state.activeRaid || state.activeRaid.hqCalled) return;
+  const panel = document.getElementById('hq-support-panel');
+  if (!panel?.classList.contains('visible')) return;
+  showHqSupportPanel(currentHqSupportCost());
+}
+
 function hideHqSupportPanel() {
   const panel = document.getElementById('hq-support-panel');
   if (panel) panel.classList.remove('visible');
@@ -819,6 +1283,7 @@ function hideHqSupportPanel() {
 window.dismissHqSupportPanel = function() {
   hideHqSupportPanel();
 };
+window.patchHqSupportPanel = patchHqSupportPanel;
 
 // ── Public API ───────────────────────────────────────────────
 
@@ -833,7 +1298,10 @@ export function startDailyRaid(opts = {}) {
   // Don't stack with base already dead
   if ((state.base.health || 0) <= 0) return false;
 
-  const waveSize = Math.max(1, opts.waveSize || RAID_WAVE_SIZE);
+  const diff = getRaidDifficulty(state.raidsDefeated || 0);
+  const waveSize = Math.max(1, opts.waveSize || diff.waveSize || RAID_WAVE_SIZE);
+  const garrisonCount = Math.max(0, opts.garrisonCount ?? diff.garrisonCount ?? 0);
+  const raidTier = Math.max(0, opts.raidTier ?? diff.tier ?? 0);
   const reinforce = !!state.activeRaid;
   const undefended = !hasCombatDefenses();
   const hqCost = currentHqSupportCost();
@@ -844,6 +1312,8 @@ export function startDailyRaid(opts = {}) {
       id: eventId,
       startedSol: state.sol,
       waveSize,
+      garrisonCount,
+      raidTier,
       kills: 0,
       hqCalled: false,
       undefended,
@@ -858,12 +1328,14 @@ export function startDailyRaid(opts = {}) {
     state.eventCounts = state.eventCounts || {};
     state.eventCounts.pirate_raid = (state.eventCounts.pirate_raid || 0) + 1;
 
-    const title = eventTitleHtml('pirate_raid', 'PIRATE RAID', 'md');
+    const title = eventTitleHtml('pirate_raid', garrisonCount ? 'PIRATE ASSAULT' : 'PIRATE RAID', 'md');
+    const strengthLine = `Rank ${raidTier + 1} · ${waveSize} craft`
+      + (garrisonCount ? ` · ${garrisonCount} Garrison hull${garrisonCount > 1 ? 's' : ''}` : '');
     const detail = undefended
       ? `<div class="ew-raid">
           <div class="ew-raid-kicker">⚠ SECTOR ALERT</div>
           <div class="ew-raid-lead">Hostile signatures on approach.</div>
-          <div class="ew-raid-body">Pirates are vectoring on your structures. Hold the line.</div>
+          <div class="ew-raid-body">Pirates are vectoring on your structures. ${strengthLine}.</div>
           <div class="ew-raid-status warn">
             <span class="ew-raid-status-dot"></span>
             No combat ships or powered turrets detected — call HQ support
@@ -872,7 +1344,7 @@ export function startDailyRaid(opts = {}) {
       : `<div class="ew-raid">
           <div class="ew-raid-kicker">⚠ SECTOR ALERT</div>
           <div class="ew-raid-lead">Hostile signatures on approach.</div>
-          <div class="ew-raid-body">Pirates are vectoring on your structures. Defenses are online — HQ support is also available.</div>
+          <div class="ew-raid-body">Pirates are vectoring on your structures. ${strengthLine}. Defenses are online — HQ support is also available.</div>
           <div class="ew-raid-status ok">
             <span class="ew-raid-status-dot"></span>
             Combat ships auto-engage · Powered turrets will fire
@@ -925,7 +1397,7 @@ export function startDailyRaid(opts = {}) {
   }
 
   // Always append a new wave (never wipe living hostiles)
-  spawnRaidWave(waveSize);
+  spawnRaidWave(waveSize, reinforce ? 0 : garrisonCount);
 
   if (_raidSpawnTimer) clearTimeout(_raidSpawnTimer);
   _raidSpawnTimer = setTimeout(() => {
@@ -941,19 +1413,23 @@ export function startDailyRaid(opts = {}) {
   return true;
 }
 
-/** Append `count` enemies to the current raid (does not clear existing). */
-function spawnRaidWave(count = RAID_WAVE_SIZE) {
+/** Append enemies to the current raid (does not clear existing). */
+function spawnRaidWave(count = RAID_WAVE_SIZE, garrisonCount = 0) {
   if (!state.activeRaid) return;
-  const n = Math.max(1, count | 0);
+  const raidTier = state.activeRaid.raidTier ?? state.raidsDefeated ?? 0;
+  const roster = buildRaidRoster(count, garrisonCount);
   const spawned = [];
-  for (let i = 0; i < n; i++) {
-    const typeId = ENEMY_WAVE_TYPES[i % ENEMY_WAVE_TYPES.length];
+  let bosses = 0;
+  for (const typeId of roster) {
     const target = pickRaidTarget();
-    spawned.push(createEnemy(typeId, target));
+    const e = createEnemy(typeId, target, raidTier);
+    if (e.isBoss) bosses += 1;
+    spawned.push(e);
   }
   state.enemies = [...(state.enemies || []), ...spawned];
   engagePlayerCombatShips();
-  addLog(`⚔ ${n} pirate craft on approach!`);
+  const bossNote = bosses > 0 ? ` — including ${bosses} Garrison boss${bosses > 1 ? 'es' : ''}!` : '';
+  addLog(`⚔ ${spawned.length} pirate craft on approach (rank ${raidTier + 1})${bossNote}`);
   if (refresh.ui) refresh.ui();
 }
 
@@ -1035,7 +1511,10 @@ export function callHqCombatSupport() {
 
   // If enemies not spawned yet, spawn then engage
   if (!(state.enemies || []).length) {
-    spawnRaidWave(state.activeRaid.waveSize || RAID_WAVE_SIZE);
+    spawnRaidWave(
+      state.activeRaid.waveSize || RAID_WAVE_SIZE,
+      state.activeRaid.garrisonCount || 0,
+    );
   } else {
     engagePlayerCombatShips();
   }
@@ -1070,6 +1549,29 @@ function beginRoamPhase(enemy) {
 function tickEnemy(enemy, dt) {
   if ((enemy.hp || 0) <= 0) return;
 
+  // Raid sacked — break for deep space
+  if (enemy.status === 'fleeing' || state.activeRaid?.sacked) {
+    enemy.status = 'fleeing';
+    enemy.engaged = false;
+    enemy.target = null;
+    tickCombatBoost(enemy, dt);
+    const fleeSpeed = getCombatMoveSpeed(enemy, 1.25);
+    if (!Number.isFinite(enemy.destX)) {
+      const bp = baseWorld();
+      const ang = Math.atan2(enemy.y - bp.y, enemy.x - bp.x) || Math.random() * Math.PI * 2;
+      enemy.destX = enemy.x + Math.cos(ang) * 2600;
+      enemy.destY = enemy.y + Math.sin(ang) * 2600;
+    }
+    flyCombat(enemy, enemy.destX, enemy.destY, fleeSpeed, dt, ENEMY_FLIGHT);
+    // Despawn once far from base
+    const bp = baseWorld();
+    if (dist2(enemy.x, enemy.y, bp.x, bp.y) > 2000) {
+      state.enemies = (state.enemies || []).filter((e) => e.id !== enemy.id);
+      checkRaidComplete();
+    }
+    return;
+  }
+
   // EMP stun — crawl at 10% speed, cannot shoot (avoids frozen orbit-camping)
   const empSlowed = (enemy.stunTimer || 0) > 0;
   if (empSlowed) {
@@ -1082,6 +1584,11 @@ function tickEnemy(enemy, dt) {
   }
 
   const strike = getCombatMoveSpeed(enemy);
+  // Keep structure-first targeting even if target was base
+  if (enemy.target?.kind === 'base' && hasLivingStructures()) {
+    const next = pickRaidTarget();
+    if (next) enemy.target = next;
+  }
   const tPos = resolveTargetPos(enemy.target);
   // Aim slightly below building center (matches base sprite footprint)
   const aimY = tPos.y + (
@@ -1220,8 +1727,12 @@ function tickEnemy(enemy, dt) {
         enemy.phaseTimer = randRange(DOGFIGHT_ENGAGE_MIN_S, DOGFIGHT_ENGAGE_MAX_S);
         enemy.engageTargetId = prey.id;
       } else {
+        // No threats — resume structure / base assault
         enemy.engaged = false;
-        setupDriveBy(enemy, tPos);
+        const next = pickRaidTarget();
+        if (next) enemy.target = next;
+        const resume = resolveTargetPos(enemy.target);
+        setupDriveBy(enemy, resume);
       }
     }
   } else if (enemy.status === 'dogfight_engage') {
@@ -1243,12 +1754,17 @@ function tickEnemy(enemy, dt) {
         fireAtTarget(enemy, prey.x, prey.y, { color: enemy.color || '#ff5d5d', width: 2 });
         enemy.atkCd = enemyShotCd();
         if ((prey.currentHp ?? 0) <= 0) {
-          addLog(`💥 ${prey.name} was disabled in combat!`);
-          prey.status = 'returning_repair';
-          prey.targetEnemyId = null;
-          const bp = baseWorld();
-          prey.destX = bp.x;
-          prey.destY = bp.y;
+          if (prey.isHqSupport) {
+            addLog(`💥 ${prey.name} was disabled in combat!`);
+            prey.status = 'returning_repair';
+            prey.targetEnemyId = null;
+            const bp = baseWorld();
+            prey.destX = bp.x;
+            prey.destY = bp.y;
+          } else {
+            addLog(`💥 ${prey.name} destroyed! Returning to base.`);
+            markShipDestroyed(prey);
+          }
         }
       }
       if (enemy.phaseTimer <= 0) {
@@ -1319,9 +1835,34 @@ function tickEnemy(enemy, dt) {
 
 function tickPlayerCombatShip(ship, dt) {
   ensureShipCombatHp(ship);
-  if (ship.currentHp <= 0) {
+  if (ship.currentHp <= 0 && !ship.isHqSupport) {
+    if (ship.status !== 'destroyed') {
+      addLog(`💥 ${ship.name} destroyed! Returning to base.`);
+      markShipDestroyed(ship);
+    }
+  } else if (ship.currentHp <= 0 && ship.isHqSupport) {
     ship.status = 'returning_repair';
     ship.targetEnemyId = null;
+  }
+
+  // Destroyed player hulls limp home and stop until repaired
+  if (ship.status === 'destroyed') {
+    const bp = baseWorld();
+    ship.destX = bp.x;
+    ship.destY = bp.y;
+    ship.currentHp = 0;
+    ship.targetEnemyId = null;
+    const speed = getCombatMoveSpeed(ship) * 0.55;
+    const arrived = flySmooth(ship, ship.destX, ship.destY, speed, dt);
+    if (arrived) {
+      ship.x = bp.x;
+      ship.y = bp.y;
+      ship.vx = 0;
+      ship.vy = 0;
+      ship.currentHp = 0;
+      // Stay destroyed — manual repair required
+    }
+    return true;
   }
 
   if (ship.status === 'returning_repair') {
@@ -1332,23 +1873,20 @@ function tickPlayerCombatShip(ship, dt) {
     const speed = getCombatMoveSpeed(ship);
     const arrived = flySmooth(ship, ship.destX, ship.destY, speed, dt);
     if (arrived) {
-      ship.currentHp = getShipMaxHp(ship);
       ship.x = bp.x;
       ship.y = bp.y;
-      ship.status = 'idle';
       ship.targetEnemyId = null;
       if (ship.isHqSupport) {
         // Mercs leave after docking at home base
         state.ships = state.ships.filter((s) => s.id !== ship.id);
         addLog(`🛡 ${ship.name} docked and left the sector.`);
         if (refresh.ui) refresh.ui();
+      } else if ((ship.currentHp || 0) <= 0) {
+        // Safety: zero-HP non-HQ should be destroyed, not free-healed
+        markShipDestroyed(ship);
       } else {
-        addLog(`🔧 ${ship.name} repaired at base.`);
-        // Immediate re-scramble if raid still active
-        if (state.activeRaid && (state.enemies || []).length) {
-          ship.status = 'engaging';
-          ship.targetEnemyId = pickNearestEnemy(ship)?.id ?? state.enemies[0].id;
-        }
+        // Healthy RTB after raid — stand down
+        ship.status = 'idle';
       }
     }
     return true; // handled — skip normal tickShip movement conflicts
@@ -1373,36 +1911,129 @@ function tickPlayerCombatShip(ship, dt) {
     return true;
   }
 
-  // Bank onto a standoff orbit — forward guns only, no snap-turn
-  // HQ wing: lock standoff to the tight ring every tick (in case it was set wide earlier)
+  const role = SHIP_DEFS[ship.type]?.role;
+  const isGarrison = role === 'garrison';
+  tickCombatBoost(ship, dt);
+  const shootRange = getPlayerShipShootRange(ship);
+  const dToEnemy = dist2(ship.x, ship.y, enemy.x, enemy.y);
+
+  // ── Garrison: close to hold-min, sit still and fire until hold-max ──
+  if (isGarrison) {
+    // hold = parked and shooting; chase = flying toward preferred min range
+    if (!ship._gHoldMode) ship._gHoldMode = 'chase';
+    if (ship._gHoldMode === 'hold') {
+      if (dToEnemy > GARRISON_HOLD_MAX || dToEnemy > shootRange * 0.98) {
+        ship._gHoldMode = 'chase';
+      } else {
+        // Stay put — only turn to face target (no orbit swarm)
+        turnInPlace(ship, enemy.x, enemy.y, dt, GARRISON_TURN_RATE);
+        ship.destX = ship.x;
+        ship.destY = ship.y;
+        ship.combatBoost = 0;
+      }
+    }
+    if (ship._gHoldMode === 'chase') {
+      if (dToEnemy <= GARRISON_HOLD_MIN || (dToEnemy <= shootRange && dToEnemy <= GARRISON_HOLD_MIN + 8)) {
+        ship._gHoldMode = 'hold';
+        turnInPlace(ship, enemy.x, enemy.y, dt, GARRISON_TURN_RATE);
+      } else {
+        // Fly toward a point at hold-min distance from enemy (not through them)
+        const ang = Math.atan2(ship.y - enemy.y, ship.x - enemy.x);
+        const tx = enemy.x + Math.cos(ang) * GARRISON_HOLD_MIN;
+        const ty = enemy.y + Math.sin(ang) * GARRISON_HOLD_MIN;
+        ship.destX = tx;
+        ship.destY = ty;
+        flyCombat(ship, tx, ty, getCombatMoveSpeed(ship), dt, getPlayerFlightOpts(ship));
+      }
+    }
+    const sepG = SHIP_SEPARATION * 1.35;
+    applySeparation(ship, getCombatShips(), sepG, dt);
+    ship.atkCd = Math.max(0, (ship.atkCd || 0) - dt);
+    // Fire while holding (or whenever in weapon range + facing)
+    if (ship._gHoldMode === 'hold' || dToEnemy <= shootRange) {
+      tickShipAttachments(ship, enemy, dt, shootRange);
+    }
+    return true;
+  }
+
+  // ── Fighters / HQ: orbit engage with periodic breakaway fly-bys ──
   if (ship.isHqSupport && !Number.isFinite(ship.engageStandoff)) {
     ship.engageStandoff = HQ_ENGAGE_STANDOFF;
   }
-  tickCombatBoost(ship, dt);
+
+  // Breakaway: peel off to a random point every 2–5s, then re-commit
+  if (!ship.isHqSupport) {
+    if (!Number.isFinite(ship._breakCd)) {
+      ship._breakCd = randRange(FIGHTER_BREAKAWAY_MIN_S, FIGHTER_BREAKAWAY_MAX_S);
+      ship._breakPhase = 'engage';
+    }
+    if (ship._breakPhase === 'break') {
+      ship._breakTravel = (ship._breakTravel || 0) + dt;
+      const arrived = flyCombat(
+        ship, ship._breakX, ship._breakY,
+        getCombatMoveSpeed(ship, 1.25), dt, getPlayerFlightOpts(ship),
+      );
+      const near = arrived || dist2(ship.x, ship.y, ship._breakX, ship._breakY) < 50;
+      // Still shoot if a target happens to be in cone during peel
+      ship.atkCd = Math.max(0, (ship.atkCd || 0) - dt);
+      if (dToEnemy < shootRange * 1.1) tickShipAttachments(ship, enemy, dt, shootRange);
+      if (near || ship._breakTravel > FIGHTER_BREAKAWAY_MAX_S_TRAVEL) {
+        ship._breakPhase = 'engage';
+        ship._breakCd = randRange(FIGHTER_BREAKAWAY_MIN_S, FIGHTER_BREAKAWAY_MAX_S);
+        ship._breakTravel = 0;
+        ship.combatBoost = 0;
+      }
+      applySeparation(ship, getCombatShips().concat(state.ships.filter((s) => s.isHqSupport)), SHIP_SEPARATION, dt);
+      return true;
+    }
+    ship._breakCd -= dt;
+    if (ship._breakCd <= 0) {
+      // Kick out on a random bearing
+      const ang = Math.random() * Math.PI * 2;
+      const dist = randRange(FIGHTER_BREAKAWAY_DIST_MIN, FIGHTER_BREAKAWAY_DIST_MAX);
+      ship._breakX = ship.x + Math.cos(ang) * dist;
+      ship._breakY = ship.y + Math.sin(ang) * dist;
+      ship._breakPhase = 'break';
+      ship._breakTravel = 0;
+      startCombatBoost(ship);
+    }
+  }
+
   const hold = getEngageHoldPoint(ship, enemy.x, enemy.y, dt);
   ship.destX = hold.x;
   ship.destY = hold.y;
   const speed = getCombatMoveSpeed(ship);
-  flyCombat(ship, hold.x, hold.y, speed, dt, PLAYER_FLIGHT);
+  flyCombat(ship, hold.x, hold.y, speed, dt, getPlayerFlightOpts(ship));
   const sep = ship.isHqSupport ? HQ_SHIP_SEPARATION : SHIP_SEPARATION;
   applySeparation(ship, getCombatShips().concat(state.ships.filter((s) => s.isHqSupport)), sep, dt);
 
   ship.atkCd = Math.max(0, (ship.atkCd || 0) - dt);
-  const d = dist2(ship.x, ship.y, enemy.x, enemy.y);
-  // Only fire when nose is on target
-  const shootRange = ship.isHqSupport ? HQ_SHOOT_RANGE : PLAYER_SHOOT_RANGE;
-  // DPS = attack × attackSpeed (damage per shot × shots per second)
-  if (ship.atkCd <= 0 && d < shootRange && isFacing(ship, enemy.x, enemy.y)) {
-    const dmg = ship.attack || 0;
-    if (dmg > 0) {
-      enemy.hp = Math.max(0, (enemy.hp || 0) - dmg);
-      markEnemyEngaged(enemy);
-      fireAtTarget(ship, enemy.x, enemy.y, { color: '#5ec8ff', width: 2.1, duration: 0.14 });
-      ship.atkCd = 1 / Math.max(0.05, ship.attackSpeed || 1);
-      if (enemy.hp <= 0) destroyEnemy(enemy, ship.name);
+  if (ship.isHqSupport) {
+    const d = dist2(ship.x, ship.y, enemy.x, enemy.y);
+    if (ship.atkCd <= 0 && d < shootRange && isFacing(ship, enemy.x, enemy.y)) {
+      const dmg = ship.attack || 0;
+      if (dmg > 0) {
+        enemy.hp = Math.max(0, (enemy.hp || 0) - dmg);
+        markEnemyEngaged(enemy);
+        fireAtTarget(ship, enemy.x, enemy.y, { color: '#5ec8ff', width: 2.1, duration: 0.14 });
+        ship.atkCd = 1 / Math.max(0.05, ship.attackSpeed || 1);
+        if (enemy.hp <= 0) destroyEnemy(enemy, ship.name);
+      }
     }
+  } else {
+    tickShipAttachments(ship, enemy, dt, shootRange);
   }
   return true;
+}
+
+/** Rotate toward a point without translating (garrison hold). */
+function turnInPlace(ent, tx, ty, dt, turnRate) {
+  if (!Number.isFinite(ent.heading)) ent.heading = 0;
+  const desired = Math.atan2(ty - ent.y, tx - ent.x) + Math.PI / 2;
+  const da = normalizeAngle(desired - ent.heading);
+  const rate = Number.isFinite(turnRate) ? turnRate : GARRISON_TURN_RATE;
+  ent.heading += Math.sign(da) * Math.min(Math.abs(da), rate * dt);
+  ent.combatBoost = 0;
 }
 
 /** Turret fireRate is cooldown seconds (auto L1=1s → 1/s; laser/EMP are long CDs). */
@@ -1626,12 +2257,28 @@ export function tickCombat(dt) {
   }
 
   if (!(state.enemies || []).length && !state.activeRaid) {
-    // Still process repair returns
+    // Still process destroyed RTB / repair returns + regen when idle at base
     for (const ship of state.ships) {
-      if (ship.status === 'returning_repair') tickPlayerCombatShip(ship, dt);
+      if (ship.status === 'returning_repair' || ship.status === 'destroyed') tickPlayerCombatShip(ship, dt);
+      else {
+        const role = SHIP_DEFS[ship.type]?.role;
+        if (isCombatRole(role) && ship.status !== 'destroyed') {
+          ensureShipCombatHp(ship);
+          const regen = getShipRegenPerSec(ship);
+          if (regen > 0) {
+            const maxHp = getShipMaxHp(ship);
+            if ((ship.currentHp || 0) > 0 && ship.currentHp < maxHp) {
+              ship.currentHp = Math.min(maxHp, ship.currentHp + maxHp * regen * dt);
+            }
+          }
+        }
+      }
     }
+    tickClusterProjectiles(dt);
     return;
   }
+
+  tickClusterProjectiles(dt);
 
   for (const enemy of [...(state.enemies || [])]) {
     tickEnemy(enemy, dt);
@@ -1641,7 +2288,7 @@ export function tickCombat(dt) {
 
   for (const ship of state.ships) {
     const role = SHIP_DEFS[ship.type]?.role;
-    if (isCombatRole(role) || ship.isHqSupport || ship.status === 'returning_repair' || ship.status === 'engaging') {
+    if (isCombatRole(role) || ship.isHqSupport || ship.status === 'returning_repair' || ship.status === 'destroyed' || ship.status === 'engaging') {
       tickPlayerCombatShip(ship, dt);
     }
   }
@@ -1658,6 +2305,7 @@ export function isShipInCombatControl(ship) {
   return ship.status === 'engaging'
     || ship.status === 'intercepting'
     || ship.status === 'returning_repair'
+    || ship.status === 'destroyed'
     || !!ship.isHqSupport;
 }
 

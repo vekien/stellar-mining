@@ -24,6 +24,7 @@ import {
   placeFloatingWindow,
 } from './floatingWindow.js';
 import { bumpPirateStatusOnExpand } from '../systems/combat.js';
+import { enqueueCraftJob, canEnqueueCraft, getCraftQueueCap } from '../systems/craftQueue.js';
 
 const TURRET_LAYOUT_KEY = 'turret';
 
@@ -107,10 +108,8 @@ function getTurretCraftTimeMs(turretType = 'turret') {
   return TURRET_CRAFT_TIME_MS[turretType] || TURRET_CRAFT_TIME_MS.turret;
 }
 
-function completeCraftTurret(turretType) {
-  const timer = state.turretCraftTimers?.[turretType];
-  if (!timer) return;
-  delete state.turretCraftTimers[turretType];
+window.completeCraftTurretJob = function(job) {
+  const turretType = job?.recipeId || 'turret';
   if (!Array.isArray(state.unplacedTurretQueue)) state.unplacedTurretQueue = [];
   state.unplacedTurretQueue.push(turretType);
   state.unplacedTurrets = state.unplacedTurretQueue.length;
@@ -120,18 +119,7 @@ function completeCraftTurret(turretType) {
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
-}
-
-function scheduleTurretCraftCompletion(turretType, endsAt) {
-  const wait = Math.max(0, endsAt - Date.now());
-  setTimeout(() => {
-    const timer = state.turretCraftTimers?.[turretType];
-    if (!timer) return;
-    if (Date.now() >= timer.endsAt) completeCraftTurret(turretType);
-    else scheduleTurretCraftCompletion(turretType, timer.endsAt);
-  }, wait + 5);
-}
+};
 
 export function openTurretModal(turretId) {
   state.selectedTurret = turretId;
@@ -545,20 +533,32 @@ window.startPlaceTurret = function() {
   const turretType = arguments[0] || 'turret';
   const turretDef = getCraft('turrets', turretType);
   if (!turretDef) return;
-  if (state.turretCraftTimers?.[turretType] && Date.now() < state.turretCraftTimers[turretType].endsAt) return;
+  if (!canEnqueueCraft()) {
+    addLog(`⚠ Craft queue full (${getCraftQueueCap()} slots). Upgrade the Base for more.`);
+    return;
+  }
   if (state.coins < turretDef.cost) return;
   for (const [r, n] of Object.entries(turretDef.reqs)) if ((state.resources[r] || 0) < n) return;
   spendCoins(turretDef.cost);
   for (const [r, n] of Object.entries(turretDef.reqs)) state.resources[r] -= n;
   const durationMs = getTurretCraftTimeMs(turretType);
-  const now = Date.now();
-  if (!state.turretCraftTimers) state.turretCraftTimers = {};
-  state.turretCraftTimers[turretType] = { startedAt: now, endsAt: now + durationMs, durationMs };
-  addLog(`🛠 Crafting started: ${turretDef.name} (${Math.ceil(durationMs / 1000)}s)`);
-  scheduleTurretCraftCompletion(turretType, now + durationMs);
+  const job = enqueueCraftJob({
+    kind: 'turret',
+    recipeId: turretType,
+    name: turretDef.name,
+    durationMs,
+  });
+  if (!job) {
+    addCoins(turretDef.cost);
+    for (const [r, n] of Object.entries(turretDef.reqs)) state.resources[r] = (state.resources[r] || 0) + n;
+    return;
+  }
+  addLog(`🛠 Queued: ${turretDef.name} (${Math.ceil(durationMs / 1000)}s)`);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') {
+    window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true });
+  }
 };
 
 export function cancelTurretPlacement() {
@@ -584,15 +584,8 @@ window.beginPlacingTurret = function() {
 };
 
 window.syncTurretCraftTimers = function() {
-  if (!state.turretCraftTimers) return;
-  for (const [turretType, timer] of Object.entries(state.turretCraftTimers)) {
-    if (!timer || !timer.endsAt) continue;
-    if (Date.now() >= timer.endsAt) completeCraftTurret(turretType);
-    else scheduleTurretCraftCompletion(turretType, timer.endsAt);
-  }
+  // Legacy no-op — craft queue handles sync
 };
-
-window.syncTurretCraftTimers();
 
 // Expose functions needed by dynamically-rendered HTML onclick handlers
 window.openTurretModal = openTurretModal;

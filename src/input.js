@@ -349,6 +349,14 @@ export function initInput(canvas) {
         window.closeShipUpgradeOverlay?.();
         return;
       }
+      if (document.getElementById('attachment-picker-overlay')?.classList.contains('show')) {
+        window.closeAttachmentPicker?.();
+        return;
+      }
+      if (document.getElementById('node-picker-overlay')?.classList.contains('show')) {
+        window.closeNodePicker?.();
+        return;
+      }
       if (document.getElementById('fuel-picker-overlay')?.classList.contains('show')) {
         window.closeFuelPickerOverlay?.();
         return;
@@ -570,10 +578,18 @@ function handleCanvasClick(canvas, clientX, clientY) {
       if (!ship) { state.pendingAssign = null; if (refresh.ui) refresh.ui(); return; }
       if (node.type === CRASHED_SHIP_NODE_TYPE) {
         state.pendingAssign = null;
-        state.selectedShip  = null;
         canvas.style.cursor = '';
         removeReassignTooltip();
         assignShip(ship, node);
+        if (state.settings?.closeShipAfterAssign !== false) {
+          state.selectedShip = null;
+          window.restoreShipModalFromMapPick?.({ silent: true });
+          window.closeShipModal?.();
+          if (refresh.ui) refresh.ui();
+        } else {
+          state.selectedShip = ship.id;
+          window.restoreShipModalFromMapPick?.();
+        }
         return;
       }
       const accessible = [];
@@ -584,19 +600,28 @@ function handleCanvasClick(canvas, clientX, clientY) {
         return;
       }
       state.pendingAssign = null;
-      state.selectedShip  = null;
       canvas.style.cursor = '';
       removeReassignTooltip();
       assignShip(ship, node);
+      if (state.settings?.closeShipAfterAssign !== false) {
+        state.selectedShip = null;
+        window.restoreShipModalFromMapPick?.({ silent: true });
+        window.closeShipModal?.();
+        if (refresh.ui) refresh.ui();
+      } else {
+        state.selectedShip = ship.id;
+        window.restoreShipModalFromMapPick?.();
+      }
       return;
     }
   }
 
-  // Empty map click while assigning: cancel assign mode only — keep ship window open
+  // Empty map click while assigning: cancel assign mode only — restore minimized panel
   if (state.pendingAssign !== null) {
     state.pendingAssign = null;
     canvas.style.cursor = '';
     removeReassignTooltip();
+    window.restoreShipModalFromMapPick?.();
     if (refresh.ui) refresh.ui();
   }
 }

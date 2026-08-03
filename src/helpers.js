@@ -74,22 +74,30 @@ window.closeCurrencyMaxPopup = function() {
   }
 };
 
-export function addCoins(n) {
+/**
+ * @param {number} n
+ * @param {{ silent?: boolean }} [opts] silent=true skips max-currency popup/log (loot, rewards)
+ */
+export function addCoins(n, opts = {}) {
   if (!_stateRef) return false;
   const delta = Math.floor(Number(n) || 0);
   if (delta <= 0) return true;
   if ((_stateRef.coins || 0) >= MAX_COINS) {
-    showCurrencyMaxPopup();
-    const now = Date.now();
-    if (now - _lastMaxCoinWarnTs > 1200) {
-      _lastMaxCoinWarnTs = now;
-      addLog('⚠ Cannot sell! Currency is maxed out. Consider alternate means of liquidation.');
+    if (!opts.silent) {
+      showCurrencyMaxPopup();
+      const now = Date.now();
+      if (now - _lastMaxCoinWarnTs > 1200) {
+        _lastMaxCoinWarnTs = now;
+        addLog('⚠ Cannot sell! Currency is maxed out. Consider alternate means of liquidation.');
+      }
     }
     return false;
   }
-  _stateRef.coins = clampCoins((_stateRef.coins || 0) + delta);
+  const before = _stateRef.coins || 0;
+  _stateRef.coins = clampCoins(before + delta);
   _headerCoinCb?.();
-  return true;
+  // Partial fill to cap still counts as success if any coins were added
+  return (_stateRef.coins || 0) > before || delta === 0;
 }
 export function spendCoins(n) { _stateRef.coins = clampCoins((_stateRef.coins || 0) - n); _headerCoinCb?.(); }
 

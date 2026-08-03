@@ -5,7 +5,7 @@ import { state } from '../state.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
 import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE, BASE_TIER_REQS } from '../data/base.js';
-import { fmt, fmtCompact, showHintTooltip, hideTooltip, isLightColor, spendCoins, addLog } from '../helpers.js';
+import { fmt, fmtCompact, resourceIconHtml, showHintTooltip, hideTooltip, isLightColor, spendCoins, addLog } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
 import { invalidateNetworkCache } from '../data/modules.js';
 import { refresh } from './refresh.js';
@@ -30,6 +30,7 @@ import {
   placeFloatingWindow,
 } from './floatingWindow.js';
 import { bindTippyIn, destroyTippiesIn, setHtmlDestroyingTippies } from './tippy.js';
+import { countCraftJobs } from '../systems/craftQueue.js';
 
 const RESEARCH_DESC_BY_ID = (() => {
   const map = Object.create(null);
@@ -186,14 +187,128 @@ function collectInstallations() {
   };
 }
 
-let _basePanelTab = 'details'; // details | controls | installations
+let _basePanelTab = 'details'; // details | upgrade | controls | installations
 let _lastRepairPanelSig = '';
 let _lastRepairRebuildTs = 0;
+let _baseTierTrackRo = null;
 const REPAIR_PANEL_MIN_MS = 400;
 
 function normalizeBasePanelTab(tab) {
-  if (tab === 'installations' || tab === 'controls') return tab;
+  if (tab === 'installations' || tab === 'controls' || tab === 'upgrade') return tab;
   return 'details';
+}
+
+function layoutBaseTierTrack(root, tier) {
+  const track = root?.querySelector?.('.sm-bp-track');
+  const rail = track?.querySelector('.sm-bp-rail');
+  const fill = track?.querySelector('.sm-bp-fill');
+  const dots = track?.querySelectorAll('.sm-bp-node .sm-bp-dot');
+  if (!track || !rail || !fill || !dots?.length) return;
+  const trackRect = track.getBoundingClientRect();
+  if (trackRect.width < 8) return;
+  const centers = Array.from(dots).map((d) => {
+    const r = d.getBoundingClientRect();
+    return {
+      x: r.left + r.width / 2 - trackRect.left,
+      y: r.top + r.height / 2 - trackRect.top,
+    };
+  });
+  const first = centers[0];
+  const last = centers[centers.length - 1];
+  const t = Math.max(1, Math.min(centers.length, tier || 1));
+  const targetX = centers[t - 1].x;
+  rail.style.left = `${first.x}px`;
+  rail.style.width = `${Math.max(0, last.x - first.x)}px`;
+  rail.style.top = `${first.y - 1.5}px`;
+  fill.classList.remove('animating');
+  fill.style.width = `${Math.max(0, targetX - first.x)}px`;
+}
+
+function observeBaseTierTrack(root, tier) {
+  const track = root?.querySelector?.('.sm-bp-track');
+  if (!track || typeof ResizeObserver === 'undefined') return;
+  if (_baseTierTrackRo) _baseTierTrackRo.disconnect();
+  _baseTierTrackRo = new ResizeObserver(() => layoutBaseTierTrack(root, tier));
+  _baseTierTrackRo.observe(track);
+}
+
+function buildBaseUpgradePane(bl, nextCost, nextResReqs, canUpgrade) {
+  const nt = bl < 10 ? bl + 1 : null;
+  const nodes = [];
+  for (let i = 1; i <= 10; i++) {
+    let cls = 'locked';
+    if (i < bl) cls = 'done';
+    else if (i === bl) cls = 'current';
+    const label = i === 10 ? 'X' : String(i);
+    nodes.push(`<div class="sm-bp-node ${cls}"><div class="sm-bp-dot">${label}</div><div class="nm">T${label}</div></div>`);
+  }
+
+  let costChips = '';
+  if (nt && nextResReqs) {
+    for (const [r, n] of Object.entries(nextResReqs)) {
+      const met = (state.resources[r] || 0) >= n;
+      const label = RESOURCE_DEFS[r]?.label || r;
+      costChips += `<span class="sm-bp-chip bp-upg-res${met ? '' : ' unmet'}" data-res="${r}" data-need="${n}" data-tippy-content="${label}">${resourceIconHtml(r, 18)}${fmt(n)}</span>`;
+    }
+  }
+  if (nt && nextCost != null) {
+    const cashMet = state.coins >= nextCost;
+    costChips += `<span id="bp-req-coins" class="sm-bp-chip cash${cashMet ? '' : ' unmet'}" data-need="${nextCost}" data-tippy-content="Credits"><span class="cash-ico">$</span>${fmt(nextCost)}</span>`;
+  }
+
+  const tierActions = nt
+    ? `<div class="sm-bp-cost">
+        <span class="cost-lab">COST</span>
+        ${costChips}
+      </div>
+      <button id="bp-upgrade-btn" class="sm-btn-tier" type="button" onclick="upgradeBase()" ${canUpgrade ? '' : 'disabled'}>ADVANCE TIER →</button>`
+    : '<div class="sm-maxed">★ MAX TIER REACHED</div>';
+
+  const curShips = BASE_MAX_SHIPS[bl - 1] || 5;
+  const nextShips = nt ? (BASE_MAX_SHIPS[nt - 1] || curShips) : curShips;
+  const curRange = BASE_RANGE[bl - 1] || 5;
+  const nextRange = nt ? (BASE_RANGE[nt - 1] || curRange) : curRange;
+  const curHull = 10000 + (bl - 1) * 10000;
+  const nextHull = nt ? 10000 + (nt - 1) * 10000 : curHull;
+  const curRp = getResearchPointCap(bl);
+  const nextRp = nt ? getResearchPointCap(nt) : curRp;
+  const nextTierLabel = nt === 10 ? 'X' : String(nt || bl);
+
+  const gainCard = (icon, label, cur, next) => `
+    <div class="sm-stat-upg bp-upg-gain">
+      <div class="sm-stat-upg-h">
+        <span class="ms-icon" aria-hidden="true">${icon}</span>
+        <span class="t">${label}</span>
+      </div>
+      <div class="sm-stat-upg-b">
+        <div class="sm-stat-upg-vals">
+          <span class="cur">${cur}</span>
+          ${nt
+            ? `<span class="arrow">→</span><span class="next">${next}</span>`
+            : '<span class="arrow">·</span><span class="max">MAX</span>'}
+        </div>
+      </div>
+    </div>`;
+
+  return `<div class="bp-upgrade-pane" id="bp-upgrade-root">
+    <div class="sm-bp-wrap">
+      <div class="sm-bp-head">
+        <span class="lab">◈ BASE TIER TRACK</span>
+        <span class="next">${nt ? `Next unlock · <b>Tier ${nextTierLabel}</b>` : 'Fully ascended'}</span>
+      </div>
+      <div class="sm-bp-track" data-tier="${bl}">
+        <div class="sm-bp-rail"><div class="sm-bp-fill"></div></div>
+        ${nodes.join('')}
+      </div>
+      <div class="sm-bp-actions">${tierActions}</div>
+    </div>
+    <div class="sm-stat-upg-row bp-upg-gains">
+      ${gainCard('groups', 'FLEET CAP', curShips, nextShips)}
+      ${gainCard('radar', 'TILE RANGE', `◎ ${curRange}`, `◎ ${nextRange}`)}
+      ${gainCard('favorite', 'HULL HP', fmt(curHull), fmt(nextHull))}
+      ${gainCard('science', 'RP CAP', curRp, nextRp)}
+    </div>
+  </div>`;
 }
 
 /** Stable sig so Controls pane only rebuilds when repair set / affordability changes. */
@@ -359,6 +474,12 @@ window.setBasePanelTab = function(tab) {
     pane.classList.toggle('on', pane.dataset.pane === _basePanelTab);
   });
   if (_basePanelTab === 'controls') renderBasePanel();
+  if (_basePanelTab === 'upgrade') {
+    requestAnimationFrame(() => {
+      layoutBaseTierTrack(root, state.base.level || 1);
+      observeBaseTierTrack(root, state.base.level || 1);
+    });
+  }
 };
 
 function buildStructureHtml(ctx) {
@@ -370,23 +491,6 @@ function buildStructureHtml(ctx) {
   const installCount = installedUpgrades.length + combatUpgrades.length + unlockedPerks.length;
   const repairItems = collectRepairTargets();
   const repairCount = repairItems.length;
-
-  const upgradeFooter = nextCost ? (() => {
-    const ntColor = MINE_TIERS[bl + 1]?.color || '#8ab';
-    let reqPills = `<span id="bp-req-coins" class="bp-craft-req">$${fmt(nextCost)}</span>`;
-    if (nextResReqs) {
-      for (const [r, n] of Object.entries(nextResReqs)) {
-        reqPills += `<span class="bp-craft-req bp-req-res" data-res="${r}" data-need="${n}">${RESOURCE_DEFS[r]?.label ?? r}: ${fmt(n)}</span>`;
-      }
-    }
-    return `<div class="bp-upgrade-next">
-      <div class="bp-upgrade-next-title">UPGRADE → TIER <span style="color:${ntColor};font-family:'Cinzel',serif;font-weight:700;">${toRoman(bl + 1)}</span></div>
-      <div class="bp-upgrade-next-row">
-        <div id="bp-upgrade-reqs" class="bp-upgrade-next-reqs">${reqPills}</div>
-        <button id="bp-upgrade-btn" class="btn bp-upgrade-btn-large" onclick="upgradeBase()">UPGRADE</button>
-      </div>
-    </div>`;
-  })() : `<div class="bp-maxed">★ BASE FULLY UPGRADED</div>`;
 
   return `
     <div class="lab-layout bp-layout">
@@ -419,6 +523,9 @@ function buildStructureHtml(ctx) {
         <button type="button" class="bp-tab sm-tab${tab === 'details' ? ' on' : ''}" data-tab="details" onclick="setBasePanelTab('details')">
           <span class="ms-icon">circles</span> DETAILS
         </button>
+        <button type="button" class="bp-tab sm-tab${tab === 'upgrade' ? ' on' : ''}" data-tab="upgrade" onclick="setBasePanelTab('upgrade')">
+          <span class="ms-icon">upgrade</span> UPGRADE
+        </button>
         <button type="button" class="bp-tab sm-tab${tab === 'controls' ? ' on' : ''}" data-tab="controls" onclick="setBasePanelTab('controls')">
           <span class="ms-icon">tune</span> CONTROLS
           <span class="bp-tab-count${repairCount > 0 ? ' alert' : ''}" id="bp-repair-count"${repairCount > 0 ? '' : ' hidden'}>${repairCount}</span>
@@ -431,7 +538,7 @@ function buildStructureHtml(ctx) {
 
       <div class="bp-tab-body">
         <div class="bp-tab-pane${tab === 'details' ? ' on' : ''}" data-pane="details">
-          <div class="bp-details-grid">
+          <div class="bp-details-grid bp-details-grid-2">
             <div class="sm-info-block sm-info-block-fill">
               <div class="blk-title">◈ SYSTEMS</div>
               <div class="sm-info-row"><span class="k">FLEET CAP</span><span class="val" id="bp-stat-fleet"></span></div>
@@ -448,13 +555,13 @@ function buildStructureHtml(ctx) {
               <div class="sm-info-row"><span class="k">UPGRADES</span><span class="val" id="bp-count-upgrades">${installedUpgrades.length}</span></div>
               <div class="sm-info-row"><span class="k">COMBAT</span><span class="val" id="bp-count-combat">${combatUpgrades.length}</span></div>
               <div class="sm-info-row"><span class="k">UNLOCKS</span><span class="val" id="bp-count-unlocks">${unlockedPerks.length}</span></div>
-            </div>
-
-            <div class="sm-info-block sm-info-block-fill">
-              <div class="blk-title">◈ BASE TIER</div>
-              <div class="bp-tier-block">${upgradeFooter}</div>
+              <div class="sm-info-row"><span class="k">BASE TIER</span><span class="val" id="bp-stat-tier">T${bl === 10 ? 'X' : bl}</span></div>
             </div>
           </div>
+        </div>
+
+        <div class="bp-tab-pane${tab === 'upgrade' ? ' on' : ''}" data-pane="upgrade">
+          ${buildBaseUpgradePane(bl, nextCost, nextResReqs, !!(nextCost && state.coins >= nextCost && (!nextResReqs || Object.entries(nextResReqs).every(([r, n]) => (state.resources[r] || 0) >= n))))}
         </div>
 
         <div class="bp-tab-pane${tab === 'controls' ? ' on' : ''}" data-pane="controls">
@@ -578,19 +685,16 @@ function patchLiveValues(root, ctx) {
   if (nextCost) {
     const coinReq = root.querySelector('#bp-req-coins');
     if (coinReq) {
-      coinReq.className = `bp-craft-req ${state.coins >= nextCost ? 'met' : 'unmet'}`;
+      coinReq.classList.toggle('unmet', state.coins < nextCost);
     }
-    root.querySelectorAll('.bp-req-res').forEach((el) => {
+    root.querySelectorAll('.bp-upg-res').forEach((el) => {
       const r = el.dataset.res;
       const need = Number(el.dataset.need) || 0;
       const met = (state.resources[r] || 0) >= need;
-      el.className = `bp-craft-req bp-req-res ${met ? 'met' : 'unmet'}`;
+      el.classList.toggle('unmet', !met);
     });
     const upBtn = root.querySelector('#bp-upgrade-btn');
-    if (upBtn) {
-      upBtn.disabled = !canUpgrade;
-      upBtn.className = `btn${canUpgrade ? ' primary' : ''} bp-upgrade-btn-large`;
-    }
+    if (upBtn) upBtn.disabled = !canUpgrade;
   }
 }
 
@@ -624,7 +728,7 @@ export function renderBasePanel() {
     hpBoostCount, antiCometCount, solarShieldCount, autoRegenCount,
   } = installs;
   const shield = Math.min(state.base.shield || 0, maxShield);
-  const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
+  const activeCraftCount = countCraftJobs('ship');
   const shipCount = state.ships.length + activeCraftCount;
   const online = (state.base.health || 0) > 0;
   const tierColor = MINE_TIERS[bl]?.color || '#8ab';
@@ -696,6 +800,12 @@ export function renderBasePanel() {
     const nextScroll = bpBodyEl.querySelector('.bp-install-scroll');
     if (nextScroll) nextScroll.scrollTop = scrollTop;
     bpBodyEl.scrollTop = bodyScroll;
+    if (normalizeBasePanelTab(_basePanelTab) === 'upgrade') {
+      requestAnimationFrame(() => {
+        layoutBaseTierTrack(bpBodyEl, bl);
+        observeBaseTierTrack(bpBodyEl, bl);
+      });
+    }
   }
 
   patchLiveValues(bpBodyEl, {

@@ -7,13 +7,13 @@ import { RESOURCE_DEFS, MINE_TIERS, isStorableResource } from '../data/resources
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
           UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST, UPGRADE_MINE_BONUS_COST,
-          UPGRADE_LOAD_COST, UPGRADE_HP_COST, UPGRADE_ATTACK_COST, UPGRADE_ATK_RATE_COST,
+          UPGRADE_LOAD_COST, UPGRADE_HP_COST, UPGRADE_ATTACK_COST, UPGRADE_ATK_RATE_COST, UPGRADE_RANGE_COST,
           upgradeTotalCost, upgradeChunk,
           SHIP_CRAFT_TIME_MS, DEFAULT_CRAFT_TIME_MS,
           flySpeedToMultiplier, formatFlySpeed, FLY_SPEED_UPGRADE_STEP, MINE_SPEED_UPGRADE_STEP,
           capacityFromTierAndLevel, flySpeedFromLevel, mineSpeedFromLevel,
-          loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel,
-          mineBonusFromLevel, mineBonusUpgradeCap, formatMineSpeedPercent, formatMineBonusPercent, formatLoadSpeed, getShipSalvageRewards } from '../data/ships.js';
+          loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel, rangeFromLevel,
+          mineBonusFromLevel, mineBonusUpgradeCap, formatMineSpeedPercent, formatMineBonusPercent, formatLoadSpeed, formatWeaponRangeTiles, getShipSalvageRewards } from '../data/ships.js';
 import { BASE_MAX_SHIPS, SHIP_TIER_REQS } from '../data/base.js';
 import { NPCS } from '../data/npcs.js';
 import { addLog, fmt, addCoins, spendCoins, RESOURCE_CAP } from '../helpers.js';
@@ -24,6 +24,8 @@ import { showOnce, showTransmissionMessage, dismissTransmission } from '../ui/tr
 import { removeReassignTooltip, checkTradeTutorial } from '../ui/tutorial.js';
 import { patchSolPanel } from '../ui/panels.js';
 import { bumpPirateStatusOnExpand } from './combat.js';
+import { normalizeShipAttachments } from '../data/attachments.js';
+import { enqueueCraftJob, countCraftJobs, canEnqueueCraft, getCraftQueueCap } from './craftQueue.js';
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
 import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules, recordModuleImport } from '../data/modules.js';
@@ -404,7 +406,10 @@ function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, count
   } else {
     state.resources[ev.cargoResource] = Math.min(RESOURCE_CAP, (state.resources[ev.cargoResource] || 0) + ev.amount);
   }
-  state.solStarted = true;
+  if (!state.solStarted) {
+    state.solStarted = true;
+    import('./statsHistory.js').then((m) => m.recordSolSnapshot?.()).catch(() => {});
+  }
   if (countTrip) state.trips++;
   if (logDelivery) addLog(`📦 ${ev.name} delivered ${deposited} ${RESOURCE_DEFS[ev.cargoResource].label} to ${depotLabel}${depositBlocked ? ' (depot full)' : ''}`);
   if (showFloatieFx && deposited > 0) spawnFloatie(ev.cargoResource, deposited, floatiePos);
@@ -517,15 +522,9 @@ function getShipCraftTimeMs(recipeId) {
   return SHIP_CRAFT_TIME_MS[recipeId] || DEFAULT_CRAFT_TIME_MS;
 }
 
-function completeCraftShip(recipeId) {
-  const timer = state.shipCraftTimers?.[recipeId];
-  if (!timer) return;
-  if (Date.now() < timer.endsAt - 20) return;
-  delete state.shipCraftTimers[recipeId];
-  if (craftTimeouts[recipeId]) {
-    clearTimeout(craftTimeouts[recipeId]);
-    delete craftTimeouts[recipeId];
-  }
+window.completeCraftShipJob = function(job) {
+  const recipeId = job?.recipeId;
+  if (!recipeId) return;
   spawnShip(recipeId);
   bumpPirateStatusOnExpand();
   if (!state.shipCraftNotices) state.shipCraftNotices = {};
@@ -534,21 +533,14 @@ function completeCraftShip(recipeId) {
     if (state.shipCraftNotices?.[recipeId] && Date.now() >= state.shipCraftNotices[recipeId]) {
       delete state.shipCraftNotices[recipeId];
       if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-      if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+      if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') {
+        window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true });
+      }
     }
   }, 3050);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
-}
-
-function scheduleCraftCompletion(recipeId, endsAt) {
-  if (craftTimeouts[recipeId]) clearTimeout(craftTimeouts[recipeId]);
-  const wait = Math.max(0, endsAt - Date.now());
-  craftTimeouts[recipeId] = setTimeout(() => {
-    completeCraftShip(recipeId);
-  }, wait);
-}
+};
 
 // ── Spawn ──
 export function spawnShip(type = 'scout') {
@@ -568,10 +560,19 @@ export function spawnShip(type = 'scout') {
     mineSpeed:    stats.mineSpeed,
     mineBonus:    mineBonusFromLevel(isUnique ? 10 : 0),
     loadSpeed:    stats.loadSpeed ?? 0,
-    hp:           stats.hp       ?? 0,
-    currentHp:    stats.hp       ?? 0,
-    attack:       stats.attack   ?? 0,
-    attackSpeed:  stats.attackSpeed ?? 0,
+    hp:           stats.role === 'garrison' || stats.role === 'combat'
+      ? (isUnique ? stats.hp : hpFromLevel(type, 0))
+      : (stats.hp ?? 0),
+    currentHp:    0, // set below
+    attack:       stats.role === 'garrison' || stats.role === 'combat'
+      ? (isUnique ? (stats.attack || 0) : attackFromLevel(type, 0))
+      : (stats.attack ?? 0),
+    attackSpeed:  stats.role === 'garrison' || stats.role === 'combat'
+      ? (isUnique ? (stats.attackSpeed || 0) : atkRateFromLevel(type, 0))
+      : (stats.attackSpeed ?? 0),
+    range:        stats.role === 'garrison'
+      ? (isUnique ? (stats.range || 0) : rangeFromLevel(type, 0))
+      : (stats.range ?? 0),
     mineTier:     stats.mineTier,
     // Upgrade levels — all 0 for normal ships, 100 for unique (already at max)
     capacityLevel:  isUnique ? 100 : 0,
@@ -582,6 +583,9 @@ export function spawnShip(type = 'scout') {
     hpLevel:        isUnique ? 100 : 0,
     attackLevel:    isUnique ? 100 : 0,
     atkRateLevel:   isUnique ? 100 : 0,
+    rangeLevel:     isUnique ? 100 : 0,
+    attachments:    (stats.role === 'combat' || stats.role === 'garrison') ? ['pulse_laser'] : [],
+    attachmentCds:  {},
     depotType: 'base', depotId: null,
     pickupType: null, pickupId: null,
     cargo:0, cargoResource:null,
@@ -594,6 +598,11 @@ export function spawnShip(type = 'scout') {
     turnRadiusRandomness: (Math.random() - 0.5) * 2, // -1..1, gives each ship a unique arc width
     x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0,
   };
+  if (stats.role === 'combat' || stats.role === 'garrison') {
+    normalizeShipAttachments(ship, stats.role);
+  }
+  // Base HP from profile; health_boost multiplies effective max in combat
+  ship.currentHp = ship.hp || 0;
   state.ships.push(ship);
   updateHeaderShips();
   addLog(`⚡ ${ship.name} is ready for deployment.`);
@@ -645,7 +654,7 @@ export let tickEvents = [];
 
 export function tickShip(ship, dt) {
   // Combat system owns movement for engaging / repairing combat ships
-  if (ship.status === 'engaging' || ship.status === 'intercepting' || ship.status === 'returning_repair' || ship.isHqSupport) {
+  if (ship.status === 'engaging' || ship.status === 'intercepting' || ship.status === 'returning_repair' || ship.status === 'destroyed' || ship.isHqSupport) {
     return;
   }
   if (state.base.health > 0) baseDownNoticeShown = false;
@@ -1014,9 +1023,15 @@ window.craftShip = function(recipeId) {
 window.startCraftShip = function(recipeId) {
   const recipe = CRAFT_RECIPES.find(r => r.id === recipeId); if (!recipe) return;
   const maxShips = BASE_MAX_SHIPS[(state.base.level-1)] || 20;
-  const activeCraftCount = Object.values(state.shipCraftTimers || {}).filter(t => t && Date.now() < t.endsAt).length;
-  if ((state.ships.length + activeCraftCount) >= maxShips) { addLog('⚠ Ship capacity full! Upgrade the Base.'); return; }
-  if (state.shipCraftTimers?.[recipeId]) return;
+  const activeShipCrafts = countCraftJobs('ship');
+  if ((state.ships.length + activeShipCrafts) >= maxShips) {
+    addLog('⚠ Ship capacity full! Upgrade the Base.');
+    return;
+  }
+  if (!canEnqueueCraft()) {
+    addLog(`⚠ Craft queue full (${getCraftQueueCap()} slots). Upgrade the Base for more.`);
+    return;
+  }
   for (const [r, n] of Object.entries(recipe.reqs)) if ((state.resources[r] || 0) < n) return;
   for (const [r, n] of Object.entries(recipe.reqs)) state.resources[r] -= n;
 
@@ -1026,26 +1041,28 @@ window.startCraftShip = function(recipeId) {
   }
 
   const durationMs = getShipCraftTimeMs(recipeId);
-  const now = Date.now();
-  if (!state.shipCraftTimers) state.shipCraftTimers = {};
-  state.shipCraftTimers[recipeId] = { startedAt: now, endsAt: now + durationMs, durationMs };
-  addLog(`🛠 Crafting started: ${recipe.name} (${Math.ceil(durationMs / 1000)}s)`);
-  scheduleCraftCompletion(recipeId, now + durationMs);
+  const job = enqueueCraftJob({
+    kind: 'ship',
+    recipeId,
+    name: recipe.name,
+    durationMs,
+  });
+  if (!job) {
+    // Refund if enqueue failed
+    for (const [r, n] of Object.entries(recipe.reqs)) state.resources[r] = (state.resources[r] || 0) + n;
+    return;
+  }
+  addLog(`🛠 Queued: ${recipe.name} (${Math.ceil(durationMs / 1000)}s) · ${getCraftQueueCap()} slots`);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
-};
-
-window.syncShipCraftTimers = function() {
-  if (!state.shipCraftTimers) return;
-  for (const [recipeId, timer] of Object.entries(state.shipCraftTimers)) {
-    if (!timer || !timer.endsAt) continue;
-    if (Date.now() >= timer.endsAt) completeCraftShip(recipeId);
-    else scheduleCraftCompletion(recipeId, timer.endsAt);
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') {
+    window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true });
   }
 };
 
-window.syncShipCraftTimers();
+window.syncShipCraftTimers = function() {
+  // Legacy no-op — craft queue handles sync via syncCraftQueue()
+};
 
 // ── Upgrade Ship Stats ──
 window.upgradeShip = function(shipId, stat, chunk = 1) {
@@ -1124,6 +1141,16 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel);
     addLog(`⬆ ${ship.name} ATK rate Lv${ship.atkRateLevel} → ${Math.round(ship.attackSpeed*100)}%${ship.atkRateLevel>=cap?' (MAX)':''}`);
 
+  } else if (stat === 'range') {
+    const role = SHIP_DEFS[ship.type]?.role;
+    if (role !== 'garrison') return;
+    const allowed = Math.min(chunk, cap - (ship.rangeLevel || 0)); if (allowed <= 0) return;
+    const cost = upgradeTotalCost(UPGRADE_RANGE_COST, ship, 'range', allowed); if (state.coins < cost) return;
+    spendCoins(cost);
+    ship.rangeLevel = (ship.rangeLevel || 0) + allowed;
+    ship.range = rangeFromLevel(ship.type, ship.rangeLevel);
+    addLog(`⬆ ${ship.name} range Lv${ship.rangeLevel} → ${formatWeaponRangeTiles(ship.range)}${ship.rangeLevel>=cap?' (MAX)':''}`);
+
   } else if (stat === 'mineTier') {
     const fromTier = ship.mineTier;
     const nextTier = ship.mineTier + 1; if (nextTier > 10) return;
@@ -1140,6 +1167,8 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
       for (const [r, n] of Object.entries(resReqs)) state.resources[r] -= n;
     }
     ship.mineTier = nextTier;
+    const role = SHIP_DEFS[ship.type]?.role;
+    if (role === 'combat' || role === 'garrison') normalizeShipAttachments(ship, role);
     addLog(`⬆ ${ship.name} upgraded to ${MINE_TIERS[nextTier].label}!`);
     state.upgradesTutActive = false;
     document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
@@ -1190,13 +1219,17 @@ window.upgradeShipAll = function(shipId, levels) {
     if (flyChk  > 0) { const c = upgradeTotalCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel  += flyChk;  ship.flySpeed   = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
     if (loadChk > 0) { const c = upgradeTotalCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', loadChk); total += c; upgrades.push(() => { ship.loadSpeedLevel = (ship.loadSpeedLevel||0) + loadChk; ship.loadSpeed = loadSpeedFromLevel(ship.type, ship.loadSpeedLevel); }); }
 
-  } else if (role === 'combat') {
+  } else if (role === 'combat' || role === 'garrison') {
     const hpChk   = n ? cap - (ship.hpLevel||0)                : Math.min(levels, cap - (ship.hpLevel||0));
     const atkChk  = n ? cap - (ship.attackLevel||0)            : Math.min(levels, cap - (ship.attackLevel||0));
     const rateChk = n ? cap - (ship.atkRateLevel||0)           : Math.min(levels, cap - (ship.atkRateLevel||0));
+    const rangeChk = role === 'garrison'
+      ? (n ? cap - (ship.rangeLevel||0) : Math.min(levels, cap - (ship.rangeLevel||0)))
+      : 0;
     if (hpChk   > 0) { const c = upgradeTotalCost(UPGRADE_HP_COST,       ship, 'hp',       hpChk);   total += c; upgrades.push(() => { ship.hpLevel       = (ship.hpLevel||0) + hpChk;     ship.hp          = hpFromLevel(ship.type, ship.hpLevel); if (!Number.isFinite(ship.currentHp) || ship.currentHp > ship.hp) ship.currentHp = ship.hp; }); }
     if (atkChk  > 0) { const c = upgradeTotalCost(UPGRADE_ATTACK_COST,   ship, 'attack',   atkChk);  total += c; upgrades.push(() => { ship.attackLevel   = (ship.attackLevel||0) + atkChk;  ship.attack      = attackFromLevel(ship.type, ship.attackLevel); }); }
     if (rateChk > 0) { const c = upgradeTotalCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate',  rateChk); total += c; upgrades.push(() => { ship.atkRateLevel  = (ship.atkRateLevel||0) + rateChk; ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel); }); }
+    if (rangeChk > 0) { const c = upgradeTotalCost(UPGRADE_RANGE_COST, ship, 'range', rangeChk); total += c; upgrades.push(() => { ship.rangeLevel = (ship.rangeLevel||0) + rangeChk; ship.range = rangeFromLevel(ship.type, ship.rangeLevel); }); }
   }
 
   if (total <= 0 || state.coins < total) return;
@@ -1216,6 +1249,11 @@ window.upgradeShipAll = function(shipId, levels) {
 
 // ── Assign window helpers ──
 window.startAssign = function(shipId) {
+  // Prefer map-pick helper (minimizes ship panel when open)
+  if (typeof window.startShipMapPick === 'function') {
+    window.startShipMapPick(shipId);
+    return;
+  }
   const ship = state.ships.find(s => s.id === shipId);
   if (!ship || (ship.mineSpeed || 0) <= 0) { addLog(`⚠ This ship has no mining equipment.`); return; }
   state.pendingAssign = shipId;
@@ -1224,6 +1262,10 @@ window.startAssign = function(shipId) {
 };
 
 window.cancelAssign = function() {
+  if (typeof window.cancelShipMapPick === 'function') {
+    window.cancelShipMapPick();
+    return;
+  }
   state.pendingAssign = null;
   document.getElementById('main-canvas').style.cursor = '';
   if (refresh.ui) refresh.ui();

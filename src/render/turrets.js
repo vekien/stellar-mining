@@ -219,22 +219,23 @@ export function drawTurrets() {
 
     ctx.restore();
 
-    // Health bar
-    const hpPct = turret.health / turret.maxHealth;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(cx-12,cy+6,24,3);
-    ctx.fillStyle = hpPct > 0.5 ? '#4d8' : hpPct > 0.25 ? '#fa4' : '#f44';
-    ctx.fillRect(cx-12,cy+6,24*hpPct,3);
+    // Health bar only when damaged
+    const maxH = turret.maxHealth || 0;
+    const curH = turret.health || 0;
+    if (maxH > 0 && curH < maxH - 0.5) {
+      const hpPct = Math.max(0, Math.min(1, curH / maxH));
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(cx-12,cy+6,24,3);
+      ctx.fillStyle = hpPct > 0.5 ? '#4d8' : hpPct > 0.25 ? '#fa4' : '#f44';
+      ctx.fillRect(cx-12,cy+6,24*hpPct,3);
+    }
 
-    const needsRepair = !destroyed && (turret.maxHealth || 0) > 0
-      && (turret.health || 0) > 0
-      && (turret.health || 0) < (turret.maxHealth || 0) - 0.5;
-    if (destroyed || noPower || needsRepair) {
+    if (destroyed || noPower) {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
-      const icon = destroyed ? 'mode_heat' : noPower ? 'power_off' : 'build';
-      const color = destroyed ? '#ff6a3a' : noPower ? '#ffe066' : '#7ec8ff';
-      const glow = destroyed ? 'rgba(255, 90, 30, 1)' : noPower ? 'rgba(255, 220, 80, 1)' : 'rgba(100, 190, 255, 0.95)';
-      const size = needsRepair && !destroyed && !noPower ? 15 : 20;
-      const iy = cy - (needsRepair && !destroyed && !noPower ? 30 : 24);
+      const icon = destroyed ? 'mode_heat' : 'power_off';
+      const color = destroyed ? '#ff6a3a' : '#ffe066';
+      const glow = destroyed ? 'rgba(255, 90, 30, 1)' : 'rgba(255, 220, 80, 1)';
+      const size = 20;
+      const iy = cy - 24;
       ctx.save();
       ctx.font = `400 ${size}px "Material Symbols Outlined"`;
       ctx.textAlign = 'center';

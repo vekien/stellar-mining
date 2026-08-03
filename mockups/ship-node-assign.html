@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ship Node Assignment — Mock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
+  <style>
+    :root {
+      --line: #1c3a66;
+      --text: #d5e2f2;
+      --muted: #7a96b4;
+      --dim: #4f6f90;
+      --blue: #4ab0ff;
+      --gold: #ffe066;
+      --green: #5dffa0;
+      --red: #ff7a7a;
+      --accent: #60d090;
+      --orange: #ff9a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 24px 16px 40px;
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 900px 480px at 20% 0%, rgba(40,100,180,.12), transparent 55%),
+        #050910;
+    }
+    .ms {
+      font-family: 'Material Symbols Outlined', sans-serif;
+      font-size: 18px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .ms.fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+    .reco {
+      max-width: 980px;
+      width: 100%;
+      border: 1px solid #1c3a66;
+      border-radius: 10px;
+      background: rgba(8,16,32,.85);
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+    .reco h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      letter-spacing: 1.5px;
+      color: var(--blue);
+      margin-bottom: 8px;
+    }
+    .reco strong { color: var(--gold); font-weight: 400; }
+    .reco em { color: var(--green); font-style: normal; }
+    .reco ul { margin: 8px 0 0 18px; }
+    .reco li { margin: 3px 0; }
+
+    .stage {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      justify-content: center;
+      flex-wrap: wrap;
+      width: 100%;
+      max-width: 1180px;
+    }
+
+    /* ── Ship window ── */
+    .win {
+      width: 980px;
+      max-width: 98vw;
+      height: 620px;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      border-radius: 10px;
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, #1a3a6e);
+      background: linear-gradient(165deg, #0b1528, #08101c);
+      box-shadow: 0 24px 64px rgba(0,0,0,.7), 0 0 28px color-mix(in srgb, var(--accent) 10%, transparent);
+      overflow: hidden;
+      position: relative;
+    }
+    .titlebar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(4,10,22,.75);
+    }
+    .titlebar .role {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: var(--accent);
+    }
+    .titlebar .x {
+      width: 28px; height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .body {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 16px 12px;
+      gap: 12px;
+      position: relative;
+    }
+    .hero {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 0 0 auto;
+    }
+    .hero-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 18px;
+      letter-spacing: 1px;
+      color: #e8eef8;
+    }
+    .hero-sub { font-size: 11px; color: var(--dim); margin-top: 2px; }
+    .hero-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .pill {
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: #1a4030;
+      color: var(--green);
+      border: 1px solid #2a6040;
+    }
+    .tier {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: linear-gradient(180deg, #fff, #e8eef8);
+      color: #111;
+    }
+    .meter {
+      height: 8px;
+      border-radius: 4px;
+      background: rgba(0,0,0,.45);
+      overflow: hidden;
+      margin-top: 8px;
+      border: 1px solid rgba(255,255,255,.08);
+    }
+    .meter > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #caa020, #ffe066);
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .tab {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 40px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--dim);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+    }
+    .tab.on {
+      background: linear-gradient(180deg, rgba(80,200,140,.35), rgba(40,120,80,.25));
+      border-color: rgba(93,255,160,.35);
+      color: var(--green);
+    }
+    .tab:not(.on):hover { color: var(--text); border-color: var(--line); }
+
+    .content {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .blk {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(6,14,28,.65);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .blk-title {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      color: var(--green);
+      margin-bottom: 10px;
+      flex: 0 0 auto;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(28,58,102,.55);
+      font-size: 12px;
+    }
+    .row:last-child { border-bottom: 0; }
+    .row .k { color: var(--muted); letter-spacing: 1px; font-size: 11px; }
+    .row .v { color: var(--text); }
+    .row .v.bad { color: var(--red); }
+    .row .v.ok { color: var(--green); }
+    .row .v.gold { color: var(--gold); }
+    .row .v.accent { color: var(--accent); }
+
+    /* Clickable assignment control */
+    .assign-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      margin: 2px 0 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(74,176,255,.35);
+      background: linear-gradient(180deg, rgba(30,70,130,.4), rgba(12,28,55,.55));
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      transition: border-color .15s, box-shadow .15s, filter .15s;
+    }
+    .assign-btn:hover {
+      border-color: rgba(74,176,255,.75);
+      box-shadow: 0 0 16px rgba(74,176,255,.15);
+      filter: brightness(1.06);
+    }
+    .assign-btn .left {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .assign-btn .label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      color: var(--blue);
+    }
+    .assign-btn .value {
+      font-size: 13px;
+      color: var(--red);
+    }
+    .assign-btn .value.set { color: var(--gold); }
+    .assign-btn .hint {
+      font-size: 10px;
+      color: var(--dim);
+    }
+    .assign-btn .chev {
+      color: var(--blue);
+      font-size: 22px;
+    }
+
+    .footer {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      padding-top: 4px;
+    }
+    .btn {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 9px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: rgba(20,40,70,.55);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .btn.primary {
+      background: linear-gradient(180deg, #2a8050, #1a5030);
+      border-color: #3a9060;
+      color: #dfffea;
+    }
+    .btn.danger {
+      background: rgba(80,20,30,.45);
+      border-color: #803040;
+      color: #ffb0b0;
+    }
+    .btn.ghost {
+      background: transparent;
+      color: var(--muted);
+    }
+    .btn:hover { filter: brightness(1.08); }
+
+    /* ── Node picker overlay (inside modal) ── */
+    .picker {
+      position: absolute;
+      inset: 0;
+      background: rgba(3,8,18,.72);
+      backdrop-filter: blur(3px);
+      display: none;
+      align-items: stretch;
+      justify-content: flex-end;
+      z-index: 5;
+      padding: 12px;
+    }
+    .picker.open { display: flex; }
+    .picker-panel {
+      width: min(420px, 100%);
+      display: flex;
+      flex-direction: column;
+      border-radius: 10px;
+      border: 1px solid rgba(74,176,255,.4);
+      background: linear-gradient(165deg, #0c1830, #081020);
+      box-shadow: -12px 0 40px rgba(0,0,0,.45);
+      overflow: hidden;
+    }
+    .picker-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      flex: 0 0 auto;
+    }
+    .picker-head h2 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      color: var(--blue);
+      flex: 1;
+    }
+    .picker-head .back {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .picker-head .back:hover { color: var(--text); }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(28,58,102,.6);
+      flex: 0 0 auto;
+    }
+    .chip {
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(8,16,32,.8);
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .chip.on {
+      color: var(--gold);
+      border-color: rgba(255,224,102,.45);
+      background: rgba(60,50,8,.4);
+    }
+    .chip .dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+
+    .picker-meta {
+      padding: 8px 14px 0;
+      font-size: 11px;
+      color: var(--dim);
+      flex: 0 0 auto;
+    }
+    .picker-meta b { color: var(--gold); font-weight: 400; }
+
+    .node-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 10px 12px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .node-list::-webkit-scrollbar { width: 6px; }
+    .node-list::-webkit-scrollbar-thumb { background: rgba(80,170,255,.7); border-radius: 6px; }
+
+    .node-card {
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #1e3f6e;
+      background: rgba(10,22,44,.75);
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      color: inherit;
+      transition: border-color .12s, background .12s;
+    }
+    .node-card:hover:not(:disabled) {
+      border-color: rgba(74,176,255,.65);
+      background: rgba(20,45,85,.75);
+    }
+    .node-card:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+      border-color: #2a2030;
+      background: rgba(30,16,22,.45);
+    }
+    .node-card.current {
+      border-color: rgba(93,255,160,.45);
+      box-shadow: inset 0 0 0 1px rgba(93,255,160,.15);
+    }
+    .node-ico {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-family: 'Orbitron', sans-serif;
+      letter-spacing: 0.5px;
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .node-meta { min-width: 0; }
+    .node-name {
+      font-size: 13px;
+      color: #e8eef8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .node-sub {
+      font-size: 10px;
+      color: var(--dim);
+      margin-top: 2px;
+    }
+    .node-sub span { color: var(--muted); }
+    .node-status {
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .node-status.free { color: var(--green); }
+    .node-status.busy { color: var(--red); }
+    .node-status.mine { color: var(--blue); }
+    .node-status .who {
+      display: block;
+      margin-top: 3px;
+      color: var(--dim);
+      letter-spacing: 0;
+      font-size: 10px;
+      max-width: 110px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .picker-foot {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(4,10,20,.55);
+    }
+    .picker-foot .btn { flex: 1; }
+
+    /* Mini fleet strip for context */
+    .fleet {
+      width: 260px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(6,12,24,.9);
+      padding: 10px;
+    }
+    .fleet h3 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      color: var(--blue);
+      margin-bottom: 10px;
+    }
+    .ship-row {
+      border: 1px solid rgba(74,176,255,.45);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(12,28,55,.55);
+      font-size: 12px;
+    }
+    .ship-row .top {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .ship-row .name { color: #e8eef8; }
+    .ship-row .type { color: var(--dim); font-size: 10px; }
+    .ship-row .bot {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      font-size: 10px;
+    }
+    .badge-idle {
+      background: #1a4030;
+      color: var(--green);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .badge-un {
+      color: var(--red);
+    }
+    .note {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--dim);
+      line-height: 1.4;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(8,20,40,.95);
+      border: 1px solid rgba(74,176,255,.45);
+      color: var(--text);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+      z-index: 20;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="reco">
+    <h1>RECOMMENDATION — Option 2 (in-panel node picker)</h1>
+    <p>
+      Map-click assignment fights the floating ship modal (exactly your bug).
+      <strong>Keep the modal open</strong> and make <em>Assignment → Node</em> a button that opens a free/occupied node list.
+      Optional secondary: “Pick on map” minimizes the modal only when requested.
+    </p>
+    <ul>
+      <li><strong>Why not Option 1 alone?</strong> Two click targets on fleet rows (select vs edit) is easy to mis-hit; map picking still fails when zoomed out or nodes stack.</li>
+      <li><strong>Why Option 2?</strong> Shows FREE / OCCUPIED + which ship, filters by resource, works with modal open, tutorial-friendly.</li>
+      <li><strong>Hybrid (nice later):</strong> list is default; “Pick on map” is a footer action that closes the picker and dims the modal.</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <div class="win" id="win">
+      <div class="titlebar">
+        <div class="role">SCOUT</div>
+        <button class="x" type="button" title="Close">×</button>
+      </div>
+      <div class="body">
+        <div class="hero">
+          <div>
+            <div class="hero-name">SCOUT #1</div>
+            <div class="hero-sub">CARGO · mining hull</div>
+            <div class="meter"><i style="width:0%"></i></div>
+          </div>
+          <div class="hero-right">
+            <span class="pill">IDLE</span>
+            <span class="tier">Tier I</span>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button type="button" class="tab" data-tab="details"><span class="ms">info</span> DETAILS</button>
+          <button type="button" class="tab on" data-tab="assign"><span class="ms">flag</span> ASSIGNMENT</button>
+        </div>
+
+        <div class="content" id="tab-details" style="display:none">
+          <div class="blk">
+            <div class="blk-title">◈ OPERATIONS</div>
+            <div class="row"><span class="k">STATUS</span><span class="v accent">Idle</span></div>
+            <div class="row"><span class="k">ROLE</span><span class="v accent">Mining</span></div>
+            <div class="row"><span class="k">TYPE</span><span class="v gold">Scout</span></div>
+            <div class="row"><span class="k">MINE TIER</span><span class="v">Tier I</span></div>
+          </div>
+          <div class="blk">
+            <div class="blk-title">◈ STATS</div>
+            <div class="row"><span class="k">CARGO</span><span class="v gold">0 / 12</span></div>
+            <div class="row"><span class="k">FLY SPD</span><span class="v gold">140</span></div>
+            <div class="row"><span class="k">MINE SPD</span><span class="v gold">25%</span></div>
+            <div class="row"><span class="k">MINE BONUS</span><span class="v gold">10%</span></div>
+          </div>
+        </div>
+
+        <div class="content" id="tab-assign">
+          <div class="blk">
+            <div class="blk-title">◈ OPERATIONS</div>
+            <div class="row"><span class="k">STATUS</span><span class="v" id="ops-status">Idle</span></div>
+            <div class="row"><span class="k">ROLE</span><span class="v accent">Mining</span></div>
+            <div class="row"><span class="k">TYPE</span><span class="v gold">Scout</span></div>
+            <div class="row"><span class="k">MINE TIER</span><span class="v">Tier I</span></div>
+          </div>
+          <div class="blk">
+            <div class="blk-title">◈ ASSIGNMENT</div>
+
+            <!-- THE KEY CONTROL -->
+            <button type="button" class="assign-btn" id="open-picker">
+              <span class="left">
+                <span class="label">MINING NODE</span>
+                <span class="value" id="node-value">UNASSIGNED</span>
+                <span class="hint">Click to choose a free node in range</span>
+              </span>
+              <span class="ms chev">chevron_right</span>
+            </button>
+
+            <div class="row"><span class="k">RESOURCE</span><span class="v" id="res-value">—</span></div>
+            <div class="row"><span class="k">DROPOFF</span><span class="v gold">Base Station</span></div>
+            <div class="row"><span class="k">HOLDING</span><span class="v ok">No</span></div>
+            <div class="row"><span class="k">RANGE</span><span class="v ok" id="range-value">At Base</span></div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <button type="button" class="btn primary">UPGRADE</button>
+          <button type="button" class="btn">FOLLOW</button>
+          <button type="button" class="btn">RENAME</button>
+          <button type="button" class="btn danger">SELL</button>
+          <button type="button" class="btn danger">SALVAGE</button>
+        </div>
+
+        <!-- Node picker slide-over -->
+        <div class="picker" id="picker" aria-hidden="true">
+          <div class="picker-panel" role="dialog" aria-label="Select mining node">
+            <div class="picker-head">
+              <button type="button" class="back" id="close-picker"><span class="ms">arrow_back</span> Back</button>
+              <h2>SELECT NODE</h2>
+            </div>
+            <div class="filters" id="filters">
+              <button type="button" class="chip on" data-filter="all">ALL</button>
+              <button type="button" class="chip" data-filter="iron"><span class="dot" style="background:#ff9a4a"></span>IRON</button>
+              <button type="button" class="chip" data-filter="copper"><span class="dot" style="background:#e07a3a"></span>COPPER</button>
+              <button type="button" class="chip" data-filter="oxygen"><span class="dot" style="background:#7ec8ff"></span>OXYGEN</button>
+              <button type="button" class="chip" data-filter="silicon"><span class="dot" style="background:#c9a0ff"></span>SILICON</button>
+              <button type="button" class="chip" data-filter="cobalt"><span class="dot" style="background:#6a9ad0"></span>COBALT</button>
+            </div>
+            <div class="picker-meta">Mine tier <b>I</b> · <span id="free-count">3</span> free · occupied nodes locked</div>
+            <div class="node-list" id="node-list"></div>
+            <div class="picker-foot">
+              <button type="button" class="btn ghost" id="clear-assign">CLEAR</button>
+              <button type="button" class="btn" id="pick-map" title="Optional hybrid">◎ PICK ON MAP</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="fleet">
+      <h3>◈ FLEET (context)</h3>
+      <div class="ship-row">
+        <div class="top">
+          <span class="name">Lv0: Scout #1</span>
+          <span class="type">SCOUT</span>
+        </div>
+        <div class="bot">
+          <span class="badge-idle">IDLE</span>
+          <span class="badge-un" id="fleet-node">UNASSIGNED</span>
+          <span style="margin-left:auto;color:#ffe066">0/12</span>
+        </div>
+      </div>
+      <p class="note">
+        Fleet row still just opens this modal.
+        No dual select/edit modes — assignment lives inside Assignment.
+      </p>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const NODES = [
+      { id: 1, type: 'iron',    label: 'Iron Node',    tiles: 4,  free: true },
+      { id: 2, type: 'iron',    label: 'Iron Node',    tiles: 7,  free: false, by: 'Scout #2' },
+      { id: 3, type: 'copper',  label: 'Copper Node',  tiles: 5,  free: true },
+      { id: 4, type: 'copper',  label: 'Copper Node',  tiles: 9,  free: false, by: 'Hauler #1' },
+      { id: 5, type: 'oxygen',  label: 'Oxygen Node',  tiles: 6,  free: true },
+      { id: 6, type: 'silicon', label: 'Silicon Node', tiles: 11, free: false, by: 'Swift #1' },
+      { id: 7, type: 'cobalt',  label: 'Cobalt Node',  tiles: 14, free: true, locked: true, reason: 'Needs Mine Tier II' },
+      { id: 8, type: 'iron',    label: 'Iron Node',    tiles: 3,  free: true },
+    ];
+
+    const COLORS = {
+      iron: '#ff9a4a', copper: '#e07a3a', oxygen: '#7ec8ff',
+      silicon: '#c9a0ff', cobalt: '#6a9ad0',
+    };
+
+    let filter = 'all';
+    let assigned = null;
+
+    const picker = document.getElementById('picker');
+    const list = document.getElementById('node-list');
+    const nodeValue = document.getElementById('node-value');
+    const resValue = document.getElementById('res-value');
+    const rangeValue = document.getElementById('range-value');
+    const opsStatus = document.getElementById('ops-status');
+    const fleetNode = document.getElementById('fleet-node');
+    const freeCount = document.getElementById('free-count');
+    const toast = document.getElementById('toast');
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.classList.remove('show'), 1800);
+    }
+
+    function openPicker() {
+      picker.classList.add('open');
+      picker.setAttribute('aria-hidden', 'false');
+      renderList();
+    }
+    function closePicker() {
+      picker.classList.remove('open');
+      picker.setAttribute('aria-hidden', 'true');
+    }
+
+    function renderList() {
+      const visible = NODES.filter(n => filter === 'all' || n.type === filter);
+      const free = visible.filter(n => n.free && !n.locked).length;
+      freeCount.textContent = String(free);
+
+      list.innerHTML = visible.map(n => {
+        const col = COLORS[n.type] || '#8ab';
+        const isCurrent = assigned && assigned.id === n.id;
+        let statusCls = 'free';
+        let statusTxt = 'FREE';
+        let who = '';
+        let disabled = false;
+        if (isCurrent) {
+          statusCls = 'mine';
+          statusTxt = 'CURRENT';
+        } else if (n.locked) {
+          statusCls = 'busy';
+          statusTxt = 'LOCKED';
+          who = n.reason || '';
+          disabled = true;
+        } else if (!n.free) {
+          statusCls = 'busy';
+          statusTxt = 'OCCUPIED';
+          who = n.by || '';
+          disabled = true;
+        }
+        return `
+          <button type="button" class="node-card${isCurrent ? ' current' : ''}" data-id="${n.id}" ${disabled ? 'disabled' : ''}>
+            <div class="node-ico" style="background:${col}22;color:${col};border-color:${col}55">${n.type.slice(0,2).toUpperCase()}</div>
+            <div class="node-meta">
+              <div class="node-name">${n.label}</div>
+              <div class="node-sub"><span>${n.tiles} tiles</span> · tier ok</div>
+            </div>
+            <div class="node-status ${statusCls}">
+              ${statusTxt}
+              ${who ? `<span class="who">${who}</span>` : ''}
+            </div>
+          </button>`;
+      }).join('');
+
+      list.querySelectorAll('.node-card:not(:disabled)').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const node = NODES.find(n => n.id === Number(btn.dataset.id));
+          if (!node) return;
+          assignNode(node);
+        });
+      });
+    }
+
+    function assignNode(node) {
+      assigned = node;
+      const label = `${node.label.toUpperCase()}`;
+      nodeValue.textContent = label;
+      nodeValue.classList.add('set');
+      resValue.textContent = node.type[0].toUpperCase() + node.type.slice(1);
+      resValue.className = 'v accent';
+      rangeValue.textContent = `${node.tiles} tiles`;
+      rangeValue.className = 'v';
+      opsStatus.textContent = 'En Route';
+      opsStatus.className = 'v';
+      fleetNode.textContent = node.type.toUpperCase();
+      fleetNode.style.color = COLORS[node.type] || '#ffe066';
+      closePicker();
+      showToast(`🚀 Scout #1 → ${node.label}`);
+    }
+
+    function clearAssign() {
+      assigned = null;
+      nodeValue.textContent = 'UNASSIGNED';
+      nodeValue.classList.remove('set');
+      resValue.textContent = '—';
+      resValue.className = 'v';
+      rangeValue.textContent = 'At Base';
+      rangeValue.className = 'v ok';
+      opsStatus.textContent = 'Idle';
+      opsStatus.className = 'v';
+      fleetNode.textContent = 'UNASSIGNED';
+      fleetNode.style.color = '';
+      renderList();
+      showToast('Assignment cleared');
+    }
+
+    document.getElementById('open-picker').addEventListener('click', openPicker);
+    document.getElementById('close-picker').addEventListener('click', closePicker);
+    picker.addEventListener('click', (e) => { if (e.target === picker) closePicker(); });
+    document.getElementById('clear-assign').addEventListener('click', clearAssign);
+    document.getElementById('pick-map').addEventListener('click', () => {
+      closePicker();
+      showToast('◎ Map pick mode (modal would minimize) — optional hybrid');
+    });
+
+    document.querySelectorAll('#filters .chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#filters .chip').forEach(c => c.classList.remove('on'));
+        chip.classList.add('on');
+        filter = chip.dataset.filter;
+        renderList();
+      });
+    });
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+        tab.classList.add('on');
+        const id = tab.dataset.tab;
+        document.getElementById('tab-details').style.display = id === 'details' ? '' : 'none';
+        document.getElementById('tab-assign').style.display = id === 'assign' ? '' : 'none';
+        if (id !== 'assign') closePicker();
+      });
+    });
+
+    renderList();
+  </script>
+</body>
+</html>

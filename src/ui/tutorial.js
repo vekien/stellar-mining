@@ -63,15 +63,11 @@ const TUTORIAL_DEFS = [
     condition: s => s.tutStep === 1
       && s.ships.length === 1
       && s.ships[0].status === 'idle'
-      && s.ships[0].targetNode === null,
-    text: 'SELECT IRON NODE',
-    placement: 'above',
-    getPos: s => {
-      const node = s.nodes.find(n => n.type === 'iron' && n.minLevel <= s.base.level);
-      if (!node) return null;
-      const w = gridToWorld(node.gr[0], node.gr[1]);
-      return canvasPos(w.x, w.y + TILE_H / 2);
-    },
+      && s.ships[0].targetNode === null
+      && s.selectedShip === s.ships[0].id,
+    text: 'CHOOSE A NODE',
+    placement: 'below',
+    getEl: () => document.getElementById('action-panel-node-card'),
   },
 
   {
@@ -87,8 +83,9 @@ const TUTORIAL_DEFS = [
     condition: s => s.tutStep === 5,
     text: '⬡ OPEN CRAFT MENU',
     placement: 'below',
-    getEl: () => Array.from(document.querySelectorAll('.hdr-btn'))
-      .find(el => el.querySelector('.label')?.textContent === 'CRAFT') || null,
+    getEl: () => document.querySelector('.hdr-btn[data-panel="craft"]')
+      || Array.from(document.querySelectorAll('.hdr-btn')).find(el => el.textContent.trim() === 'CRAFT')
+      || null,
   },
 
   {
@@ -124,8 +121,9 @@ const TUTORIAL_DEFS = [
     condition: s => s.tutStep === 10,
     text: 'SELL RESOURCES UNDER TRADE',
     placement: 'below',
-    getEl: () => Array.from(document.querySelectorAll('.hdr-btn'))
-      .find(el => el.querySelector('.label')?.textContent === 'TRADE') || null,
+    getEl: () => document.querySelector('.hdr-btn[data-panel="market"]')
+      || Array.from(document.querySelectorAll('.hdr-btn')).find(el => el.textContent.trim() === 'TRADE')
+      || null,
   },
 
   {
@@ -135,8 +133,9 @@ const TUTORIAL_DEFS = [
       && !s.seenMsgs['lv3_research_pointer_done'],
     text: 'OPEN RESEARCH',
     placement: 'below',
-    getEl: () => Array.from(document.querySelectorAll('.hdr-btn'))
-      .find(el => el.querySelector('.label')?.textContent === 'RESEARCH') || null,
+    getEl: () => document.querySelector('.hdr-btn[data-panel="research"]')
+      || Array.from(document.querySelectorAll('.hdr-btn')).find(el => el.textContent.trim() === 'RESEARCH')
+      || null,
   },
 
   // ── Redirect tutorial (fires after "solid stockpile" message) ──
@@ -216,12 +215,12 @@ const TUTORIAL_DEFS = [
     getEl: () => document.querySelector('.ship-card'),
   },
 
-  // Step B: point at the Upgrade button in the ship modal footer
+  // Step B: point at the Upgrade tab in the ship modal
   {
     id: 'tut-ptr-upgrades',
     condition: s => s.upgradesTutActive && !!s.selectedShip,
     text: 'UPGRADE',
-    placement: 'above',
+    placement: 'below',
     getEl: () => document.getElementById('ship-upgrade-btn'),
   },
 
@@ -296,8 +295,7 @@ export function showReassignTooltip(ship) {
   removeReassignTooltip();
   const el = document.createElement('div');
   el.id = 'reassign-tooltip';
-  const sidebarW = 350;
-  const canvasCentreX = (window.innerWidth - sidebarW) / 2;
+  const canvasCentreX = window.innerWidth / 2;
   el.style.cssText = `
     position:fixed; top:100px; left:${canvasCentreX}px; transform:translateX(-50%);
     background:rgba(180,140,0,0.15); border:1px solid #ffe066;

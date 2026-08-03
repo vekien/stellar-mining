@@ -5,7 +5,9 @@ import { SAVE_KEY } from './constants.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
 import { gridToWorld } from './render/camera.js';
 import { RESOURCE_DEFS } from './data/resources.js';
-import { SHIP_DEFS, normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel, loadSpeedFromLevel, mineBonusFromLevel } from './data/ships.js';
+import { SHIP_DEFS, normalizeFlySpeed, normalizeMineSpeed, capacityFromTierAndLevel, loadSpeedFromLevel, mineBonusFromLevel, rangeFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel } from './data/ships.js';
+import { normalizeSolHistory } from './systems/statsHistory.js';
+import { normalizeShipAttachments } from './data/attachments.js';
 import { HEALTH_INCREASE_HP_PER_PURCHASE } from './data/research.js';
 import { TURRET_MAX_LEVEL, getTurretTypeDef, getTurretStats, getTurretPowerCapacity, getTurretPowerUsage } from './data/turrets.js';
 import { normalizeModule, STORAGE_FACILITY_ID, invalidateNetworkCache } from './data/modules.js';
@@ -47,6 +49,8 @@ export let state = {
   shipCraftTimers: {},
   shipCraftNotices: {},
   turretCraftTimers: {},
+  /** Global concurrent craft jobs (cap = base.level) */
+  craftQueue: [],
 
   // Time + progression
   sol: 1,
@@ -54,6 +58,8 @@ export let state = {
   solStarted: false,
   rp: 0,
   marketBoost: null,
+  /** Per-resource SOL price variance percent, e.g. { iron: -12, copper: 8 } */
+  marketVariance: {},
 
   // Player settings
   settings: {
@@ -69,6 +75,7 @@ export let state = {
     showResearchLinesOnHover: false,
     researchLineOpacity: 1,
     renderFps: 45,
+    closeShipAfterAssign: true,
   },
 
   highestAvailableNodeTier: 1,
@@ -86,6 +93,10 @@ export let state = {
   // Pirate pressure (Overview threat / status)
   pirateKills: 0,
   pirateStatus: 0,
+  /** Raids successfully defeated — next wave scales up */
+  raidsDefeated: 0,
+  /** Last 30 SOL economy snapshots for Statistics charts */
+  solHistory: [],
 
   // Unlocks + defenses
   researchUnlocks: {},
@@ -172,6 +183,7 @@ export function saveGame() {
       worldSeed: state.worldSeed,
       base: state.base,
       sol: state.sol, solTimer: state.solTimer, rp: state.rp, marketBoost: state.marketBoost, extraDemands: state.extraDemands,
+      marketVariance: state.marketVariance && typeof state.marketVariance === 'object' ? state.marketVariance : {},
       settings: state.settings,
       solStarted: state.solStarted, tutStep: state.tutStep,
       firstDeposit: state.firstDeposit, firstCraftable: state.firstCraftable,
@@ -182,6 +194,8 @@ export function saveGame() {
       researchUnlocks: state.researchUnlocks,
       pirateKills: state.pirateKills || 0,
       pirateStatus: state.pirateStatus || 0,
+      raidsDefeated: state.raidsDefeated || 0,
+      solHistory: Array.isArray(state.solHistory) ? state.solHistory.slice(-30) : [],
       hpBoostCount: state.hpBoostCount, shieldBoostCount: state.shieldBoostCount,
       antiCometCount: state.antiCometCount, solarShieldCount: state.solarShieldCount,
       autoRegenCount: state.autoRegenCount,
@@ -194,6 +208,7 @@ export function saveGame() {
       shipCraftTimers: state.shipCraftTimers,
       turretCraftTimers: state.turretCraftTimers,
       buildingCraftTimers: state.buildingCraftTimers,
+      craftQueue: Array.isArray(state.craftQueue) ? state.craftQueue : [],
       saveVersion: SAVE_VERSION,
         ships: state.ships.filter(s => !s.isHqSupport).map(s => ({
           id:s.id, name:s.name, type:s.type,
@@ -204,12 +219,15 @@ export function saveGame() {
           currentHp: s.currentHp ?? s.hp ?? 0,
           attack: s.attack ?? 0,
           attackSpeed: s.attackSpeed ?? 0,
+          range: s.range ?? 0,
           capacityLevel:s.capacityLevel, flySpeedLevel:s.flySpeedLevel, mineSpeedLevel:s.mineSpeedLevel,
           mineBonusLevel: s.mineBonusLevel ?? 0,
           loadSpeedLevel: s.loadSpeedLevel ?? 0,
           hpLevel: s.hpLevel ?? 0,
           attackLevel: s.attackLevel ?? 0,
           atkRateLevel: s.atkRateLevel ?? 0,
+          rangeLevel: s.rangeLevel ?? 0,
+          attachments: Array.isArray(s.attachments) ? s.attachments : undefined,
           targetNode: s.targetNode,
           depotType: s.depotType,
           depotId: s.depotId,
@@ -238,6 +256,26 @@ export function loadGame() {
     state.rp   = d.rp  ?? 0;
     state.marketBoost = d.marketBoost ?? null;
     state.extraDemands = Array.isArray(d.extraDemands) ? d.extraDemands : [];
+    state.marketVariance = d.marketVariance && typeof d.marketVariance === 'object' ? d.marketVariance : {};
+    // Strip special node types (e.g. crashed_ship) from saved demand
+    {
+      const ok = (type) => {
+        const def = RESOURCE_DEFS[type];
+        return !!(def && !def.special && (def.sellPrice || 0) > 0);
+      };
+      if (state.marketBoost && !ok(state.marketBoost.type)) state.marketBoost = null;
+      state.extraDemands = state.extraDemands.filter((d) => d && ok(d.type));
+      if (!state.marketBoost && state.extraDemands.length) {
+        state.marketBoost = state.extraDemands.shift();
+      }
+      const cleaned = {};
+      for (const [k, v] of Object.entries(state.marketVariance || {})) {
+        if (!ok(k)) continue;
+        const n = Math.round(Number(v) || 0);
+        if (n !== 0) cleaned[k] = Math.max(-25, Math.min(25, n));
+      }
+      state.marketVariance = cleaned;
+    }
     state.settings = {
       showGrid: d.settings?.showGrid ?? true,
       showBackgroundStars: d.settings?.showBackgroundStars ?? true,
@@ -251,6 +289,7 @@ export function loadGame() {
       showResearchLinesOnHover: d.settings?.showResearchLinesOnHover ?? false,
       researchLineOpacity: Number.isFinite(d.settings?.researchLineOpacity) ? d.settings.researchLineOpacity : 1,
       renderFps: d.settings?.renderFps ?? 45,
+      closeShipAfterAssign: d.settings?.closeShipAfterAssign !== false,
     };
     state.solStarted = d.solStarted ?? false;
     state.tutStep = d.tutStep ?? 0;
@@ -266,6 +305,8 @@ export function loadGame() {
     state.researchUnlocks = d.researchUnlocks ?? {};
     state.pirateKills = Math.max(0, Math.floor(d.pirateKills || 0));
     state.pirateStatus = Math.max(0, Math.min(100, Number(d.pirateStatus) || 0));
+    state.raidsDefeated = Math.max(0, Math.floor(d.raidsDefeated || 0));
+    state.solHistory = normalizeSolHistory(d.solHistory);
     // ── Migrations ──────────────────────────────────────────────
     // hp_boost → health_increase
     if (state.researchUnlocks.hp_boost) { state.researchUnlocks.health_increase = true; delete state.researchUnlocks.hp_boost; }
@@ -321,6 +362,7 @@ export function loadGame() {
       : d.moduleCraftTimers && typeof d.moduleCraftTimers === 'object'
         ? d.moduleCraftTimers
       : (d.storageCraftTimers && typeof d.storageCraftTimers === 'object' ? d.storageCraftTimers : {});
+    state.craftQueue = Array.isArray(d.craftQueue) ? d.craftQueue.filter((j) => j && j.jobId) : [];
     state.hpBoostCount     = d.hpBoostCount     ?? 0;
     state.shieldBoostCount = d.shieldBoostCount ?? 0;
     state.antiCometCount   = d.antiCometCount   ?? 0;
@@ -361,6 +403,7 @@ export function loadGame() {
           currentHp:   sd.currentHp   ?? sd.hp ?? (SHIP_DEFS[sd.type]?.hp ?? 0),
           attack:      sd.attack      ?? (SHIP_DEFS[sd.type]?.attack ?? 0),
           attackSpeed: sd.attackSpeed ?? (SHIP_DEFS[sd.type]?.attackSpeed ?? 0),
+          range:       sd.range       ?? (SHIP_DEFS[sd.type]?.range ?? 0),
           mineTier:sd.mineTier ?? 1,
           capacityLevel:  sd.capacityLevel  ?? 0,
           flySpeedLevel:  sd.flySpeedLevel  ?? 0,
@@ -369,6 +412,9 @@ export function loadGame() {
           hpLevel:        sd.hpLevel        ?? 0,
           attackLevel:    sd.attackLevel    ?? 0,
           atkRateLevel:   sd.atkRateLevel   ?? 0,
+          rangeLevel:     sd.rangeLevel     ?? 0,
+          attachments:    Array.isArray(sd.attachments) ? sd.attachments : undefined,
+          attachmentCds:  {},
            cargo:0, cargoResource:null,
            cargoManifest: null,
            pickupType: sd.pickupType ?? null,
@@ -386,6 +432,19 @@ export function loadGame() {
         x:base.x, y:base.y, destX:base.x, destY:base.y, mineTimer:0, pauseTimer:0,
       };
     });
+    // Resync combat/garrison stats + attachments
+    for (const ship of state.ships) {
+      const role = SHIP_DEFS[ship.type]?.role;
+      if (role !== 'garrison' && role !== 'combat') continue;
+      if (Number.isFinite(ship.hpLevel)) ship.hp = hpFromLevel(ship.type, ship.hpLevel || 0);
+      if (Number.isFinite(ship.attackLevel)) ship.attack = attackFromLevel(ship.type, ship.attackLevel || 0);
+      if (Number.isFinite(ship.atkRateLevel)) ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel || 0);
+      if (role === 'garrison') {
+        ship.range = rangeFromLevel(ship.type, ship.rangeLevel || 0);
+      }
+      normalizeShipAttachments(ship, role);
+      if (!Number.isFinite(ship.currentHp) || ship.currentHp > ship.hp) ship.currentHp = ship.hp;
+    }
     invalidateNetworkCache();
     return true;
   } catch(e) { return false; }

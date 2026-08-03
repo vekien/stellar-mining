@@ -721,6 +721,7 @@ import {
 import { getStoragePowerUsage, isStorageOperational } from '../data/storage.js';
 import { getDronesForLab, getDroneStatusText } from '../systems/drones.js';
 import { bumpPirateStatusOnExpand } from '../systems/combat.js';
+import { enqueueCraftJob, canEnqueueCraft, getCraftQueueCap } from '../systems/craftQueue.js';
 import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
 import { toRoman } from '../data/ships.js';
 import { cam, focusOn, gridToWorld } from '../render/camera.js';
@@ -813,10 +814,8 @@ export function canPlaceStorageAt(col, row, ignoreId = null) {
   return canPlaceModuleAt(STORAGE_FACILITY_ID, col, row, ignoreId);
 }
 
-function completeCraftBuilding(moduleType) {
-  const timer = state.buildingCraftTimers?.[moduleType];
-  if (!timer) return;
-  delete state.buildingCraftTimers[moduleType];
+window.completeCraftBuildingJob = function(job) {
+  const moduleType = job?.recipeId || STORAGE_FACILITY_ID;
   if (!Array.isArray(state.unplacedModuleQueue)) state.unplacedModuleQueue = [];
   state.unplacedModuleQueue.push(moduleType);
   state.unplacedModules = state.unplacedModuleQueue.length;
@@ -825,18 +824,7 @@ function completeCraftBuilding(moduleType) {
   bumpPirateStatusOnExpand();
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
-}
-
-function scheduleBuildingCraftCompletion(moduleType, endsAt) {
-  const wait = Math.max(0, endsAt - Date.now());
-  setTimeout(() => {
-    const timer = state.buildingCraftTimers?.[moduleType];
-    if (!timer) return;
-    if (Date.now() >= timer.endsAt) completeCraftBuilding(moduleType);
-    else scheduleBuildingCraftCompletion(moduleType, timer.endsAt);
-  }, wait + 5);
-}
+};
 
 function getStorageModalHost() {
   return document.getElementById('storage-modal-host');
@@ -1959,7 +1947,7 @@ export function renderModuleModal(moduleId = state.selectedModule, modalRoot = n
         <table class="storage-power-table">
           <thead>
             <tr>
-              <th><span style="cursor:help;" onmouseover="showHintTooltip(event, '${isDroneLabModule(module) ? 'Power usage scales with drone count: 1/s per drone deployed.' : 'Power usage scales with stored cargo: 1/s at empty, up to 10/s at full capacity.'}');" onmouseout="hideTooltip()">Usage</span></th>
+              <th><span style="cursor:help;" data-tippy-content="${isDroneLabModule(module) ? 'Power usage scales with drone count: 1/s per drone deployed.' : 'Power usage scales with stored cargo: 1/s at empty, up to 10/s at full capacity.'}">Usage</span></th>
               <th>Capacity</th>
             </tr>
           </thead>
@@ -3369,19 +3357,31 @@ window.startCraftBuilding = function(moduleType = STORAGE_FACILITY_ID) {
   const moduleConfig = getModuleDef(moduleType);
   if (!moduleDef) return;
   if (!state.researchUnlocks[moduleConfig.unlockId]) return;
-  if (state.buildingCraftTimers?.[moduleType] && Date.now() < state.buildingCraftTimers[moduleType].endsAt) return;
+  if (!canEnqueueCraft()) {
+    addLog(`⚠ Craft queue full (${getCraftQueueCap()} slots). Upgrade the Base for more.`);
+    return;
+  }
   if (state.coins < moduleDef.cost) return;
   for (const [r, n] of Object.entries(moduleDef.reqs)) if ((state.resources[r] || 0) < n) return;
   spendCoins(moduleDef.cost);
   for (const [r, n] of Object.entries(moduleDef.reqs)) state.resources[r] -= n;
   const durationMs = getModuleCraftTimeMs(moduleType);
-  const now = Date.now();
-  if (!state.buildingCraftTimers) state.buildingCraftTimers = {};
-  state.buildingCraftTimers[moduleType] = { startedAt: now, endsAt: now + durationMs, durationMs };
-  addLog(`🛠 Crafting started: ${moduleDef.name} (${Math.ceil(durationMs / 1000)}s)`);
-  scheduleBuildingCraftCompletion(moduleType, now + durationMs);
+  const job = enqueueCraftJob({
+    kind: 'building',
+    recipeId: moduleType,
+    name: moduleDef.name,
+    durationMs,
+  });
+  if (!job) {
+    addCoins(moduleDef.cost);
+    for (const [r, n] of Object.entries(moduleDef.reqs)) state.resources[r] = (state.resources[r] || 0) + n;
+    return;
+  }
+  addLog(`🛠 Queued: ${moduleDef.name} (${Math.ceil(durationMs / 1000)}s)`);
   if (refresh.ui) refresh.ui();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') {
+    window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true });
+  }
 };
 
 window.beginPlacingBuilding = function(moduleType = STORAGE_FACILITY_ID) {
@@ -3396,18 +3396,10 @@ window.beginPlacingBuilding = function(moduleType = STORAGE_FACILITY_ID) {
 };
 
 window.syncBuildingCraftTimers = function() {
-  if (!state.buildingCraftTimers) return;
-  for (const [moduleType, timer] of Object.entries(state.buildingCraftTimers)) {
-    if (!timer?.endsAt) continue;
-    if (Date.now() >= timer.endsAt) completeCraftBuilding(moduleType);
-    else scheduleBuildingCraftCompletion(moduleType, timer.endsAt);
-  }
+  // Legacy no-op — craft queue handles sync
 };
 
-function completeCraftDrone() {
-  const timer = state.droneCraftTimers?.['drone'];
-  if (!timer) return;
-  delete state.droneCraftTimers['drone'];
+window.completeCraftDroneJob = function() {
   const availableLab = state.modules.find(m => isDroneLabModule(m) && (m.droneCount || 0) < (m.droneCapacity || 2));
   if (availableLab) {
     availableLab.droneCount = (availableLab.droneCount || 0) + 1;
@@ -3417,45 +3409,41 @@ function completeCraftDrone() {
   }
   if (refresh.header) refresh.header();
   if (refresh.ui) refresh.ui();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
-}
-
-function scheduleDroneCraftCompletion(endsAt) {
-  const wait = Math.max(0, endsAt - Date.now());
-  setTimeout(() => {
-    const timer = state.droneCraftTimers?.['drone'];
-    if (!timer) return;
-    if (Date.now() >= timer.endsAt) completeCraftDrone();
-    else scheduleDroneCraftCompletion(timer.endsAt);
-  }, wait + 5);
-}
+};
 
 window.startCraftDrone = function() {
   const droneDef = getCraft('drones', 'drone');
   if (!droneDef) return;
   if (!state.researchUnlocks['drone_crafting']) return;
-  if (state.droneCraftTimers?.['drone'] && Date.now() < state.droneCraftTimers['drone'].endsAt) return;
+  if (!canEnqueueCraft()) {
+    addLog(`⚠ Craft queue full (${getCraftQueueCap()} slots). Upgrade the Base for more.`);
+    return;
+  }
   if (state.coins < droneDef.cost) return;
   for (const [r, n] of Object.entries(droneDef.reqs || {})) if ((state.resources[r] || 0) < n) return;
   spendCoins(droneDef.cost);
   for (const [r, n] of Object.entries(droneDef.reqs || {})) state.resources[r] -= n;
   const durationMs = droneDef.craftTimeMs || 1000;
-  const now = Date.now();
-  if (!state.droneCraftTimers) state.droneCraftTimers = {};
-  state.droneCraftTimers['drone'] = { startedAt: now, endsAt: now + durationMs, durationMs };
-  addLog(`🛠 Crafting started: Drone (${Math.ceil(durationMs / 1000)}s)`);
-  scheduleDroneCraftCompletion(now + durationMs);
+  const job = enqueueCraftJob({
+    kind: 'drone',
+    recipeId: 'drone',
+    name: 'Drone',
+    durationMs,
+  });
+  if (!job) {
+    addCoins(droneDef.cost);
+    for (const [r, n] of Object.entries(droneDef.reqs || {})) state.resources[r] = (state.resources[r] || 0) + n;
+    return;
+  }
+  addLog(`🛠 Queued: Drone (${Math.ceil(durationMs / 1000)}s)`);
   if (refresh.ui) refresh.ui();
-  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') { window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true }); }
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') {
+    window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true });
+  }
 };
 
 window.syncDroneCraftTimers = function() {
-  if (!state.droneCraftTimers) return;
-  for (const [, timer] of Object.entries(state.droneCraftTimers)) {
-    if (!timer?.endsAt) continue;
-    if (Date.now() >= timer.endsAt) completeCraftDrone();
-    else scheduleDroneCraftCompletion(timer.endsAt);
-  }
+  // Legacy no-op — craft queue handles sync
 };
 
 // ── Synthesis recipe overlay ─────────────────────────────────

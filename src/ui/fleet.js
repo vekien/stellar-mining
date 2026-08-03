@@ -8,17 +8,31 @@ import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
   SHIP_DEFS, TIER_COLORS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
   UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST, UPGRADE_MINE_BONUS_COST,
-  UPGRADE_LOAD_COST, UPGRADE_HP_COST, UPGRADE_ATTACK_COST, UPGRADE_ATK_RATE_COST,
+  UPGRADE_LOAD_COST, UPGRADE_HP_COST, UPGRADE_ATTACK_COST, UPGRADE_ATK_RATE_COST, UPGRADE_RANGE_COST,
   upgradeTotalCost, toRoman,
   formatFlySpeed, formatMineSpeedPercent, formatMineBonusPercent, formatLoadSpeed, formatAtkRatePercent,
+  formatWeaponRangeTiles,
   capacityFromTierAndLevel, flySpeedFromLevel, mineSpeedFromLevel, mineBonusFromLevel, mineBonusUpgradeCap,
-  loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel, getShipSalvageRewards,
+  loadSpeedFromLevel, hpFromLevel, attackFromLevel, atkRateFromLevel, rangeFromLevel, getShipSalvageRewards,
 } from '../data/ships.js';
-import { SHIP_TIER_REQS } from '../data/base.js';
+import { SHIP_TIER_REQS, BASE_RANGE } from '../data/base.js';
 import { BASE_POS, cam, ZOOM_MAX_V, focusOn, gridToWorld } from '../render/camera.js';
-import { TILE_H } from '../constants.js';
+import { TILE_H, BASE_COL, BASE_ROW } from '../constants.js';
+import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
+import { assignShip } from '../systems/ships.js';
 import { PLAYER_SHOOT_RANGE, HQ_SHOOT_RANGE } from '../data/combat.js';
+import {
+  ATTACHMENT_DEFS,
+  ATTACHMENT_SLOT_LABELS,
+  OFFENSE_ATTACHMENT_IDS,
+  DEFENSE_ATTACHMENT_IDS,
+  getAttachmentDef,
+  getAttachmentSlotCount,
+  normalizeShipAttachments,
+  getShipHpMultiplier,
+} from '../data/attachments.js';
 import { fmt, addLog, getResourceIconPath, resourceIconHtml, isLightColor } from '../helpers.js';
+import { getShipRepairCost } from '../systems/combat.js';
 import { refresh } from './refresh.js';
 import { getSellPrice } from '../systems/market.js';
 import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial, renderTutPointers } from './tutorial.js';
@@ -49,8 +63,8 @@ const ROLE_ACCENTS = {
 const ROLE_PRIMARY_TAB = {
   mining: { id: 'primary', label: 'ASSIGNMENT', icon: 'flag' },
   transport: { id: 'primary', label: 'ROUTE', icon: 'route' },
-  combat: { id: 'primary', label: 'COMBAT', icon: 'swords' },
-  garrison: { id: 'primary', label: 'DEFENSE', icon: 'shield' },
+  combat: { id: 'primary', label: 'ATTACHMENTS', icon: 'extension' },
+  garrison: { id: 'primary', label: 'ATTACHMENTS', icon: 'extension' },
   unique: { id: 'primary', label: 'STATUS', icon: 'star' },
 };
 
@@ -59,8 +73,31 @@ window.toggleFleetFilters = function() {
   const el = document.getElementById('fleet-filters');
   const btn = document.getElementById('fleet-filter-toggle');
   if (el) el.classList.toggle('is-hidden', !_fleetFiltersVisible);
-  if (btn) btn.style.color = _fleetFiltersVisible ? '#9bd6ff' : '#4a8ab0';
+  if (btn) btn.classList.toggle('on', _fleetFiltersVisible);
 };
+
+window.toggleFleetDock = function() {
+  const collapsed = document.body.classList.toggle('fleet-dock-collapsed');
+  const tab = document.getElementById('fleet-dock-tab');
+  if (tab) tab.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+};
+
+window.setFleetRoleChip = function(role) {
+  if (!state.fleetFilter) state.fleetFilter = {};
+  state.fleetFilter.role = role || null;
+  document.querySelectorAll('#fleet-role-chips .dock-chip').forEach((btn) => {
+    const r = btn.dataset.role || '';
+    btn.classList.toggle('on', (role || '') === r);
+  });
+  renderShipsList();
+};
+
+function syncFleetRoleChips() {
+  const role = state.fleetFilter?.role || '';
+  document.querySelectorAll('#fleet-role-chips .dock-chip').forEach((btn) => {
+    btn.classList.toggle('on', (btn.dataset.role || '') === role);
+  });
+}
 
 let _sellOverlayCtx = null;
 
@@ -150,8 +187,15 @@ export function getShipTransportSummaryLabel(ship) {
 export function getShipStatusMeta(ship) {
   if (ship.loadingPickup) return { badge: 'LOADING', message: '⇣ Loading', color: '#ffd966' };
   if (ship.unloadingDepot) return { badge: 'UNLOADING', message: '⇡ Unloading', color: '#9bd6ff' };
+  {
+    const role = SHIP_DEFS[ship.type]?.role;
+    const combatHull = role === 'combat' || role === 'garrison';
+    if (ship.status === 'destroyed' || (combatHull && (ship.currentHp ?? 1) <= 0)) {
+      return { badge: 'DESTROYED', message: '💀 Destroyed — repair required', color: '#ff6b6b' };
+    }
+  }
   if (ship.status === 'engaging' || ship.status === 'intercepting') return { badge: 'COMBAT', message: '⚔ Engaged', color: '#ff6b6b' };
-  if (ship.status === 'returning_repair') return { badge: 'REPAIR', message: '🔧 Returning to Repair', color: '#9bd6ff' };
+  if (ship.status === 'returning_repair') return { badge: 'RTB', message: '↩ Returning to Base', color: '#9bd6ff' };
   if (ship.status === 'flying') return { badge: 'EN ROUTE', message: '▶ En Route', color: '#48f' };
   if (ship.status === 'mining') return { badge: 'MINING', message: '⛏ Mining', color: '#c6f' };
   if (ship.status === 'returning' || ship.status === 'pausing') return { badge: 'RETURNING', message: '↩ Returning', color: '#fa6' };
@@ -356,6 +400,7 @@ export function renderFleetFilters() {
   clr.textContent = 'Clear';
   clr.onclick = () => {
     Object.assign(state.fleetFilter, { search:'', type:null, role:null, node:null, depot:null, idleOnly:false, holdingOnly:false, sort:null, sortDir:1 });
+    syncFleetRoleChips();
     renderShipsList();
   };
   clearRow.appendChild(idleToggle);
@@ -376,9 +421,17 @@ export function renderFleetFilters() {
 
 export function renderShipsList() {
   renderFleetFilters();
+  syncFleetRoleChips();
   const ff = state.fleetFilter;
   const list = document.getElementById('ships-list');
+  if (!list) return;
   list.innerHTML = '';
+
+  const n = String(state.ships.length);
+  const countEl = document.getElementById('fleet-dock-count');
+  if (countEl) countEl.textContent = n;
+  const tabCount = document.getElementById('fleet-dock-tab-count');
+  if (tabCount) tabCount.textContent = n;
 
   let ships = state.ships.filter(ship => {
     if (ff.search && !ship.name.toLowerCase().includes(ff.search.trim().toLowerCase())) return false;
@@ -539,24 +592,28 @@ export function renderShipsList() {
       }
       if (state.pendingAssign && state.pendingAssign !== ship.id) {
         state.pendingAssign = null; canvas.style.cursor = '';
+        window.restoreShipModalFromMapPick?.();
       }
       if (isSelected) {
         state.selectedShip = null; state.pendingAssign = null; state.followShip = null;
         canvas.style.cursor = ''; removeReassignTooltip();
+        window.restoreShipModalFromMapPick?.();
       } else {
         cancelTurretPlacement();
         cancelStoragePlacement();
         state.selectedShip = ship.id;
+        // Open assignment tab for mining hulls that still need a node
+        const role = SHIP_DEFS[ship.type]?.role || 'mining';
+        if (role === 'mining' && (ship.mineSpeed || 0) > 0 && ship.targetNode == null) {
+          _shipModalTab = 'primary';
+        }
         if (state.tutStep === 0) {
           state.tutStep = 1;
-          const ironNode = state.nodes.find(n => n.type === 'iron' && n.minLevel <= state.base.level);
-          if (ironNode) {
-            const w = gridToWorld(ironNode.gr[0], ironNode.gr[1]);
-            focusOn(w.x, w.y, cam.zoom);
-          }
         }
-        state.pendingAssign = ship.id; canvas.style.cursor = 'crosshair';
-        showReassignTooltip(ship);
+        // Assignment is via node picker / explicit map pick — not auto crosshair
+        state.pendingAssign = null;
+        canvas.style.cursor = '';
+        removeReassignTooltip();
       }
       if (refresh.ui) refresh.ui();
     });
@@ -571,7 +628,7 @@ function _overallLevel(ship) {
   if (role === 'mining')    return (ship.capacityLevel||0) + (ship.flySpeedLevel||0) + (ship.mineSpeedLevel||0) + (ship.mineBonusLevel||0);
   if (role === 'transport') return (ship.capacityLevel||0) + (ship.flySpeedLevel||0) + (ship.loadSpeedLevel||0);
   if (role === 'combat')    return (ship.hpLevel||0) + (ship.attackLevel||0) + (ship.atkRateLevel||0);
-  if (role === 'unique')    return 400; // all 4 stats at 100
+  if (role === 'garrison')  return (ship.hpLevel||0) + (ship.attackLevel||0) + (ship.atkRateLevel||0) + (ship.rangeLevel||0);
   return (ship.capacityLevel||0) + (ship.flySpeedLevel||0);
 }
 
@@ -601,10 +658,17 @@ function getShipDistanceInfo(ship) {
   return { text: String(d), tiles: d, atBase: false };
 }
 
-/** Combat weapon range (world units) — not tile-based. */
+/** Combat weapon range (world units). Garrison range is stored in tiles. */
 function getShipWeaponRange(ship) {
   if (ship?.isHqSupport) return HQ_SHOOT_RANGE;
   const def = SHIP_DEFS[ship?.type];
+  const role = def?.role;
+  if (role === 'garrison') {
+    const tiles = Number.isFinite(ship?.range) && ship.range > 0
+      ? ship.range
+      : (def?.range || rangeFromLevel(ship?.type, ship?.rangeLevel || 0) || 8);
+    return Math.round(tiles * 36);
+  }
   // Unique ships may define range in tile-ish units — convert to world
   if (Number.isFinite(def?.range) && def.range > 0) {
     return Math.round(def.range * 36);
@@ -613,6 +677,13 @@ function getShipWeaponRange(ship) {
 }
 
 function formatWeaponRange(ship) {
+  const def = SHIP_DEFS[ship?.type];
+  if (def?.role === 'garrison') {
+    const tiles = Number.isFinite(ship?.range) && ship.range > 0
+      ? ship.range
+      : (def?.range || 8);
+    return formatWeaponRangeTiles(tiles);
+  }
   return String(getShipWeaponRange(ship));
 }
 
@@ -675,6 +746,9 @@ function openShipModalWindow() {
 
 export function closeShipModal() {
   window.closeShipUpgradeOverlay?.();
+  window.closeAttachmentPicker?.();
+  window.closeNodePicker?.();
+  window.restoreShipModalFromMapPick?.({ silent: true });
   const overlay = document.getElementById('ship-modal-overlay');
   if (overlay) overlay.style.display = 'none';
   const body = document.getElementById('ship-modal-body');
@@ -709,45 +783,33 @@ window.closeShipModal = function() {
 
 let _shipModalForceRebuild = false;
 
+function normalizeShipModalTab(tab) {
+  if (tab === 'primary' || tab === 'upgrades') return tab;
+  return 'details';
+}
+
 window.setShipModalTab = function(tab) {
   if (_tierTrackAnimating) {
     _tierTrackAnimating = false;
   }
-  _shipModalTab = tab === 'primary' ? 'primary' : 'details';
+  _shipModalTab = normalizeShipModalTab(tab);
   _shipModalForceRebuild = true;
   renderActionPanel();
 };
 
 let _tierTrackAnimating = false;
-let _shipUpgradeOverlayId = null;
 
+/** Open ship modal on the Upgrades tab (legacy name kept for callers). */
 window.openShipUpgradeOverlay = function(shipId) {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return;
-  _shipUpgradeOverlayId = shipId;
-  const overlay = document.getElementById('ship-upgrade-overlay');
-  const box = document.getElementById('ship-upgrade-box');
-  const title = document.getElementById('ship-upgrade-title');
-  const sub = document.getElementById('ship-upgrade-sub');
-  const role = SHIP_DEFS[ship.type]?.role || 'mining';
-  const typeLabel = getShipTypeLabel(ship);
-  const accent = ROLE_ACCENTS[role] || ROLE_ACCENTS.mining;
-  if (box) box.style.setProperty('--ship-accent', accent);
-  if (title) title.textContent = '◈ SHIP UPGRADES';
-  if (sub) {
-    sub.innerHTML = `<strong>${ship.name}</strong> · ${typeLabel} · ${ROLE_LABELS[role] || role}`;
-  }
-  window.refreshShipUpgrades?.();
-  if (overlay) {
-    overlay.classList.add('show');
-    overlay.onclick = (e) => {
-      if (e.target === overlay) window.closeShipUpgradeOverlay?.();
-    };
-  }
+  state.selectedShip = shipId;
+  _shipModalTab = 'upgrades';
+  _shipModalForceRebuild = true;
+  renderActionPanel();
 };
 
 window.closeShipUpgradeOverlay = function() {
-  _shipUpgradeOverlayId = null;
   const overlay = document.getElementById('ship-upgrade-overlay');
   if (overlay) {
     overlay.classList.remove('show');
@@ -757,15 +819,19 @@ window.closeShipUpgradeOverlay = function() {
   if (body) body.innerHTML = '';
 };
 
+function getShipUpgradesRoot() {
+  return document.getElementById('ship-upgrades-body')
+    || document.getElementById('ship-upgrade-body');
+}
+
 window.refreshShipUpgrades = function() {
   if (_tierTrackAnimating) return;
-  if (_shipUpgradeOverlayId == null) return;
-  const ship = state.ships.find((s) => s.id === _shipUpgradeOverlayId);
-  if (!ship) {
-    window.closeShipUpgradeOverlay?.();
-    return;
-  }
-  const el = document.getElementById('ship-upgrade-body');
+  const shipId = state.selectedShip;
+  if (shipId == null) return;
+  if (_shipModalTab !== 'upgrades') return;
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return;
+  const el = getShipUpgradesRoot();
   if (!el) return;
   setHtmlDestroyingTippies(el, buildUpgradesSection(ship.id));
   bindTippyIn(el);
@@ -830,7 +896,7 @@ function spawnTierBurst(dotEl) {
 
 /** Animate fill → next node, then mini explosion. ~1s total. */
 window.playShipTierTrackAnimation = function(shipId, fromTier, toTier) {
-  const root = document.getElementById('ship-upgrade-body')
+  const root = getShipUpgradesRoot()
     || document.getElementById('upgrades-section-body')?.parentElement;
   const fill = root?.querySelector('.sm-bp-fill');
   const nodes = root?.querySelectorAll('.sm-bp-node');
@@ -950,24 +1016,38 @@ export function renderActionPanel() {
   modal.classList.add('storage-modal-window', 'storage-modal-window-lab', 'ship-modal-window');
   modal.classList.toggle('modal-accent-defense', role === 'combat' || role === 'garrison');
   modal.classList.toggle('modal-accent-storage', role === 'mining' || role === 'transport');
-  if (title) title.textContent = (getShipTypeLabel(ship) || 'SHIP').toUpperCase();
+  const minimized = modal.classList.contains('ship-modal-minimized');
+  if (title && !minimized) title.textContent = (getShipTypeLabel(ship) || 'SHIP').toUpperCase();
+  if (title && minimized) title.textContent = `PICK NODE · ${ship.name}`.toUpperCase();
 
   const wasOpen = document.getElementById('ship-modal-overlay')?.style.display === 'flex';
-  const needsFull = _shipModalForceRebuild
+  // Don't rebuild DOM while map-pick bar is showing — keeps minimize stable
+  const needsFull = !minimized && (
+    _shipModalForceRebuild
     || _renderedActionShipId !== ship.id
-    || !body.querySelector('[data-ship-modal-root]');
+    || !body.querySelector('[data-ship-modal-root]')
+  );
   _shipModalForceRebuild = false;
 
   if (needsFull) {
     setHtmlDestroyingTippies(body, buildShipModalContent(ship));
     _renderedActionShipId = ship.id;
     bindTippyIn(body);
-  } else {
+    if (normalizeShipModalTab(_shipModalTab) === 'upgrades') {
+      requestAnimationFrame(() => {
+        const el = getShipUpgradesRoot();
+        if (el) {
+          layoutTierTrack(el, ship.mineTier || 1);
+          observeTierTrack(el, ship.mineTier || 1);
+        }
+      });
+    }
+  } else if (!minimized) {
     patchShipModalContent(ship);
   }
 
   if (!wasOpen) openShipModalWindow();
-  else bringFloatingToFront(modal);
+  else if (!minimized) bringFloatingToFront(modal);
 
   requestAnimationFrame(() => renderTutPointers());
   setTimeout(() => renderTutPointers(), 240);
@@ -1117,7 +1197,7 @@ function buildDetailsPane(ship) {
           <div class="tu-stat-card">
             <span class="ms-icon tu-stat-icon">favorite</span>
             <span class="tu-stat-label">HULL HP</span>
-            <span class="tu-stat-value" id="action-panel-hull-hp">${curHp.toLocaleString()}</span>
+            <span class="tu-stat-value" id="action-panel-hull-hp">${Math.round(curHp).toLocaleString()}<span style="font-size:12px;opacity:.7"> / ${Math.round((ship.hp || 0) * getShipHpMultiplier(ship)).toLocaleString()}</span></span>
           </div>
           <div class="tu-stat-card">
             <span class="ms-icon tu-stat-icon">swords</span>
@@ -1195,28 +1275,52 @@ window.focusShipAssignedNode = function(shipId) {
   focusOn(w.x, w.y, Math.max(cam.zoom, 1.2));
 };
 
+function getShipAccessibleResources(ship) {
+  const accessible = [];
+  for (let t = 1; t <= (ship.mineTier || 1); t++) {
+    const tier = MINE_TIERS[t];
+    if (tier?.resources) accessible.push(...tier.resources);
+  }
+  return accessible;
+}
+
+function isNodeInBaseRange(node) {
+  if (!node?.gr) return false;
+  const halfR = BASE_RANGE[(state.base.level || 1) - 1] || 6;
+  const dist = Math.max(Math.abs(node.gr[0] - BASE_COL), Math.abs(node.gr[1] - BASE_ROW));
+  return dist <= halfR && (node.minLevel || 1) <= (state.base.level || 1);
+}
+
+function getNodeOccupant(nodeId, exceptShipId = null) {
+  return state.ships.find((s) => s.targetNode === nodeId && s.id !== exceptShipId) || null;
+}
+
 function buildMiningPrimary(ship) {
   const node = ship.targetNode != null ? state.nodes.find(n => n.id === ship.targetNode) : null;
   const holdingReason = getShipHoldingReason(ship);
   const nodeCard = node
-    ? `<button type="button" class="sm-node-card clickable" id="action-panel-node-card" onclick="focusShipAssignedNode(${ship.id})" title="Find on map">
+    ? `<button type="button" class="sm-node-card clickable" id="action-panel-node-card" onclick="openNodePicker(${ship.id})" title="Change node">
         <div class="sm-node-ico">${resourceIconHtml(node.type, 32)}</div>
         <div class="sm-node-meta">
           <div class="sm-node-name">${RESOURCE_DEFS[node.type]?.label || node.type} Node</div>
           <div class="sm-node-sub"><b style="color:${RESOURCE_DEFS[node.type]?.color || '#40b0e0'}">${RESOURCE_DEFS[node.type]?.label || node.type}</b> · ${MINE_TIERS[node.minLevel || 1]?.label || `Tier ${toRoman(node.minLevel || 1)}`}</div>
         </div>
-        <span class="sm-node-pin">${msIcon('my_location')}</span>
+        <span class="sm-node-pin">${msIcon('swap_horiz')}</span>
       </button>`
-    : `<div class="sm-node-card empty" id="action-panel-node-card">
+    : `<button type="button" class="sm-node-card empty clickable" id="action-panel-node-card" onclick="openNodePicker(${ship.id})" title="Choose node">
         <div class="sm-node-ico">${msIcon('wrong_location')}</div>
         <div class="sm-node-meta">
           <div class="sm-node-name">No node assigned</div>
-          <div class="sm-node-sub">Click a node on the map while this ship is selected</div>
+          <div class="sm-node-sub">Click to choose a free mining node</div>
         </div>
-      </div>`;
+        <span class="sm-node-pin">${msIcon('chevron_right')}</span>
+      </button>`;
 
   const safeTier = Math.min(10, Math.max(1, ship.mineTier || 1));
-  const canMine = node ? (node.minLevel || 1) <= safeTier : false;
+  const accessible = getShipAccessibleResources(ship);
+  const canMine = node
+    ? (node.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(node.type))
+    : false;
   const tierStr = MINE_TIERS[safeTier]?.label || `Tier ${toRoman(safeTier)}`;
 
   return `<div class="sm-details">
@@ -1226,7 +1330,7 @@ function buildMiningPrimary(ship) {
         ${nodeCard}
         ${smInfoRow('MINE TIER', tierStr, '', 'action-panel-tier')}
         ${smInfoRow('COMPAT', node ? (canMine ? 'Can mine' : 'Tier too low') : '—', node ? (canMine ? 'ok' : 'bad') : '', 'action-panel-compat')}
-        <div class="sm-hint">Assigned by clicking a node on the map with this ship selected. Dimmed nodes need a higher mine tier.</div>
+        <div class="sm-hint">Click the node card to assign or switch. Use Pick on Map to choose from the sector view.</div>
       </div>
       <div class="sm-info-block sm-info-block-fill">
         <div class="blk-title">◈ DROPOFF</div>
@@ -1275,7 +1379,76 @@ function buildTransportPrimary(ship) {
   </div>`;
 }
 
+function buildAttachmentSlotHtml(ship, slotIndex, attachmentId) {
+  const label = ATTACHMENT_SLOT_LABELS[slotIndex] || `SLOT ${slotIndex + 1}`;
+  const def = attachmentId ? getAttachmentDef(attachmentId) : null;
+  if (!def) {
+    return `<div class="sm-weapon empty">
+      <div class="w-ico">${msIcon('add')}</div>
+      <div>
+        <div class="slot-lab">${label}</div>
+        <div class="w-name">EMPTY SLOT</div>
+        <div class="w-stats"><span class="w-pill">No attachment</span></div>
+      </div>
+      <div class="w-side">
+        <div class="w-dps">—<strong></strong></div>
+        <button class="w-btn" type="button" onclick="openAttachmentPicker(${ship.id},${slotIndex})">INSTALL</button>
+      </div>
+    </div>`;
+  }
+  const kindLab = def.kind === 'defense' ? 'DEF' : 'ATK';
+  let stats = '';
+  if (def.fireMode === 'pulse') {
+    stats = `<span class="w-pill">DMG <b>${ship.attack || 0}</b></span>
+      <span class="w-pill">RATE <b>${formatAtkRatePercent(ship.attackSpeed || 0)}</b></span>`;
+  } else if (def.fireMode === 'stun') {
+    stats = `<span class="w-pill">STUN <b>${def.stunDuration || 2}s</b></span>
+      <span class="w-pill">CD <b>${def.cooldown || 30}s</b></span>`;
+  } else if (def.fireMode === 'beam') {
+    stats = `<span class="w-pill">DMG <b>${Math.round((ship.attack || 0) * (def.damageMult || 3))}</b></span>
+      <span class="w-pill">CD <b>${def.cooldown || 3}s</b></span>`;
+  } else if (def.fireMode === 'cluster') {
+    stats = `<span class="w-pill">×${def.clusterCount || 7}</span>
+      <span class="w-pill">CD <b>${def.cooldown || 4.5}s</b></span>`;
+  } else if (def.fireMode === 'spiral') {
+    stats = `<span class="w-pill">SWEEP <b>${def.duration || 1}s</b></span>
+      <span class="w-pill">CD <b>${def.cooldown || 10}s</b></span>`;
+  } else if (def.hpMult) {
+    stats = `<span class="w-pill">HP <b>×${def.hpMult}</b></span>`;
+  } else if (def.boostCdMult) {
+    stats = `<span class="w-pill">BOOST CD <b>${Math.round((def.boostCdMult || 1) * 100)}%</b></span>`;
+  } else if (def.regenPerSec) {
+    stats = `<span class="w-pill">REGEN <b>${Math.round((def.regenPerSec || 0) * 100)}%/s</b></span>`;
+  }
+  return `<div class="sm-weapon" style="--w-accent:${def.color || '#5ec8ff'}">
+    <div class="w-ico" style="color:${def.color || '#5ec8ff'}">${msIcon(def.icon || 'extension', true)}</div>
+    <div>
+      <div class="slot-lab">${label} · ${kindLab}</div>
+      <div class="w-name">${def.name}</div>
+      <div class="w-stats">${stats}</div>
+    </div>
+    <div class="w-side">
+      <button class="w-btn" type="button" onclick="openAttachmentPicker(${ship.id},${slotIndex})">SWAP</button>
+      <button class="w-btn danger" type="button" onclick="clearShipAttachment(${ship.id},${slotIndex})">CLEAR</button>
+    </div>
+  </div>`;
+}
+
 function buildCombatPrimary(ship, isCombat) {
+  const role = SHIP_DEFS[ship.type]?.role || 'combat';
+  normalizeShipAttachments(ship, role);
+  const slots = getAttachmentSlotCount(ship.mineTier || 1);
+  const nextUnlock = (ship.mineTier || 1) < 4 ? 4 : (ship.mineTier || 1) < 8 ? 8 : (ship.mineTier || 1) < 10 ? 10 : null;
+  const attachments = ship.attachments || [];
+  const slotHtml = [];
+  for (let i = 0; i < slots; i++) {
+    slotHtml.push(buildAttachmentSlotHtml(ship, i, attachments[i] || null));
+  }
+  const effHp = Math.round((ship.hp || 0) * getShipHpMultiplier(ship));
+  const unlockHint = nextUnlock
+    ? `Next slot unlocks at Rank ${nextUnlock}.`
+    : 'All attachment slots unlocked.';
+
   const targeting = `
     <div class="sm-radio-list">
       <div class="sm-radio on"><div class="dot"></div><div><div class="t">Lowest Health</div><div class="d">Finish wounded first</div></div></div>
@@ -1287,55 +1460,12 @@ function buildCombatPrimary(ship, isCombat) {
     </div>
     <div class="sm-soon">Targeting AI — coming soon</div>`;
 
-  const weapons = `
-    <div class="sm-weapon-slots">
-      <div class="sm-weapon">
-        <div class="w-ico">${msIcon('bolt', true)}</div>
-        <div>
-          <div class="slot-lab">PORT WING</div>
-          <div class="w-name">PULSE LASER</div>
-          <div class="w-stats">
-            <span class="w-pill">DMG <b>${ship.attack || 28}</b></span>
-            <span class="w-pill">RATE <b>${formatAtkRatePercent(ship.attackSpeed || 0)}</b></span>
-          </div>
-        </div>
-        <div class="w-side">
-          <div class="w-dps">HP<strong>${(ship.hp || 0).toLocaleString()}</strong></div>
-          <button class="w-btn" type="button" disabled>SWAP</button>
-        </div>
-      </div>
-      <div class="sm-weapon empty">
-        <div class="w-ico">${msIcon('add')}</div>
-        <div>
-          <div class="slot-lab">CENTER</div>
-          <div class="w-name">EMPTY SLOT</div>
-          <div class="w-stats"><span class="w-pill">No weapon installed</span></div>
-        </div>
-        <div class="w-side">
-          <div class="w-dps">DPS<strong>—</strong></div>
-          <button class="w-btn" type="button" disabled>INSTALL</button>
-        </div>
-      </div>
-      <div class="sm-weapon empty">
-        <div class="w-ico">${msIcon('add')}</div>
-        <div>
-          <div class="slot-lab">STARBOARD</div>
-          <div class="w-name">EMPTY SLOT</div>
-          <div class="w-stats"><span class="w-pill">No weapon installed</span></div>
-        </div>
-        <div class="w-side">
-          <div class="w-dps">DPS<strong>—</strong></div>
-          <button class="w-btn" type="button" disabled>INSTALL</button>
-        </div>
-      </div>
-    </div>
-    <div class="sm-soon">Weapon loadouts — coming soon</div>`;
-
   return `<div class="sm-details">
     <div class="sm-details-info sm-details-info-66" style="flex:1">
       <div class="sm-info-block sm-info-block-fill">
-        <div class="blk-title">◈ WEAPONS <span class="blk-sub">3 slots</span></div>
-        ${weapons}
+        <div class="blk-title">◈ ATTACHMENTS <span class="blk-sub">${slots} slot${slots === 1 ? '' : 's'}</span></div>
+        <div class="sm-weapon-slots">${slotHtml.join('')}</div>
+        <div class="sm-hint">R1: 1 slot · R4: 2 · R8: 3 · R10: 4. ${unlockHint} Effective hull <b>${effHp.toLocaleString()}</b> HP.</div>
       </div>
       <div class="sm-info-block sm-info-block-fill">
         <div class="blk-title">◈ TARGETING</div>
@@ -1349,18 +1479,433 @@ function buildCombatPrimary(ship, isCombat) {
   </div>`;
 }
 
+let _attachPickerShipId = null;
+let _attachPickerSlot = 0;
+let _nodePickerShipId = null;
+let _nodePickerFilter = 'all';
+let _shipMapPickPrev = null;
+
+function ensureShipMapPickActions() {
+  const modal = document.getElementById('ship-modal');
+  const head = modal?.querySelector('.panel-shell-head');
+  if (!head || head.querySelector('.ship-map-pick-actions')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'ship-map-pick-actions';
+  wrap.innerHTML = `
+    <button type="button" class="btn" onclick="cancelShipMapPick()">CANCEL</button>
+    <button type="button" class="btn" onclick="expandShipModalFromMapPick()">EXPAND</button>`;
+  const closeBtn = head.querySelector('.panel-shell-close');
+  if (closeBtn) head.insertBefore(wrap, closeBtn);
+  else head.appendChild(wrap);
+}
+
+window.openNodePicker = function(shipId) {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship || (ship.mineSpeed || 0) <= 0) {
+    addLog('⚠ This ship has no mining equipment.');
+    return;
+  }
+  _nodePickerShipId = shipId;
+  _nodePickerFilter = 'all';
+  window.restoreShipModalFromMapPick?.({ silent: true });
+  state.pendingAssign = null;
+  const canvas = document.getElementById('main-canvas');
+  if (canvas) canvas.style.cursor = '';
+  removeReassignTooltip();
+
+  const overlay = document.getElementById('node-picker-overlay');
+  const title = document.getElementById('node-picker-title');
+  if (title) title.textContent = `◈ SELECT NODE · ${ship.name}`;
+  renderNodePicker();
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.onclick = (e) => {
+      if (e.target === overlay) window.closeNodePicker?.();
+    };
+  }
+};
+
+window.closeNodePicker = function() {
+  _nodePickerShipId = null;
+  const overlay = document.getElementById('node-picker-overlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    overlay.onclick = null;
+  }
+};
+
+function renderNodePicker() {
+  const ship = state.ships.find((s) => s.id === _nodePickerShipId);
+  const body = document.getElementById('node-picker-body');
+  const filtersEl = document.getElementById('node-picker-filters');
+  const metaEl = document.getElementById('node-picker-meta');
+  if (!ship || !body) return;
+
+  const accessible = getShipAccessibleResources(ship);
+  const nodes = (state.nodes || []).filter((n) => isNodeInBaseRange(n));
+  const types = [...new Set(nodes.map((n) => n.type).filter((t) => t && t !== CRASHED_SHIP_NODE_TYPE))];
+  types.sort((a, b) => (RESOURCE_DEFS[a]?.label || a).localeCompare(RESOURCE_DEFS[b]?.label || b));
+
+  if (filtersEl) {
+    const chips = [`<button type="button" class="node-picker-chip${_nodePickerFilter === 'all' ? ' on' : ''}" data-filter="all">ALL</button>`];
+    for (const t of types) {
+      const def = RESOURCE_DEFS[t];
+      chips.push(`<button type="button" class="node-picker-chip${_nodePickerFilter === t ? ' on' : ''}" data-filter="${t}">
+        <span class="dot" style="background:${def?.color || '#8ab'}"></span>${(def?.label || t).toUpperCase()}
+      </button>`);
+    }
+    filtersEl.innerHTML = chips.join('');
+    filtersEl.querySelectorAll('.node-picker-chip').forEach((chip) => {
+      chip.onclick = () => {
+        _nodePickerFilter = chip.dataset.filter || 'all';
+        renderNodePicker();
+      };
+    });
+  }
+
+  const visible = nodes.filter((n) => _nodePickerFilter === 'all' || n.type === _nodePickerFilter);
+  // Prefer free + mineable first
+  visible.sort((a, b) => {
+    const occA = getNodeOccupant(a.id, ship.id) ? 1 : 0;
+    const occB = getNodeOccupant(b.id, ship.id) ? 1 : 0;
+    if (occA !== occB) return occA - occB;
+    const canA = a.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(a.type) ? 0 : 1;
+    const canB = b.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(b.type) ? 0 : 1;
+    if (canA !== canB) return canA - canB;
+    return (a.type || '').localeCompare(b.type || '');
+  });
+
+  const freeCount = visible.filter((n) => {
+    const can = n.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(n.type);
+    return can && !getNodeOccupant(n.id, ship.id);
+  }).length;
+
+  if (metaEl) {
+    const tierLab = MINE_TIERS[ship.mineTier || 1]?.label || `Tier ${toRoman(ship.mineTier || 1)}`;
+    metaEl.innerHTML = `Mine tier <b>${tierLab}</b> · <b>${freeCount}</b> free · occupied / locked nodes disabled`;
+  }
+
+  if (!visible.length) {
+    body.innerHTML = `<div class="sm-hint" style="padding:18px;text-align:center">No nodes in range for this filter.</div>`;
+    return;
+  }
+
+  body.innerHTML = visible.map((n) => {
+    const def = RESOURCE_DEFS[n.type] || {};
+    const occ = getNodeOccupant(n.id, ship.id);
+    const isCurrent = ship.targetNode === n.id;
+    const canMine = n.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(n.type);
+    const locked = !canMine;
+    const busy = !!occ;
+    const disabled = !isCurrent && (locked || busy);
+    let statusCls = 'free';
+    let statusTxt = 'FREE';
+    let who = '';
+    if (isCurrent) {
+      statusCls = 'mine';
+      statusTxt = 'CURRENT';
+    } else if (locked) {
+      statusCls = 'locked';
+      statusTxt = 'LOCKED';
+      who = `Needs higher mine tier`;
+    } else if (busy) {
+      statusCls = 'busy';
+      statusTxt = 'OCCUPIED';
+      who = occ?.name || 'Another ship';
+    }
+    const tierLab = MINE_TIERS[n.minLevel || 1]?.label || `Tier ${toRoman(n.minLevel || 1)}`;
+    return `<button type="button" class="np-card${isCurrent ? ' current' : ''}" data-node="${n.id}" ${disabled ? 'disabled' : ''}>
+      <div class="np-ico">${resourceIconHtml(n.type, 32)}</div>
+      <div>
+        <div class="np-name">${def.label || n.type} Node</div>
+        <div class="np-sub"><b style="color:${def.color || '#40b0e0'}">${def.label || n.type}</b> · ${tierLab}</div>
+      </div>
+      <div class="np-status ${statusCls}">${statusTxt}${who ? `<span class="who">${who}</span>` : ''}</div>
+    </button>`;
+  }).join('');
+
+  body.querySelectorAll('.np-card:not(:disabled)').forEach((btn) => {
+    btn.onclick = () => window.selectShipNode?.(Number(btn.dataset.node));
+  });
+}
+
+function maybeCloseShipAfterAssign(shipId) {
+  if (state.settings?.closeShipAfterAssign === false) return false;
+  window.closeNodePicker?.();
+  window.restoreShipModalFromMapPick?.({ silent: true });
+  state.selectedShip = null;
+  state.pendingAssign = null;
+  state.followShip = null;
+  const canvas = document.getElementById('main-canvas');
+  if (canvas) canvas.style.cursor = '';
+  removeReassignTooltip();
+  closeShipModal();
+  if (refresh.ui) refresh.ui();
+  return true;
+}
+
+window.selectShipNode = function(nodeId) {
+  const ship = state.ships.find((s) => s.id === _nodePickerShipId);
+  const node = state.nodes.find((n) => n.id === nodeId);
+  if (!ship || !node) return;
+  if (ship.targetNode === node.id) {
+    window.closeNodePicker?.();
+    return;
+  }
+  assignShip(ship, node);
+  window.closeNodePicker?.();
+  if (maybeCloseShipAfterAssign(ship.id)) return;
+  _shipModalForceRebuild = true;
+  if (state.selectedShip == null) state.selectedShip = ship.id;
+  if (refresh.ui) refresh.ui();
+  else renderActionPanel();
+};
+
+window.clearShipNodeAssign = function() {
+  const shipId = _nodePickerShipId ?? state.selectedShip;
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return;
+  if (ship.targetNode == null) {
+    window.closeNodePicker?.();
+    return;
+  }
+  // Unassign without closing the ship modal
+  if (state.pendingAssign === ship.id) {
+    state.pendingAssign = null;
+    const canvas = document.getElementById('main-canvas');
+    if (canvas) canvas.style.cursor = '';
+    removeReassignTooltip();
+  }
+  ship.targetNode = null;
+  if (ship.status === 'flying' || ship.status === 'mining' || ship.status === 'returning' || ship.status === 'pausing') {
+    const base = BASE_POS();
+    ship.destX = base.x;
+    ship.destY = base.y;
+    ship.status = 'returning';
+    ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
+  } else {
+    ship.status = 'idle';
+  }
+  addLog(`⟵ ${ship.name} unassigned`);
+  window.closeNodePicker?.();
+  _shipModalForceRebuild = true;
+  if (state.selectedShip == null) state.selectedShip = ship.id;
+  if (refresh.ui) refresh.ui();
+};
+
+window.startShipMapPick = function(shipId) {
+  const id = shipId ?? _nodePickerShipId ?? state.selectedShip;
+  const ship = state.ships.find((s) => s.id === id);
+  if (!ship || (ship.mineSpeed || 0) <= 0) {
+    addLog('⚠ This ship has no mining equipment.');
+    return;
+  }
+  window.closeNodePicker?.();
+  state.selectedShip = ship.id;
+  state.pendingAssign = ship.id;
+  const canvas = document.getElementById('main-canvas');
+  if (canvas) canvas.style.cursor = 'crosshair';
+  showReassignTooltip(ship);
+
+  const modal = document.getElementById('ship-modal');
+  const overlay = document.getElementById('ship-modal-overlay');
+  if (modal && overlay?.style.display === 'flex' && !modal.classList.contains('ship-modal-minimized')) {
+    _shipMapPickPrev = {
+      left: modal.style.left || '',
+      top: modal.style.top || '',
+      right: modal.style.right || '',
+      bottom: modal.style.bottom || '',
+      width: modal.style.width || '',
+      height: modal.style.height || '',
+      transform: modal.style.transform || '',
+      title: document.getElementById('ship-modal-title')?.textContent || '',
+    };
+    ensureShipMapPickActions();
+    modal.classList.add('ship-modal-minimized');
+    modal.style.left = '50%';
+    modal.style.top = 'auto';
+    modal.style.right = 'auto';
+    modal.style.bottom = '20px';
+    modal.style.width = 'min(520px, calc(100% - 32px))';
+    modal.style.height = '56px';
+    modal.style.transform = 'translateX(-50%)';
+    const title = document.getElementById('ship-modal-title');
+    if (title) title.textContent = `PICK NODE · ${ship.name}`.toUpperCase();
+  }
+};
+
+window.restoreShipModalFromMapPick = function(opts = {}) {
+  const modal = document.getElementById('ship-modal');
+  if (!modal?.classList.contains('ship-modal-minimized')) {
+    _shipMapPickPrev = null;
+    return;
+  }
+  modal.classList.remove('ship-modal-minimized');
+  const prev = _shipMapPickPrev;
+  _shipMapPickPrev = null;
+  if (prev) {
+    modal.style.left = prev.left;
+    modal.style.top = prev.top;
+    modal.style.right = prev.right;
+    modal.style.bottom = prev.bottom;
+    modal.style.width = prev.width;
+    modal.style.height = prev.height;
+    modal.style.transform = prev.transform;
+    const title = document.getElementById('ship-modal-title');
+    if (title && prev.title) title.textContent = prev.title;
+  } else {
+    modal.style.bottom = '';
+    modal.style.transform = '';
+  }
+  if (!opts.silent) {
+    _shipModalForceRebuild = true;
+    if (refresh.ui) refresh.ui();
+  }
+};
+
+window.expandShipModalFromMapPick = function() {
+  // Keep assign mode, just restore full panel
+  const shipId = state.pendingAssign || state.selectedShip;
+  window.restoreShipModalFromMapPick?.({ silent: true });
+  if (shipId != null) state.selectedShip = shipId;
+  _shipModalForceRebuild = true;
+  if (refresh.ui) refresh.ui();
+};
+
+window.cancelShipMapPick = function() {
+  state.pendingAssign = null;
+  const canvas = document.getElementById('main-canvas');
+  if (canvas) canvas.style.cursor = '';
+  removeReassignTooltip();
+  window.restoreShipModalFromMapPick?.();
+};
+
+window.openAttachmentPicker = function(shipId, slotIndex) {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return;
+  const role = SHIP_DEFS[ship.type]?.role;
+  if (role !== 'combat' && role !== 'garrison') return;
+  normalizeShipAttachments(ship, role);
+  const slots = getAttachmentSlotCount(ship.mineTier || 1);
+  if (slotIndex < 0 || slotIndex >= slots) return;
+  _attachPickerShipId = shipId;
+  _attachPickerSlot = slotIndex;
+  const overlay = document.getElementById('attachment-picker-overlay');
+  const body = document.getElementById('attachment-picker-body');
+  const title = document.getElementById('attachment-picker-title');
+  if (title) {
+    title.textContent = `◈ INSTALL · ${ATTACHMENT_SLOT_LABELS[slotIndex] || `SLOT ${slotIndex + 1}`}`;
+  }
+  const equipped = new Set((ship.attachments || []).filter(Boolean));
+  const current = ship.attachments?.[slotIndex] || null;
+  const renderGroup = (ids, lab) => {
+    const cards = ids.map((id) => {
+      const def = ATTACHMENT_DEFS[id];
+      if (!def) return '';
+      const taken = equipped.has(id) && current !== id;
+      const isCur = current === id;
+      return `<button type="button" class="att-card${isCur ? ' on' : ''}${taken ? ' taken' : ''}"
+        ${taken ? 'disabled' : ''} onclick="selectShipAttachment('${id}')">
+        <span class="att-ico" style="color:${def.color}">${msIcon(def.icon || 'extension', true)}</span>
+        <span class="att-name">${def.name}</span>
+        <span class="att-kind">${def.kind}</span>
+        <span class="att-desc">${def.desc}</span>
+        ${taken ? '<span class="att-badge">EQUIPPED</span>' : isCur ? '<span class="att-badge on">CURRENT</span>' : ''}
+      </button>`;
+    }).join('');
+    return `<div class="att-group"><div class="att-group-lab">${lab}</div><div class="att-grid">${cards}</div></div>`;
+  };
+  if (body) {
+    body.innerHTML = renderGroup(OFFENSE_ATTACHMENT_IDS, '◈ OFFENSE')
+      + renderGroup(DEFENSE_ATTACHMENT_IDS, '◈ DEFENSE');
+  }
+  if (overlay) {
+    overlay.classList.add('show');
+    overlay.onclick = (e) => {
+      if (e.target === overlay) window.closeAttachmentPicker?.();
+    };
+  }
+};
+
+window.closeAttachmentPicker = function() {
+  _attachPickerShipId = null;
+  const overlay = document.getElementById('attachment-picker-overlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    overlay.onclick = null;
+  }
+};
+
+window.selectShipAttachment = function(attachmentId) {
+  const ship = state.ships.find((s) => s.id === _attachPickerShipId);
+  if (!ship) return;
+  const def = getAttachmentDef(attachmentId);
+  if (!def) return;
+  const role = SHIP_DEFS[ship.type]?.role;
+  normalizeShipAttachments(ship, role);
+  const slot = _attachPickerSlot;
+  if (slot < 0 || slot >= (ship.attachments?.length || 0)) return;
+  // Unique: can't equip same attachment twice
+  const other = ship.attachments.findIndex((id, i) => i !== slot && id === attachmentId);
+  if (other >= 0) {
+    addLog(`⚠ ${def.name} is already installed on this ship.`);
+    return;
+  }
+  const prevMax = Math.round((ship.hp || 0) * getShipHpMultiplier(ship));
+  const prevHp = ship.currentHp;
+  ship.attachments[slot] = attachmentId;
+  // Preserve HP ratio when health boost changes effective max
+  const nextMax = Math.round((ship.hp || 0) * getShipHpMultiplier(ship));
+  if (Number.isFinite(prevHp) && prevMax > 0 && nextMax > 0) {
+    ship.currentHp = Math.max(1, Math.min(nextMax, Math.round((prevHp / prevMax) * nextMax)));
+  }
+  addLog(`⚙ ${ship.name} installed ${def.name} (${ATTACHMENT_SLOT_LABELS[slot] || 'slot'}).`);
+  window.closeAttachmentPicker?.();
+  _shipModalForceRebuild = true;
+  renderActionPanel();
+  if (refresh.ui) refresh.ui();
+};
+
+window.clearShipAttachment = function(shipId, slotIndex) {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return;
+  const role = SHIP_DEFS[ship.type]?.role;
+  normalizeShipAttachments(ship, role);
+  if (slotIndex < 0 || slotIndex >= (ship.attachments?.length || 0)) return;
+  const prev = ship.attachments[slotIndex];
+  if (!prev) return;
+  // Don't allow clearing the last offense if it would leave ship unarmed with empty all - allow empty
+  const prevMax = Math.round((ship.hp || 0) * getShipHpMultiplier(ship));
+  const prevHp = ship.currentHp;
+  ship.attachments[slotIndex] = null;
+  // Keep at least pulse if everything cleared
+  if (ship.attachments.every((a) => !a)) ship.attachments[0] = 'pulse_laser';
+  const nextMax = Math.round((ship.hp || 0) * getShipHpMultiplier(ship));
+  if (Number.isFinite(prevHp) && prevMax > 0 && nextMax > 0) {
+    ship.currentHp = Math.max(1, Math.min(nextMax, Math.round((prevHp / prevMax) * nextMax)));
+  }
+  const def = getAttachmentDef(prev);
+  addLog(`⚙ ${ship.name} removed ${def?.name || 'attachment'}.`);
+  _shipModalForceRebuild = true;
+  renderActionPanel();
+  if (refresh.ui) refresh.ui();
+};
+
 function buildShipFooter(ship, sellVal) {
   const role = SHIP_DEFS[ship.type]?.role || 'mining';
   const canRecall = role === 'mining' && ship.status !== 'idle' && (ship.mineSpeed || 0) > 0;
   const followOn = state.followShip === ship.id;
-  const isUnique = SHIP_DEFS[ship.type]?.unique === true;
   const lastShip = state.ships.length <= 1;
-  const upgradeBtn = isUnique
-    ? `<button type="button" class="btn primary" disabled title="Legendary — all stats maxed">★ MAX</button>`
-    : `<button type="button" class="btn primary" id="ship-upgrade-btn" onclick="openShipUpgradeOverlay(${ship.id})">UPGRADE</button>`;
+  const isCombat = role === 'combat' || role === 'garrison';
+  const repairCost = isCombat ? getShipRepairCost(ship) : 0;
+  const canRepair = isCombat && repairCost > 0;
+  const canAffordRepair = canRepair && (state.coins || 0) >= repairCost;
+  const repairBtn = canRepair
+    ? `<button type="button" class="btn${canAffordRepair ? ' primary' : ''}" id="ship-repair-btn" ${canAffordRepair ? '' : 'disabled'} onclick="repairShip(${ship.id})">REPAIR $${fmt(repairCost)}</button>`
+    : '';
   return `<div class="lab-footer">
     <div class="lab-actions" id="ship-bottom-actions">
-      ${upgradeBtn}
+      ${repairBtn}
       ${canRecall ? `<button type="button" class="btn" onclick="recallShip(${ship.id})">RECALL</button>` : ''}
       <button type="button" class="btn${followOn ? ' primary' : ''}" onclick="toggleFollowShip(${ship.id})">${followOn ? 'UNFOLLOW' : 'FOLLOW'}</button>
       <button type="button" class="btn" onclick="openRenameOverlay(${ship.id})">RENAME</button>
@@ -1377,10 +1922,11 @@ function buildShipModalContent(ship) {
   const tierDef = MINE_TIERS[safeTier];
   const sellVal = getShipSellValue(ship);
   const primary = ROLE_PRIMARY_TAB[role] || ROLE_PRIMARY_TAB.mining;
-  const tab = _shipModalTab;
+  const tab = normalizeShipModalTab(_shipModalTab);
   const isCombat = role === 'combat' || role === 'garrison';
+  const isUnique = SHIP_DEFS[ship.type]?.unique === true;
   const curHp = Math.max(0, Math.round(ship.currentHp ?? ship.hp ?? 0));
-  const maxHp = Math.max(1, Math.round(ship.hp || 1));
+  const maxHp = Math.max(1, Math.round((ship.hp || 1) * (isCombat ? getShipHpMultiplier(ship) : 1)));
   const hpPct = Math.max(0, Math.min(100, Math.round((curHp / maxHp) * 100)));
   const cargoPct = ship.capacity > 0 ? Math.round((ship.cargo / ship.capacity) * 100) : 0;
   const meterLabel = isCombat ? 'HEALTH' : 'CARGO';
@@ -1426,11 +1972,19 @@ function buildShipModalContent(ship) {
       <button type="button" class="mod-tab sm-tab${tab === 'primary' ? ' on' : ''}" data-tab="primary" onclick="setShipModalTab('primary')">
         <span class="ms-icon">${primary.icon}</span> ${primary.label}
       </button>
+      <button type="button" class="mod-tab sm-tab${tab === 'upgrades' ? ' on' : ''}" data-tab="upgrades" id="ship-upgrade-btn" onclick="setShipModalTab('upgrades')">
+        <span class="ms-icon">upgrade</span> UPGRADE
+      </button>
     </div>
 
     <div class="mod-tab-body">
       <div class="mod-tab-pane${tab === 'details' ? ' on' : ''}" data-pane="details">${tab === 'details' ? buildDetailsPane(ship) : ''}</div>
       <div class="mod-tab-pane${tab === 'primary' ? ' on' : ''}" data-pane="primary">${tab === 'primary' ? buildPrimaryPane(ship) : ''}</div>
+      <div class="mod-tab-pane${tab === 'upgrades' ? ' on' : ''}" data-pane="upgrades">
+        ${tab === 'upgrades'
+          ? `<div id="ship-upgrades-body" class="ship-upgrades-body">${isUnique ? '<div class="sm-maxed">★ LEGENDARY — ALL STATS MAXED</div>' : buildUpgradesSection(ship.id)}</div>`
+          : ''}
+      </div>
     </div>
 
     ${buildShipFooter(ship, sellVal)}
@@ -1461,8 +2015,10 @@ function patchShipModalContent(ship) {
 
   const pill = document.getElementById('ship-modal-status-pill');
   if (pill) {
-    const offline = (statusMeta.badge || '').toUpperCase() === 'REPAIR'
-      || (ship.currentHp ?? ship.hp ?? 1) <= 0;
+    const offline = (statusMeta.badge || '').toUpperCase() === 'DESTROYED'
+      || (statusMeta.badge || '').toUpperCase() === 'REPAIR'
+      || (ship.currentHp ?? ship.hp ?? 1) <= 0
+      || ship.status === 'destroyed';
     pill.className = `lab-status-pill${offline ? ' offline' : ''}`;
     setTextIfChanged(pill, statusMeta.badge);
   }
@@ -1484,7 +2040,7 @@ function patchShipModalContent(ship) {
   if (meterVal && meterBar) {
     if (isCombat) {
       const curHp = Math.max(0, Math.round(ship.currentHp ?? ship.hp ?? 0));
-      const maxHp = Math.max(1, Math.round(ship.hp || 1));
+      const maxHp = Math.max(1, Math.round((ship.hp || 1) * getShipHpMultiplier(ship)));
       const hpPct = Math.max(0, Math.min(100, Math.round((curHp / maxHp) * 100)));
       setTextIfChanged(meterVal, `${fmt(curHp)} / ${fmt(maxHp)}`);
       meterVal.style.color = hpPct > 60 ? '#4d8' : hpPct > 30 ? '#fa4' : '#f44';
@@ -1495,7 +2051,7 @@ function patchShipModalContent(ship) {
           ? 'linear-gradient(90deg,#a06010,#fa4)'
           : 'linear-gradient(90deg,#cc1010,#f44)';
       const hull = document.getElementById('action-panel-hull-hp');
-      if (hull) setTextIfChanged(hull, curHp.toLocaleString());
+      if (hull) setHtmlIfChanged(hull, `${Math.round(curHp).toLocaleString()}<span style="font-size:12px;opacity:.7"> / ${maxHp.toLocaleString()}</span>`);
     } else {
       setTextIfChanged(meterVal, `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`);
       meterVal.style.color = '#ffe066';
@@ -1509,7 +2065,33 @@ function patchShipModalContent(ship) {
   const statusEl = document.getElementById('action-panel-status');
   if (statusEl) {
     setTextIfChanged(statusEl, statusClean);
-    statusEl.classList.toggle('bad', !!holdingReason);
+    statusEl.classList.toggle('bad', !!holdingReason || ship.status === 'destroyed');
+  }
+
+  // Live-update REPAIR button for combat hulls
+  if (isCombat) {
+    const actions = document.getElementById('ship-bottom-actions');
+    if (actions) {
+      const repairCost = getShipRepairCost(ship);
+      let repairBtn = document.getElementById('ship-repair-btn');
+      if (repairCost > 0) {
+        const canAfford = (state.coins || 0) >= repairCost;
+        const label = `REPAIR $${fmt(repairCost)}`;
+        if (!repairBtn) {
+          repairBtn = document.createElement('button');
+          repairBtn.type = 'button';
+          repairBtn.id = 'ship-repair-btn';
+          repairBtn.className = 'btn';
+          repairBtn.onclick = () => window.repairShip?.(ship.id);
+          actions.insertBefore(repairBtn, actions.firstChild);
+        }
+        repairBtn.disabled = !canAfford;
+        repairBtn.classList.toggle('primary', canAfford);
+        setTextIfChanged(repairBtn, label);
+      } else if (repairBtn) {
+        repairBtn.remove();
+      }
+    }
   }
 
   const node = ship.targetNode != null ? state.nodes.find(n => n.id === ship.targetNode) : null;
@@ -1922,13 +2504,15 @@ function buildUpgradesSection(shipId) {
     cards.push(statCard('download', 'LOAD SPD', loadLv, formatLoadSpeed(s2.loadSpeed || 0),
       loadChk ? formatLoadSpeed(loadSpeedFromLevel(s2.type, loadLv + 1)) : 'MAX',
       loadChk ? upgradeTotalCost(UPGRADE_LOAD_COST, s2, 'loadSpeed', loadChk) : 0, loadChk, 'loadSpeed'));
-  } else if (role === 'combat') {
+  } else if (role === 'combat' || role === 'garrison') {
     const hpLv = s2.hpLevel || 0;
     const atkLv = s2.attackLevel || 0;
     const rateLv = s2.atkRateLevel || 0;
+    const rangeLv = s2.rangeLevel || 0;
     const hpChk = hpLv >= cap ? 0 : 1;
     const atkChk = atkLv >= cap ? 0 : 1;
     const rateChk = rateLv >= cap ? 0 : 1;
+    const rangeChk = role === 'garrison' && rangeLv < cap ? 1 : 0;
     cards.push(statCard('favorite', 'HULL HP', hpLv, (s2.hp || 0).toLocaleString(),
       hpChk ? String(hpFromLevel(s2.type, hpLv + 1).toLocaleString()) : 'MAX',
       hpChk ? upgradeTotalCost(UPGRADE_HP_COST, s2, 'hp', hpChk) : 0, hpChk, 'hp'));
@@ -1938,11 +2522,12 @@ function buildUpgradesSection(shipId) {
     cards.push(statCard('bolt', 'ATK RATE', rateLv, formatAtkRatePercent(s2.attackSpeed || 0),
       rateChk ? formatAtkRatePercent(atkRateFromLevel(s2.type, rateLv + 1)) : 'MAX',
       rateChk ? upgradeTotalCost(UPGRADE_ATK_RATE_COST, s2, 'atkRate', rateChk) : 0, rateChk, 'atkRate'));
-  } else {
-    const flyChk = s2.flySpeedLevel >= cap ? 0 : 1;
-    cards.push(statCard('speed', 'FLY SPD', s2.flySpeedLevel, formatFlySpeed(s2.flySpeed),
-      flyChk ? formatFlySpeed(flySpeedFromLevel(s2.type, s2.flySpeedLevel + 1)) : 'MAX',
-      flyChk ? upgradeTotalCost(UPGRADE_FLY_COST, s2, 'flySpeed', flyChk) : 0, flyChk, 'flySpeed'));
+    if (role === 'garrison') {
+      const curRange = Number.isFinite(s2.range) ? s2.range : rangeFromLevel(s2.type, rangeLv);
+      cards.push(statCard('radar', 'RANGE', rangeLv, formatWeaponRangeTiles(curRange),
+        rangeChk ? formatWeaponRangeTiles(rangeFromLevel(s2.type, rangeLv + 1)) : 'MAX',
+        rangeChk ? upgradeTotalCost(UPGRADE_RANGE_COST, s2, 'range', rangeChk) : 0, rangeChk, 'range'));
+    }
   }
 
   function allCost(levels) {
@@ -1966,16 +2551,17 @@ function buildUpgradesSection(shipId) {
       if (c > 0) total += upgradeTotalCost(UPGRADE_CAP_COST, s2, 'capacity', c);
       if (f > 0) total += upgradeTotalCost(UPGRADE_FLY_COST, s2, 'flySpeed', f);
       if (l > 0) total += upgradeTotalCost(UPGRADE_LOAD_COST, s2, 'loadSpeed', l);
-    } else if (role === 'combat') {
+    } else if (role === 'combat' || role === 'garrison') {
       const h = n ? cap - (s2.hpLevel || 0) : Math.min(levels, cap - (s2.hpLevel || 0));
       const a = n ? cap - (s2.attackLevel || 0) : Math.min(levels, cap - (s2.attackLevel || 0));
       const r = n ? cap - (s2.atkRateLevel || 0) : Math.min(levels, cap - (s2.atkRateLevel || 0));
+      const g = role === 'garrison'
+        ? (n ? cap - (s2.rangeLevel || 0) : Math.min(levels, cap - (s2.rangeLevel || 0)))
+        : 0;
       if (h > 0) total += upgradeTotalCost(UPGRADE_HP_COST, s2, 'hp', h);
       if (a > 0) total += upgradeTotalCost(UPGRADE_ATTACK_COST, s2, 'attack', a);
       if (r > 0) total += upgradeTotalCost(UPGRADE_ATK_RATE_COST, s2, 'atkRate', r);
-    } else {
-      const f = n ? cap - s2.flySpeedLevel : Math.min(levels, cap - s2.flySpeedLevel);
-      if (f > 0) total += upgradeTotalCost(UPGRADE_FLY_COST, s2, 'flySpeed', f);
+      if (g > 0) total += upgradeTotalCost(UPGRADE_RANGE_COST, s2, 'range', g);
     }
     return total;
   }
@@ -1986,9 +2572,7 @@ function buildUpgradesSection(shipId) {
     return `<button type="button" onclick="upgradeShipAll(${s2.id},'${levels}')" ${disabled ? 'disabled' : ''}>${label}<strong>${cost > 0 ? '$' + fmt(cost) : '—'}</strong></button>`;
   }
 
-  const bulk = role === 'garrison' && cards.length <= 1
-    ? ''
-    : `<div class="sm-bulk">${allBtn(5, '+5 ALL')}${allBtn(10, '+10 ALL')}${allBtn('max', 'MAX ALL')}</div>`;
+  const bulk = `<div class="sm-bulk">${allBtn(5, '+5 ALL')}${allBtn(10, '+10 ALL')}${allBtn('max', 'MAX ALL')}</div>`;
 
   return `<div style="display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;">
     ${tierBlock}

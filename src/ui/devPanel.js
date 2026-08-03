@@ -10,7 +10,7 @@ import { NPCS } from '../data/npcs.js';
 import {
   SHIP_DEFS, TIER_UPGRADE_CAP, capacityFromTierAndLevel,
   flySpeedFromLevel, mineSpeedFromLevel, mineBonusFromLevel, mineBonusUpgradeCap, loadSpeedFromLevel,
-  hpFromLevel, attackFromLevel, atkRateFromLevel,
+  hpFromLevel, attackFromLevel, atkRateFromLevel, rangeFromLevel,
 } from '../data/ships.js';
 import {
   RESEARCH_TREE,
@@ -118,9 +118,12 @@ function devMaxUpgrades() {
     const role = SHIP_DEFS[ship.type]?.role || 'mining';
     ship.mineTier = 10;
 
-    if (role === 'combat' || role === 'garrison') {
+    if (role === 'combat') {
       ship.flySpeedLevel = 0;
       ship.flySpeed = 155; // shared combat cruise
+    } else if (role === 'garrison') {
+      ship.flySpeedLevel = 0;
+      ship.flySpeed = SHIP_DEFS[ship.type]?.flySpeed ?? 39; // ~¼ cruise
     } else {
       ship.flySpeedLevel = cap;
       ship.flySpeed = flySpeedFromLevel(ship.type, cap);
@@ -138,10 +141,15 @@ function devMaxUpgrades() {
       ship.capacity       = capacityFromTierAndLevel(ship.type, 10, cap, ship.capacity);
       ship.loadSpeedLevel = cap;
       ship.loadSpeed      = loadSpeedFromLevel(ship.type, cap);
-    } else if (role === 'combat') {
+    } else if (role === 'combat' || role === 'garrison') {
       ship.hpLevel      = cap;   ship.hp          = hpFromLevel(ship.type, cap);
       ship.attackLevel  = cap;   ship.attack      = attackFromLevel(ship.type, cap);
       ship.atkRateLevel = cap;   ship.attackSpeed = atkRateFromLevel(ship.type, cap);
+      ship.currentHp    = ship.hp;
+      if (role === 'garrison') {
+        ship.rangeLevel = cap;
+        ship.range = rangeFromLevel(ship.type, cap);
+      }
     }
   }
   if (refresh.ui) refresh.ui();

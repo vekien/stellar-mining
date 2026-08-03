@@ -83,19 +83,30 @@ export const LOAD_SPEED_PROFILE = {
 };
 
 export const HP_PROFILE = {
-  viper:       { min: 800,  max: 2000,  p: 1.0 },
-  interceptor: { min: 2500, max: 6000,  p: 1.0 },
-  destroyer:   { min: 5000, max: 20000, p: 1.0 },
+  viper:       { min: 3200,  max: 8000,   p: 1.0 },
+  interceptor: { min: 10000, max: 24000,  p: 1.0 },
+  destroyer:   { min: 20000, max: 80000,  p: 1.0 },
+  bulwark:     { min: 18000, max: 45000,  p: 1.0 },
+  colossus:    { min: 50000, max: 120000, p: 1.0 },
 };
 export const ATTACK_PROFILE = {
   viper:       { min: 45,  max: 120, p: 1.0 },
   interceptor: { min: 60,  max: 200, p: 1.0 },
   destroyer:   { min: 100, max: 320, p: 1.0 },
+  bulwark:     { min: 400, max: 900, p: 1.0 },
+  colossus:    { min: 900, max: 2000, p: 1.0 },
 };
 export const ATK_RATE_PROFILE = {
   viper:       { min: 1.8, max: 3.2, p: 1.0 },
   interceptor: { min: 1.2, max: 2.5, p: 1.0 },
   destroyer:   { min: 0.4, max: 1.0, p: 1.0 },
+  bulwark:     { min: 0.35, max: 0.7, p: 1.0 },
+  colossus:    { min: 0.15, max: 0.35, p: 1.0 },
+};
+/** Garrison weapon range in tiles (converted to world units in combat). */
+export const RANGE_PROFILE = {
+  bulwark:  { min: 24, max: 54, p: 1.0 },
+  colossus: { min: 42, max: 84, p: 1.0 },
 };
 
 // ── Profile stat compute ──────────────────────────────────────────────────
@@ -135,7 +146,14 @@ export function attackFromLevel(shipType, level) {
 }
 export function atkRateFromLevel(shipType, level) {
   const raw = profileStat(ATK_RATE_PROFILE, shipType, level);
-  return raw !== null ? parseFloat(raw.toFixed(2)) : 1.0;
+  return raw !== null ? parseFloat(raw.toFixed(2)) : 1.8;
+}
+export function rangeFromLevel(shipType, level) {
+  const raw = profileStat(RANGE_PROFILE, shipType, level);
+  return raw !== null ? Math.round(raw) : 8;
+}
+export function formatWeaponRangeTiles(tiles) {
+  return `${Math.round(tiles || 0)} tiles`;
 }
 
 /** Double-yield chance: 10% at Lv0 → 100% at Lv10 (always 2×). */
@@ -298,29 +316,30 @@ export const SHIP_DEFS = {
   viper: {
     role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 4,
     render: RENDER_SCOUT,
-    hp: 800,  attack: 45,  attackSpeed: 1.8,
+    hp: 3200,  attack: 45,  attackSpeed: 1.8,
   },
   interceptor: {
     role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 4,
     render: RENDER_SCOUT,
-    hp: 2500, attack: 60,  attackSpeed: 1.2,
+    hp: 10000, attack: 60,  attackSpeed: 1.2,
   },
   destroyer: {
     role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 5,
     render: RENDER_FREIGHTER,
-    hp: 5000, attack: 100, attackSpeed: 0.4,
+    hp: 20000, attack: 100, attackSpeed: 0.4,
   },
 
   // ── Garrison ───────────────────────────────────────────────────
+  // ~4× slower than combat cruise (155); rendered 3× larger in world
   bulwark: {
-    role: 'garrison', capacity: 0, flySpeed: 12, mineSpeed: 0, mineTier: 4,
+    role: 'garrison', capacity: 0, flySpeed: 39, mineSpeed: 0, mineTier: 4,
     render: RENDER_FREIGHTER,
-    hp: 18000, attack: 400, attackSpeed: 0.7, range: 8,
+    hp: 18000, attack: 400, attackSpeed: 0.35, range: 24,
   },
   colossus: {
-    role: 'garrison', capacity: 0, flySpeed: 5, mineSpeed: 0, mineTier: 5,
+    role: 'garrison', capacity: 0, flySpeed: 39, mineSpeed: 0, mineTier: 5,
     render: RENDER_TITAN,
-    hp: 50000, attack: 900, attackSpeed: 0.3, range: 14,
+    hp: 50000, attack: 900, attackSpeed: 0.15, range: 42,
   },
 
   // ── Unique / Legendary ─────────────────────────────────────────
@@ -376,6 +395,7 @@ export const UPGRADE_LOAD_COST     = s => Math.floor(60  * Math.pow(1.10, s.load
 export const UPGRADE_HP_COST       = s => Math.floor(80  * Math.pow(1.10, s.hpLevel        || 0));
 export const UPGRADE_ATTACK_COST   = s => Math.floor(80  * Math.pow(1.10, s.attackLevel    || 0));
 export const UPGRADE_ATK_RATE_COST = s => Math.floor(80  * Math.pow(1.10, s.atkRateLevel   || 0));
+export const UPGRADE_RANGE_COST    = s => Math.floor(85  * Math.pow(1.10, s.rangeLevel     || 0));
 
 export function upgradeChunk(level) {
   if (level >= 50) return 10;

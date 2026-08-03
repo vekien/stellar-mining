@@ -106,12 +106,27 @@ export function hideAllTippies() {
   }
 }
 
-/** Bind tippy on all descendants with data-tippy-content. */
+/**
+ * Bind tippy on all descendants with data-tippy-content or title.
+ * Native title is moved to tippy so the browser tooltip never doubles up.
+ */
 export function bindTippyIn(root) {
   if (!root) return;
   root.querySelectorAll('[data-tippy-content]').forEach((el) => {
     const content = el.getAttribute('data-tippy-content');
-    if (content) bindTippy(el, content);
+    if (content) {
+      // Prefer explicit tippy content; drop native title to avoid dual tips
+      if (el.hasAttribute('title')) el.removeAttribute('title');
+      bindTippy(el, content);
+    }
+  });
+  root.querySelectorAll('[title]').forEach((el) => {
+    if (el.hasAttribute('data-tippy-content')) return;
+    const title = el.getAttribute('title');
+    if (!title || !String(title).trim()) return;
+    el.setAttribute('data-tippy-content', title);
+    el.removeAttribute('title');
+    bindTippy(el, title);
   });
 }
 

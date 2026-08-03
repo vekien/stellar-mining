@@ -75,15 +75,15 @@ export const NPCS = {
         `Select any ship and check the <strong>Upgrades</strong> section. Cargo capacity means bigger hauls, mine speed means faster turnaround. Every level compounds over time.`,
       first_craftable:
         `${C}, Rigs here. You've got the raw materials to build yourself a new ship.<br><br>` +
-        `Head to the <strong>Base Station → Ships tab</strong> and let's get another hull in the fleet. More ships means more hauls — simple as that!`,
+        `Open <strong>CRAFT</strong> in the top bar, hit the <strong>Ships</strong> tab, and let's get another hull in the fleet. More ships means more hauls — simple as that!`,
       base_unlock: (names) =>
         `${C}, it's Rigs down at the yard. Just got word your base hit a new tier — that means I can now build you a ${names}.<br><br>` +
-        `Head to the <strong>Base Station → Craft</strong> tab and let's get to work!`,
+        `Open <strong>CRAFT</strong> up top and let's get to work!`,
       base_lv2_hauler:
         `Rigs here — with that base upgrade I can now build you a <strong>Hauler</strong>.<br><br>` +
         `It's slower than your light runners, but it's built to move serious volume. Perfect for steady iron and copper routes.<br><br>` +
         `Also, your current ships can now be upgraded to <strong>Tier II</strong> mining rigs. Check each ship's upgrades and push your fleet harder.<br><br>` +
-        `Head to the <strong>Base Station → Ships</strong> tab when you're ready and I'll prep the frame.`,
+        `Open <strong>CRAFT → Ships</strong> when you're ready and I'll prep the frame.`,
       sol_idle: ({ names, count }) =>
         `Hey! ${count > 1 ? `${count} ships are` : `${names} is`} sitting idle and doing absolutely nothing!<br><br>` +
         `${count > 1 ? `That includes: ${names}.<br><br>` : ''}` +

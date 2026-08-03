@@ -61,16 +61,16 @@ export const TURRET_TYPE_DEFS = {
     baseHealth: 5000,
     maxHealthAtRank10: 10000,
     baseDamage: 100,
-    damagePerLevel: 25,
-    baseFireRate: 1,
-    minFireRate: 0.2,
+    damagePerLevel: 100, // L10 = 1000
+    baseFireRate: 1,     // cooldown s (L1 = 1.0/s)
+    minFireRate: 0.4,    // L10 cooldown → 2.5/s
     fireRateCapLevel: 10,
     baseStunDuration: 0,
     maxStunDuration: 0,
     stunCapLevel: 10,
     baseRange: 2,
-    rangeUpgrade: 1,
-    rangeMax: 5,
+    rangeUpgrade: 10 / 9, // L10 = 12 tiles
+    rangeMax: 12,
     platformFill: 'rgba(30,60,30,0.7)',
     platformStroke: '#3a8a3a',
     bodyFill: '#3a5a3a',
@@ -90,16 +90,16 @@ export const TURRET_TYPE_DEFS = {
     baseHealth: 8000,
     maxHealthAtRank10: 16000,
     baseDamage: 500,
-    damagePerLevel: 40,
-    baseFireRate: 15,
-    minFireRate: 5,
+    damagePerLevel: 2500 / 9, // L10 = 3000
+    baseFireRate: 15,         // cooldown s
+    minFireRate: 10,          // L10 = 10s
     fireRateCapLevel: 10,
     baseStunDuration: 0,
     maxStunDuration: 0,
     stunCapLevel: 10,
     baseRange: 4,
-    rangeUpgrade: 2,
-    rangeMax: 12,
+    rangeUpgrade: 11 / 9,     // L10 = 15 tiles
+    rangeMax: 15,
     platformFill: 'rgba(58,34,86,0.75)',
     platformStroke: '#9b6dff',
     bodyFill: '#6e4eb8',

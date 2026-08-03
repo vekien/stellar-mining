@@ -46,6 +46,18 @@ export const ENEMY_DEFS = {
     color: '#ff5d5d',
     size: 8,
   },
+  /** Slow boss hull — appears after several raid defeats */
+  garrison: {
+    id: 'garrison',
+    label: 'Pirate Garrison',
+    hp: 32000,
+    attack: 95,
+    attackSpeed: 0.65,
+    flySpeed: Math.round(COMBAT_CRUISE_SPEED * 0.28), // crawl
+    color: '#ff3a3a',
+    size: 18,
+    isBoss: true,
+  },
 };
 
 /** Sustained DPS = damage-per-shot × shots-per-second. */
@@ -56,6 +68,43 @@ export function getEnemyDps(defOrEnemy) {
 }
 
 export const ENEMY_WAVE_TYPES = ['raider', 'raider', 'skirmisher'];
+/** Max regular (non-boss) hostiles per raid wave */
+export const RAID_WAVE_SIZE_MAX = 14;
+/** First garrison boss after this many prior raid victories */
+export const GARRISON_FIRST_AFTER = 2;
+
+/**
+ * Raid strength grows with prior victories (raidsDefeated).
+ * Returns wave size, stat mult, and how many garrison bosses to include.
+ */
+export function getRaidDifficulty(raidsDefeated = 0) {
+  const tier = Math.max(0, Math.floor(raidsDefeated || 0));
+  // 3 → 4 → 5 … capped
+  const waveSize = Math.min(
+    RAID_WAVE_SIZE_MAX,
+    RAID_WAVE_SIZE + Math.floor(tier * 0.85) + Math.floor(tier / 4),
+  );
+  // ~+22% stats per prior victory (stacks with SOL scale)
+  const tierMult = 1 + tier * 0.22;
+  // Boss: after 2 wins, then every raid; 2 bosses from tier 8+
+  let garrisonCount = 0;
+  if (tier >= GARRISON_FIRST_AFTER) {
+    garrisonCount = tier >= 8 ? 2 : 1;
+  }
+  return { tier, waveSize, tierMult, garrisonCount };
+}
+
+/** Build ordered enemy type list for a wave (bosses last). */
+export function buildRaidRoster(waveSize, garrisonCount = 0) {
+  const n = Math.max(0, Math.floor(waveSize || 0));
+  const bosses = Math.max(0, Math.floor(garrisonCount || 0));
+  const roster = [];
+  for (let i = 0; i < n; i++) {
+    roster.push(ENEMY_WAVE_TYPES[i % ENEMY_WAVE_TYPES.length]);
+  }
+  for (let i = 0; i < bosses; i++) roster.push('garrison');
+  return roster.length ? roster : ['raider'];
+}
 
 /** Seconds for dogfight phases */
 export const DOGFIGHT_ROAM_MIN_S = 4;
@@ -85,6 +134,15 @@ export const ENGAGE_STANDOFF_JITTER = 10;
 /** HQ wing holds closer / tighter to the fight */
 export const HQ_ENGAGE_STANDOFF = 44;
 export const HQ_ENGAGE_STANDOFF_JITTER = 6;
+/** Garrison hold band (world units): close to min, fire until past max, then re-close */
+export const GARRISON_HOLD_MIN = 20;
+export const GARRISON_HOLD_MAX = 60;
+/** Fighter breakaway fly-by: peel off every N seconds to a random point, then re-engage */
+export const FIGHTER_BREAKAWAY_MIN_S = 2;
+export const FIGHTER_BREAKAWAY_MAX_S = 5;
+export const FIGHTER_BREAKAWAY_DIST_MIN = 180;
+export const FIGHTER_BREAKAWAY_DIST_MAX = 320;
+export const FIGHTER_BREAKAWAY_MAX_S_TRAVEL = 2.8;
 /** Soft push when friendlies get too close */
 export const SHIP_SEPARATION = 44;
 export const HQ_SHIP_SEPARATION = 26;
@@ -94,12 +152,16 @@ export const FIRE_CONE_RAD = (35 * Math.PI) / 180; // ±35° (70° total arc)
 export const EMP_SLOW_MULT = 0.1;
 /** Player/HQ dogfight turn rate (rad/s) — slightly wider radius than enemies */
 export const COMBAT_TURN_RATE = 7.0;
+/** Player garrison hulls — lumbering turns */
+export const GARRISON_TURN_RATE = 2.2;
 /** Enemy dogfight turn rate (rad/s) */
 export const ENEMY_TURN_RATE = 8.2;
 /** Building / tower attack turn rate (rad/s) */
 export const BUILDING_TURN_RATE = 8.0;
 /** Extra speed while banking hard — low so turn radius stays controlled */
 export const COMBAT_BANK_BOOST = 1.05;
+/** Garrison bank boost — almost none (wide arcs) */
+export const GARRISON_BANK_BOOST = 1.02;
 /** Milder bank boost on building runs */
 export const BUILDING_BANK_BOOST = 1.04;
 export const TURRET_COMBAT_ENABLED = true;
@@ -198,14 +260,29 @@ export function getHqSupportCost({ sol = 1, shipCount = 1, threatLevel, gameStat
   return threat * ships * 40000;
 }
 
-/** Scale enemy HP/ATK mildly with SOL. */
-export function scaleEnemyStats(def, sol = 1) {
+/**
+ * Scale enemy HP/ATK with SOL + raid victory tier.
+ * Accepts legacy `scaleEnemyStats(def, solNumber)`.
+ */
+export function scaleEnemyStats(def, solOrOpts = 1) {
+  let sol = 1;
+  let raidTier = 0;
+  if (typeof solOrOpts === 'number') {
+    sol = solOrOpts;
+  } else if (solOrOpts && typeof solOrOpts === 'object') {
+    sol = solOrOpts.sol ?? 1;
+    raidTier = solOrOpts.raidTier ?? 0;
+  }
   const s = Math.max(1, Math.floor(sol || 1));
-  const mult = 1 + Math.min(2.5, (s - 1) * 0.08);
+  const t = Math.max(0, Math.floor(raidTier || 0));
+  const solMult = 1 + Math.min(2.0, (s - 1) * 0.06);
+  const tierMult = 1 + t * 0.22;
+  const bossMult = def?.isBoss ? 1 + t * 0.08 : 1;
+  const mult = solMult * tierMult * bossMult;
   return {
     ...def,
-    hp: Math.round(def.hp * mult),
-    attack: Math.round(def.attack * mult),
+    hp: Math.round((def.hp || 1) * mult),
+    attack: Math.round((def.attack || 0) * mult),
   };
 }
 
@@ -213,13 +290,19 @@ export function scaleEnemyStats(def, sol = 1) {
  * Loot table for a destroyed enemy.
  * Returns [{ type, amount }] of storable resources.
  */
-export function getEnemyLoot(enemyType, sol = 1) {
+export function getEnemyLoot(enemyType, sol = 1, raidTier = 0) {
   const s = Math.max(1, Math.floor(sol || 1));
-  const tier = Math.min(10, Math.max(1, Math.ceil(s / 2)));
+  const t = Math.max(0, Math.floor(raidTier || 0));
+  const tier = Math.min(10, Math.max(1, Math.ceil(s / 2) + Math.floor(t / 3)));
   const resources = (MINE_TIERS[tier]?.resources || MINE_TIERS[1].resources)
     .filter((r) => isStorableResource(r));
-  const amount = Math.max(8, Math.round(12 + s * 3 + (enemyType === 'raider' ? 6 : 0)));
-  return resources.slice(0, 2).map((type) => ({
+  const boss = enemyType === 'garrison';
+  const amount = Math.max(
+    8,
+    Math.round(12 + s * 3 + t * 4 + (enemyType === 'raider' ? 6 : 0) + (boss ? 40 + t * 12 : 0)),
+  );
+  const take = boss ? 3 : 2;
+  return resources.slice(0, take).map((type) => ({
     type,
     amount,
     label: RESOURCE_DEFS[type]?.label || type,

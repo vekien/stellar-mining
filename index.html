@@ -14,24 +14,29 @@
 <body>
 
 <div id="top-bars">
-  <div class="sol-block">
-    <div class="sol-block-galaxy">ANDROMDA</div>
-    <div class="sol-block-system">KEPLER-7</div>
-    <div class="sol-block-time" id="hdr-sol">SOL 1 · 03:00</div>
-  </div>
+  <div id="header" class="hud">
+    <div class="island sol">
+      <div class="hud-planet" aria-hidden="true"><span class="ms-icon ms-icon-fill">public</span></div>
+      <div class="hud-sol-meta">
+        <div class="hud-system">KEPLER-7</div>
+        <div class="hud-time" id="hdr-sol">SOL 1 · 03:00</div>
+      </div>
+    </div>
 
-  <div id="header">
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('sol')"><span class="label">OVERVIEW</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('command')"><span class="label">COMMAND</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('transmissions')"><span class="label">TRANSMISSIONS</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('resources')"><span class="label">RESOURCES</span></button>
-    <button id="hdr-btn-craft" class="stat-chip hdr-btn" onclick="openHdrPanel('craft')"><span class="label">CRAFT</span><span class="value" id="hdr-craft"></span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('market')"><span class="label">TRADE</span><span class="value" id="hdr-coins">0¢</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('fleet')"><span class="label">SHIPS</span><span class="value" id="hdr-ships">0/5</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('research')"><span class="label">RESEARCH</span><span class="value" id="hdr-rp">0/2</span></button>
-    <button class="stat-chip hdr-btn" onclick="openHdrPanel('codex')"><span class="label">CODEX</span></button>
-    <div id="header-right">
-      <div id="dev-panel" class="btn-about">⚙ DEV
+    <nav class="island nav" aria-label="Main">
+      <button type="button" class="hdr-btn" data-panel="sol" onclick="openHdrPanel('sol')">OVERVIEW</button>
+      <button type="button" class="hdr-btn" data-panel="command" onclick="openHdrPanel('command')">COMMAND</button>
+      <button type="button" class="hdr-btn" data-panel="resources" onclick="openHdrPanel('resources')">RESOURCES</button>
+      <button type="button" class="hdr-btn" data-panel="craft" id="hdr-btn-craft" onclick="openHdrPanel('craft')">CRAFT</button>
+      <button type="button" class="hdr-btn" data-panel="market" onclick="openHdrPanel('market')">TRADE</button>
+      <button type="button" class="hdr-btn" data-panel="fleet" onclick="openHdrPanel('fleet')">SHIPS</button>
+      <button type="button" class="hdr-btn" data-panel="research" onclick="openHdrPanel('research')">RESEARCH</button>
+      <button type="button" class="hdr-btn" data-panel="codex" onclick="openHdrPanel('codex')">CODEX</button>
+    </nav>
+
+    <div class="island tools" id="header-right">
+      <div id="dev-panel">
+        <button type="button" class="hdr-tool" title="Dev"><span class="ms-icon">terminal</span></button>
         <div id="dev-menu">
           <button id="dev-btn-coins">Max: Money</button>
           <button id="dev-btn-resources">Max: Resources</button>
@@ -51,28 +56,17 @@
           <button id="dev-btn-transmission">UI: Test Transmission</button>
         </div>
       </div>
-      <button class="btn-about" onclick="openAbout()">? ABOUT</button>
-      <button class="btn-about" onclick="openSettings()">⚙ SETTINGS</button>
-      <button class="btn-new-game" onclick="promptNewGame()">⟳ NEW GAME</button>
+      <button type="button" class="hdr-tool" onclick="openAbout()" title="About"><span class="ms-icon">help</span></button>
+      <button type="button" class="hdr-tool" onclick="openSettings()" title="Settings"><span class="ms-icon">settings</span></button>
+      <button type="button" class="hdr-tool hdr-tool-new" onclick="promptNewGame()" title="New Game"><span class="ms-icon">refresh</span> NEW</button>
     </div>
   </div>
-
-  <div id="resource-bar"></div>
 </div>
 
 <div id="game-area">
   <div id="canvas-wrap">
     <canvas id="stars-canvas"></canvas>
     <canvas id="main-canvas"></canvas>
-    <div id="zoom-widget">
-      <div id="zoom-controls">
-        <button class="zoom-btn" onclick="adjustZoom(0.15)">+</button>
-        <button class="zoom-btn" onclick="goHome()">⌂</button>
-        <button class="zoom-btn" onclick="adjustZoom(-0.15)">−</button>
-      </div>
-      <div id="zoom-pct">200%</div>
-      <div id="fps-readout">FPS 60</div>
-    </div>
     <div id="craft-tracker" class="ct-hidden"></div>
     <div id="ship-modal-overlay">
       <div id="ship-modal" class="ship-modal-window" onclick="event.stopPropagation()">
@@ -135,29 +129,58 @@
     </div>
   </div>
 
-  <div id="sidebar">
-    <!-- Rename overlay -->
-    <div id="rename-overlay">
-      <div id="rename-box">
-        <div class="rename-title">✎ Name Your Ship</div>
-        <input id="rename-input-field" type="text" maxlength="24" placeholder="Enter ship name..." />
-        <div class="rename-hint">Enter to confirm · Esc to cancel</div>
-      </div>
+</div>
+
+<aside id="sidebar" class="fleet-dock" aria-label="Fleet">
+  <div class="dock-head">
+    <div class="dock-title"><span class="ms-icon">rocket_launch</span> FLEET</div>
+    <span class="dock-count" id="fleet-dock-count">0</span>
+      <button type="button" id="fleet-filter-toggle" class="dock-icon-btn" onclick="toggleFleetFilters()" title="Filters">
+        <span class="ms-icon">tune</span>
+      </button>
+      <button type="button" id="fleet-collapse-toggle" class="dock-icon-btn" onclick="toggleFleetDock()" title="Hide fleet">
+        <span class="ms-icon">right_panel_close</span>
+      </button>
     </div>
-    <div class="panel">
-      <div class="panel-title panel-title-flex">
-        <span class="panel-title-main">◈ FLEET</span>
-        <button id="fleet-filter-toggle" class="fleet-filter-toggle" onclick="toggleFleetFilters()">FILTERS</button>
+  <div class="dock-chips" id="fleet-role-chips">
+    <button type="button" class="dock-chip on" data-role="" onclick="setFleetRoleChip('')">ALL</button>
+    <button type="button" class="dock-chip" data-role="mining" onclick="setFleetRoleChip('mining')">MINING</button>
+    <button type="button" class="dock-chip" data-role="transport" onclick="setFleetRoleChip('transport')">CARGO</button>
+    <button type="button" class="dock-chip" data-role="combat" onclick="setFleetRoleChip('combat')">COMBAT</button>
+    <button type="button" class="dock-chip" data-role="garrison" onclick="setFleetRoleChip('garrison')">GARRISON</button>
+  </div>
+  <div id="fleet-filters" class="dock-filters is-hidden"></div>
+  <div id="ships-list" class="dock-list"></div>
+  <div class="dock-foot">
+    <button type="button" class="dock-foot-btn" onclick="openLogHistory()" title="Command log">
+      <span class="ms-icon">forum</span> LOG
+    </button>
+    <div id="zoom-widget">
+      <div id="zoom-controls">
+        <button type="button" class="zoom-btn" onclick="adjustZoom(0.15)" title="Zoom in">+</button>
+        <button type="button" class="zoom-btn" onclick="goHome()" title="Home">⌂</button>
+        <button type="button" class="zoom-btn" onclick="adjustZoom(-0.15)" title="Zoom out">−</button>
       </div>
-      <div id="fleet-filters" class="is-hidden"></div>
-      <div id="ships-list"></div>
-    </div>
-    <div id="action-panel">
-      <div class="panel-title" id="action-panel-title">◉ COMMAND</div>
-      <div id="action-content"><div class="action-empty">Select a ship to view its data.</div></div>
+      <div id="zoom-pct">200%</div>
+      <div id="fps-readout">FPS 60</div>
     </div>
   </div>
-</div>
+  <div id="rename-overlay">
+    <div id="rename-box">
+      <div class="rename-title">✎ Name Your Ship</div>
+      <input id="rename-input-field" type="text" maxlength="24" placeholder="Enter ship name..." />
+      <div class="rename-hint">Enter to confirm · Esc to cancel</div>
+    </div>
+  </div>
+  <div id="action-panel">
+    <div class="panel-title" id="action-panel-title">◉ COMMAND</div>
+    <div id="action-content"><div class="action-empty">Select a ship to view its data.</div></div>
+  </div>
+</aside>
+<button type="button" id="fleet-dock-tab" class="fleet-dock-tab" onclick="toggleFleetDock()" title="Show fleet">
+  <span class="ms-icon">rocket_launch</span>
+  <span class="tab-count" id="fleet-dock-tab-count">0</span>
+</button>
 
 <div id="modal-overlay">
   <div id="modal-box">
@@ -270,6 +293,20 @@
           <option value="90">90 FPS</option>
           <option value="120">120 FPS</option>
         </select>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-label">GAMEPLAY</div>
+      <div class="settings-row">
+        <div class="settings-row-text">
+          <div class="settings-row-label">Close Ship Modal After Assign</div>
+          <div class="settings-row-hint">Close the ship panel when a mining node is assigned</div>
+        </div>
+        <label class="settings-switch">
+          <input id="setting-close-ship-after-assign" type="checkbox" onchange="toggleCloseShipAfterAssign(this.checked)">
+          <span class="settings-switch-ui"></span>
+        </label>
       </div>
     </div>
 
@@ -396,6 +433,32 @@
       <button type="button" class="panel-shell-close" onclick="closeShipUpgradeOverlay()">✕</button>
     </div>
     <div id="ship-upgrade-body" class="ship-upgrade-body"></div>
+  </div>
+</div>
+
+<div id="attachment-picker-overlay">
+  <div id="attachment-picker-box" onclick="event.stopPropagation()">
+    <div class="att-picker-head">
+      <div class="att-picker-title" id="attachment-picker-title">◈ INSTALL ATTACHMENT</div>
+      <button type="button" class="panel-shell-close" onclick="closeAttachmentPicker()">✕</button>
+    </div>
+    <div id="attachment-picker-body" class="att-picker-body"></div>
+  </div>
+</div>
+
+<div id="node-picker-overlay">
+  <div id="node-picker-box" onclick="event.stopPropagation()">
+    <div class="att-picker-head">
+      <div class="att-picker-title" id="node-picker-title">◈ SELECT NODE</div>
+      <button type="button" class="panel-shell-close" onclick="closeNodePicker()">✕</button>
+    </div>
+    <div id="node-picker-filters" class="node-picker-filters"></div>
+    <div id="node-picker-meta" class="node-picker-meta"></div>
+    <div id="node-picker-body" class="att-picker-body node-picker-body"></div>
+    <div class="node-picker-foot">
+      <button type="button" class="btn" id="node-picker-clear" onclick="clearShipNodeAssign()">CLEAR</button>
+      <button type="button" class="btn primary" id="node-picker-map" onclick="startShipMapPick()">◎ PICK ON MAP</button>
+    </div>
   </div>
 </div>
 

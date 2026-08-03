@@ -67,6 +67,11 @@ export const BLACK_HOLE_TRIGGER_DELAY_MS = 2000;
 export const EVENT_SCHEDULE_MIN_SOLS = 2;
 export const EVENT_SCHEDULE_MAX_SOLS = 5; // inclusive; produces 2–5 sols delay
 
+/** Random world events (flare / comet / black hole) unlock at this base rank */
+export const RANDOM_EVENT_MIN_BASE_LEVEL = 3;
+/** Pirate raids / combat pressure unlock at this base rank */
+export const COMBAT_EVENT_MIN_BASE_LEVEL = 4;
+
 // Delay before event trigger runs after fireRandomEvent is called (ms)
 export const SOLAR_FLARE_TRIGGER_DELAY_MS = 1500;
 export const COMET_TRIGGER_DELAY_MS       = 3000;

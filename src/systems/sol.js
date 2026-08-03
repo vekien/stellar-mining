@@ -1,8 +1,20 @@
 // ============================================================
 // SOL TICK (day/night cycle + market rotation)
 // ============================================================
-import { SOL_DURATION, MARKET_BOOST_MIN, MARKET_BOOST_MAX } from '../data/sol.js';
-import { EVENT_SCHEDULE_MIN_SOLS, EVENT_SCHEDULE_MAX_SOLS } from '../data/events.js';
+import {
+  SOL_DURATION,
+  MARKET_BOOST_MIN,
+  MARKET_BOOST_MAX,
+  MARKET_VARIANCE_MIN,
+  MARKET_VARIANCE_MAX,
+  MARKET_VARIANCE_ACTIVE_RATIO,
+} from '../data/sol.js';
+import {
+  EVENT_SCHEDULE_MIN_SOLS,
+  EVENT_SCHEDULE_MAX_SOLS,
+  RANDOM_EVENT_MIN_BASE_LEVEL,
+  COMBAT_EVENT_MIN_BASE_LEVEL,
+} from '../data/events.js';
 import { state, saveGame } from '../state.js';
 import { RESOURCE_DEFS } from '../data/resources.js';
 import { addLog } from '../helpers.js';
@@ -20,6 +32,7 @@ import {
   getPirateStatusSolIncrease,
   PIRATE_STATUS_RAID_AT,
 } from '../data/combat.js';
+import { recordSolSnapshot } from './statsHistory.js';
 
 export function scheduleNextEvent() {
   const solsFromNow = EVENT_SCHEDULE_MIN_SOLS + Math.floor(Math.random() * (EVENT_SCHEDULE_MAX_SOLS - EVENT_SCHEDULE_MIN_SOLS + 1));
@@ -31,12 +44,17 @@ function randomDemandMultiplier() {
 }
 
 export function getAvailableMarketResourceTypes() {
+  const isMarketable = (type) => {
+    const def = RESOURCE_DEFS[type];
+    return !!(def && !def.special && (def.sellPrice || 0) > 0);
+  };
   const unlocked = new Set(
     state.nodes
-      .filter(n => n.minLevel <= state.base.level)
-      .map(n => n.type)
+      .filter((n) => n.minLevel <= state.base.level && isMarketable(n.type))
+      .map((n) => n.type)
   );
-  return unlocked.size ? Array.from(unlocked) : Object.keys(RESOURCE_DEFS);
+  if (unlocked.size) return Array.from(unlocked);
+  return Object.keys(RESOURCE_DEFS).filter(isMarketable);
 }
 
 export function rollMarketDemands() {
@@ -47,11 +65,79 @@ export function rollMarketDemands() {
   if (!picked.length) {
     state.marketBoost = null;
     state.extraDemands = [];
-    return;
+  } else {
+    const boosted = picked[0];
+    state.marketBoost = { type: boosted, multiplier: randomDemandMultiplier() };
+    state.extraDemands = picked.slice(1).map((t) => ({ type: t, multiplier: randomDemandMultiplier() }));
   }
-  const boosted = picked[0];
-  state.marketBoost = { type: boosted, multiplier: randomDemandMultiplier() };
-  state.extraDemands = picked.slice(1).map(t => ({ type: t, multiplier: randomDemandMultiplier() }));
+  rollMarketVariance();
+}
+
+/**
+ * Per-SOL base price variance (−25%…+25%).
+ * ~60% of types move; the rest stay flat (0%).
+ * Demand resources always roll 0…+25% (never negative).
+ */
+export function rollMarketVariance() {
+  const types = getAvailableMarketResourceTypes();
+  const demanded = new Set();
+  if (state.marketBoost?.type) demanded.add(state.marketBoost.type);
+  for (const d of (state.extraDemands || [])) {
+    if (d?.type) demanded.add(d.type);
+  }
+
+  const variance = {};
+  const nonDemand = types.filter((t) => !demanded.has(t));
+  const shuffled = nonDemand.slice().sort(() => Math.random() - 0.5);
+  // ~60% of all marketable types move (demand slots always count as “active”)
+  const targetActive = Math.max(demanded.size, Math.round(types.length * MARKET_VARIANCE_ACTIVE_RATIO));
+  const nonDemandActive = Math.max(0, Math.min(shuffled.length, targetActive - demanded.size));
+
+  for (let i = 0; i < shuffled.length; i++) {
+    const type = shuffled[i];
+    if (i < nonDemandActive) {
+      // Non-zero variance in −25…−1 or +1…+25
+      let pct = MARKET_VARIANCE_MIN + Math.floor(Math.random() * (MARKET_VARIANCE_MAX - MARKET_VARIANCE_MIN + 1));
+      if (pct === 0) pct = Math.random() < 0.5 ? -1 : 1;
+      variance[type] = pct;
+    } else {
+      variance[type] = 0;
+    }
+  }
+
+  // Demand: always 0…+25
+  for (const type of demanded) {
+    variance[type] = Math.floor(Math.random() * (MARKET_VARIANCE_MAX + 1));
+  }
+
+  for (const type of types) {
+    if (variance[type] === undefined) variance[type] = 0;
+  }
+
+  state.marketVariance = variance;
+}
+
+/** Drop special/non-sellable types from any active demand (e.g. crashed_ship). */
+export function sanitizeMarketDemands() {
+  const ok = (type) => {
+    const def = RESOURCE_DEFS[type];
+    return !!(def && !def.special && (def.sellPrice || 0) > 0);
+  };
+  if (state.marketBoost && !ok(state.marketBoost.type)) state.marketBoost = null;
+  state.extraDemands = (state.extraDemands || []).filter((d) => d && ok(d.type));
+  // If primary boost was cleared but extras remain, promote one
+  if (!state.marketBoost && state.extraDemands.length) {
+    const next = state.extraDemands.shift();
+    state.marketBoost = next;
+  }
+  if (state.marketVariance && typeof state.marketVariance === 'object') {
+    const cleaned = {};
+    for (const [k, v] of Object.entries(state.marketVariance)) {
+      if (!ok(k)) continue;
+      cleaned[k] = Math.max(MARKET_VARIANCE_MIN, Math.min(MARKET_VARIANCE_MAX, Math.round(Number(v) || 0)));
+    }
+    state.marketVariance = cleaned;
+  }
 }
 
 export function tickSOL(dt) {
@@ -66,23 +152,30 @@ export function tickSOL(dt) {
     const rpCap = getResearchPointCap(state.base.level);
     if (state.rp < rpCap) { state.rp++; updateHeaderRP(); addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
 
-    // Random in-demand resource(s)
+    // Random demand + daily price variance
     rollMarketDemands();
     const demandLabels = state.marketBoost
-      ? [RESOURCE_DEFS[state.marketBoost.type].label, ...state.extraDemands.map(d => RESOURCE_DEFS[d.type].label)]
+      ? [RESOURCE_DEFS[state.marketBoost.type].label, ...state.extraDemands.map((d) => RESOURCE_DEFS[d.type].label)]
       : [];
-    addLog(`📈 Market boost: ${demandLabels.join(', ')} selling at premium this SOL!`);
+    if (demandLabels.length) {
+      addLog(`📈 Market demand: ${demandLabels.join(', ')} selling at a premium this SOL!`);
+    }
     addLog(`☀ SOL ${state.sol} begins.`);
+
+    // Statistics: snapshot stockpile + credits at each SOL open
+    recordSolSnapshot();
     patchSolPanel('sol');
 
-    // Fire event if this is the scheduled sol
+    // Fire event if this is the scheduled sol (world events from base rank 3+)
     if (state.nextEventSol !== null && state.sol >= state.nextEventSol) {
-      fireRandomEvent();
+      if ((state.base.level || 1) >= RANDOM_EVENT_MIN_BASE_LEVEL) {
+        fireRandomEvent();
+      }
       scheduleNextEvent();
     }
 
-    // Pirate Status climbs each SOL; raid when gauge hits 100%
-    if (state.sol > 1) {
+    // Pirate Status / raids unlock at base rank 4+
+    if (state.sol > 1 && (state.base.level || 1) >= COMBAT_EVENT_MIN_BASE_LEVEL) {
       const threat = getPirateThreatLevel(state);
       const gain = getPirateStatusSolIncrease(threat);
       state.pirateStatus = Math.min(

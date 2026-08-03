@@ -144,66 +144,12 @@ function drawDestroyedIcon(cx, cy, size = 22, pulse = 0.5) {
   });
 }
 
-/** Glowing glyph only — no disc behind it (easier to spot on busy sprites). */
-function drawCrisisAlertIcon(cx, cy, size = 24, pulse = 0.5) {
-  const color = '#ff3a3a';
-  const glow = 'rgba(255, 50, 50, 1)';
-  const alpha = 0.9 + pulse * 0.1;
-  ctx.save();
-  ctx.font = `400 ${size}px "Material Symbols Outlined"`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  if (ctx.fontKerning !== undefined) ctx.fontKerning = 'normal';
-  // Strong red bloom on the glyph
-  ctx.globalAlpha = alpha;
-  ctx.shadowColor = glow;
-  ctx.shadowBlur = 22 + pulse * 18;
-  ctx.fillStyle = color;
-  ctx.fillText('crisis_alert', cx, cy);
-  // Hot white core
-  ctx.shadowBlur = 10 + pulse * 8;
-  ctx.shadowColor = 'rgba(255,255,255,0.95)';
-  ctx.globalAlpha = 0.55 + pulse * 0.35;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText('crisis_alert', cx, cy);
-  // Crisp red top pass
-  ctx.shadowBlur = 14 + pulse * 10;
-  ctx.shadowColor = glow;
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = color;
-  ctx.fillText('crisis_alert', cx, cy);
-  ctx.restore();
-}
-
-/** Modules that have taken at least one hit this raid. */
-function getCrisisHitModuleIds() {
-  const hit = state.activeRaid?.hitModuleIds;
-  if (!hit) return null;
-  return hit;
-}
-
-function isModuleCrisisAlert(module, hitIds) {
-  if (!module || (module.health || 0) <= 0) return false;
-  if (!state.activeRaid) return false;
-  const map = hitIds || getCrisisHitModuleIds();
-  return !!(map && map[module.id]);
-}
-
 function drawNoPowerIcon(cx, cy, size = 22, pulse = 0.5) {
   drawMsStatusIcon(cx, cy, 'power_off', {
     size,
     pulse,
     color: '#ffe066',
     glow: 'rgba(255, 220, 80, 1)',
-  });
-}
-
-function drawNeedsRepairIcon(cx, cy, size = 16, pulse = 0.5) {
-  drawMsStatusIcon(cx, cy, 'build', {
-    size,
-    pulse,
-    color: '#7ec8ff',
-    glow: 'rgba(100, 190, 255, 0.95)',
   });
 }
 
@@ -277,13 +223,8 @@ function drawModuleSprite(module, hovered, options = {}) {
   const pulse = options.disabledFlash || (0.5 + 0.5 * Math.sin(performance.now() / 220));
   if (destroyed) {
     drawDestroyedIcon(cx, imageY + sprite.height * 0.4, 22, pulse);
-  } else if (showEffects && options.crisisAlert) {
-    drawCrisisAlertIcon(cx, imageY + sprite.height * 0.38, 26, pulse);
   } else if (showEffects && options.disabledFlash) {
     drawNoPowerIcon(cx, imageY + sprite.height * 0.38, 22, pulse);
-  } else if (showEffects && options.needsRepair) {
-    // Small repair badge above the building
-    drawNeedsRepairIcon(cx, imageY + 6, 16, pulse);
   }
 
   return true;
@@ -503,11 +444,9 @@ export function drawLabLinks() {
   ctx.restore();
 }
 
-function drawStorageModule(module, hovered, phase = 'all', crisisHitIds = null) {
+function drawStorageModule(module, hovered, phase = 'all') {
   const destroyed = (module.health || 0) <= 0;
-  const needsRepair = !destroyed && moduleNeedsRepair(module);
   const noPower = !destroyed && (module.power || 0) <= 0;
-  const crisisAlert = isModuleCrisisAlert(module, crisisHitIds);
   const flash = 0.5 + 0.5 * Math.sin(performance.now() / 140);
   const isResearchLab = isResearchLabModule(module);
   const bodyFill = destroyed
@@ -561,8 +500,6 @@ function drawStorageModule(module, hovered, phase = 'all', crisisHitIds = null) 
     shadowColor: destroyed ? 'rgba(40,40,40,0.3)' : noPower ? 'rgba(255,214,64,0.18)' : 'rgba(80,200,255,0.14)',
     disabledFlash: (destroyed || noPower) ? flash : null,
     destroyed,
-    needsRepair,
-    crisisAlert,
   })) {
     return;
   }
@@ -634,16 +571,12 @@ function drawStorageModule(module, hovered, phase = 'all', crisisHitIds = null) 
   ctx.fillText(isResearchLabModule(module) ? 'RESEARCH' : isDroneLabModule(module) ? 'DRONE LAB' : 'STORAGE', cx, cy - 34);
   ctx.restore();
   if (destroyed) drawDestroyedIcon(cx, cy - 16, 22, flash);
-  else if (crisisAlert) drawCrisisAlertIcon(cx, cy - 16, 26, flash);
   else if (noPower) drawNoPowerIcon(cx, cy - 16, 22, flash);
-  else if (needsRepair) drawNeedsRepairIcon(cx, cy - 36, 16, flash);
 }
 
-function drawPowerStationModule(module, hovered, phase = 'all', crisisHitIds = null) {
+function drawPowerStationModule(module, hovered, phase = 'all') {
   const destroyed = (module.health || 0) <= 0;
-  const needsRepair = !destroyed && moduleNeedsRepair(module);
   const noFuel = !destroyed && !hasPowerStationFuel(module);
-  const crisisAlert = isModuleCrisisAlert(module, crisisHitIds);
   const flash = 0.5 + 0.5 * Math.sin(performance.now() / 220);
   const half = getModuleFootprintHalf(module.type || POWER_STATION_ID);
   const bodyFill = destroyed
@@ -691,8 +624,6 @@ function drawPowerStationModule(module, hovered, phase = 'all', crisisHitIds = n
     shadowColor: destroyed ? 'rgba(40,40,40,0.3)' : noFuel ? 'rgba(255,166,72,0.18)' : 'rgba(255,220,90,0.14)',
     disabledFlash: (destroyed || noFuel) ? flash : null,
     destroyed,
-    needsRepair,
-    crisisAlert,
   })) {
     return;
   }
@@ -737,17 +668,13 @@ function drawPowerStationModule(module, hovered, phase = 'all', crisisHitIds = n
   ctx.fillText('POWER', cx, cy - 34);
   ctx.restore();
   if (destroyed) drawDestroyedIcon(cx, cy - 16, 22, flash);
-  else if (crisisAlert) drawCrisisAlertIcon(cx, cy - 16, 26, flash);
   else if (noFuel) drawNoPowerIcon(cx, cy - 16, 22, flash);
-  else if (needsRepair) drawNeedsRepairIcon(cx, cy - 36, 16, flash);
 }
 
-function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null, crisisHitIds = null) {
+function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null) {
   const isPole = module.type === 'power_pole';
   const isLabTower = module.type === LAB_TOWER_ID;
   const destroyed = (module.health || 0) <= 0;
-  const needsRepair = !destroyed && moduleNeedsRepair(module);
-  const crisisAlert = isModuleCrisisAlert(module, crisisHitIds);
   const alertIds = noFuelIds || getNoFuelNetworkIds(state.modules, state.turrets);
   const alert = !destroyed && ((isPole && alertIds.has(module.id)) || (isPowerStationModule(module) && !hasPowerStationFuel(module)));
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
@@ -780,8 +707,6 @@ function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null, 
     shadowColor: destroyed ? 'rgba(40,40,40,0.3)' : alert ? 'rgba(255,110,110,0.2)' : 'rgba(255,220,90,0.14)',
     disabledFlash: (destroyed || alert) ? pulse : null,
     destroyed,
-    needsRepair,
-    crisisAlert,
     noPower: noPowerPole || (!destroyed && alert && !isLabTower),
   })) {
     return;
@@ -838,9 +763,7 @@ function drawSingleTileModule(module, hovered, phase = 'all', noFuelIds = null, 
   ctx.fillText(isLabTower ? 'LAB' : isPole ? 'POLE' : 'POWER', cx, cy - 24);
   ctx.restore();
   if (destroyed) drawDestroyedIcon(cx, cy - 12, 20, pulse);
-  else if (crisisAlert) drawCrisisAlertIcon(cx, cy - 12, 24, pulse);
   else if (noPowerPole || (alert && isPole)) drawNoPowerIcon(cx, cy - 12, 20, pulse);
-  else if (needsRepair) drawNeedsRepairIcon(cx, cy - 28, 15, pulse);
 }
 
 function isoDepth(module) { return module.col + module.row; }
@@ -863,7 +786,7 @@ function getSortedModules() {
   return _sortedModules;
 }
 
-function drawModuleForPhase(module, phase, noFuelIds, crisisHitIds) {
+function drawModuleForPhase(module, phase, noFuelIds) {
   const { x, y } = gridToIso(module.col, module.row);
   // Always draw selected / hovered / range-preview modules even if slightly offscreen
   const forceDraw = canvasState.storageHoverId === module.id
@@ -877,11 +800,11 @@ function drawModuleForPhase(module, phase, noFuelIds, crisisHitIds) {
     if (showRange) drawModuleRange(module);
   }
   if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) {
-    drawStorageModule(module, hovered, phase, crisisHitIds);
+    drawStorageModule(module, hovered, phase);
   } else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) {
-    drawPowerStationModule(module, hovered, phase, crisisHitIds);
+    drawPowerStationModule(module, hovered, phase);
   } else {
-    drawSingleTileModule(module, hovered, phase, noFuelIds, crisisHitIds);
+    drawSingleTileModule(module, hovered, phase, noFuelIds);
   }
   // Health bar on sprite pass only (once per building)
   if (phase === 'sprite' || phase === 'all') {
@@ -894,9 +817,8 @@ export function drawStorageFootprints() {
   const modules = state.modules;
   if (!modules.length) return;
   const noFuelIds = getNoFuelNetworkIds(modules, state.turrets);
-  const crisisHitIds = getCrisisHitModuleIds();
   const sorted = getSortedModules();
-  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'footprint', noFuelIds, crisisHitIds);
+  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'footprint', noFuelIds);
 }
 
 export function drawStorageSprites() {
@@ -904,9 +826,8 @@ export function drawStorageSprites() {
   const modules = state.modules;
   if (!modules.length) return;
   const noFuelIds = getNoFuelNetworkIds(modules, state.turrets);
-  const crisisHitIds = getCrisisHitModuleIds();
   const sorted = getSortedModules();
-  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'sprite', noFuelIds, crisisHitIds);
+  for (let i = 0; i < sorted.length; i++) drawModuleForPhase(sorted[i], 'sprite', noFuelIds);
 }
 
 export function drawStorageFacilities() {
