@@ -4,6 +4,50 @@
 import { PLAYER_TITLE as C } from '../constants.js';
 
 export const NPCS = {
+  byte: {
+    id: 'byte',
+    name: 'Byte',
+    role: 'Tutorial Systems AI',
+    ship: 'Guidance Subroutine · Base OS',
+    portrait: 'assets/images/npcs/byte.png',
+    bio: "Byte is the station's embedded guidance AI — a compact systems companion hard-wired into your Base OS. He walks new commanders through first deposits, crafting, fleet assignment, and upgrades with patient, slightly over-eager precision. If a tutorial pointer is blinking, Byte is already three steps ahead.",
+    transmissionLines: {
+      mission_start:
+        `${C}, Byte online.<br><br>` +
+        `Let's get extraction running. <strong>Select a ship</strong> from the fleet dock, then <strong>choose a resource node</strong> to mine.`,
+      first_deposit:
+        `Hey ${C} — Byte online.<br><br>` +
+        `First haul confirmed in the stockpile. Stockpile resources to <strong>craft more ships</strong> and expand the fleet.`,
+      first_craftable:
+        `${C}, Byte here. Materials check: you can afford a new hull.<br><br>` +
+        `Open <strong>CRAFT</strong> → <strong>Ships</strong>, pick <strong>Scout</strong>, then hit <strong>BUILD</strong>. More ships means more hauls.`,
+      quest_switch_resource: (res) => {
+        const label = res === 'iron' ? 'Iron' : 'Copper';
+        return `${C}, Byte here. Nice stockpile — now switch lanes.<br><br>` +
+          `Reassign a ship to a <strong>${label}</strong> node so we can finish the starter materials.`;
+      },
+      quest_craft_scout:
+        `${C}, materials locked in. Next objective: <strong>craft a Scout</strong>.<br><br>` +
+        `Open <strong>CRAFT → Ships</strong>, select <strong>Scout</strong>, and hit <strong>BUILD</strong>.`,
+      quest_assign_both:
+        `Hull ready, ${C}. Deploy the fleet — <strong>assign both ships to different resources</strong> so we pull two streams at once.`,
+      quest_trade_sell:
+        `${C}, extraction looks solid. Open <strong>TRADE</strong> and <strong>sell some resources</strong> for coins. Liquidity keeps the yard running.`,
+      quest_upgrade_ship:
+        `${C}, Byte here — last lesson: <strong>upgrades</strong>.<br><br>` +
+        `Select a ship, open the <strong>Upgrade</strong> tab, and buy any <strong>Ship Stat Increase</strong>. Small spends stack every SOL.`,
+      quest_complete:
+        `Tutorial complete, ${C}. You can mine, craft, deploy, trade, and upgrade.<br><br>` +
+        `Base upgrades and more hull types are unlocked. Keep pushing the fleet.`,
+      rigs_upgrades:
+        `Nice deploy, ${C}. Byte again — time to talk <strong>upgrades</strong>.<br><br>` +
+        `Select a ship and open the <strong>Upgrade</strong> tab. Cargo, speed, and mine rate all stack over time. Small spends now pay off every SOL.`,
+      kade_intro:
+        `${C}, Byte with a liquidity note.<br><br>` +
+        `Use the <strong>Trade</strong> panel to sell surplus ore and keep coins flowing — you'll need cash for crafts and upgrades.<br><br>` +
+        `I'll ping Trade on your nav when this step is active.`,
+    },
+  },
   juno: {
     id: 'juno',
     name: 'Admiral Juno',
@@ -14,8 +58,7 @@ export const NPCS = {
     transmissionLines: {
       first_deposit:
         `Hey ${C} — Admiral Juno aboard the <strong>ISV Hyperion</strong>!<br><br>` +
-        `You've just collected your first batch of resources. Sell them back to Star Command for coins, or use them to <strong>craft more ships</strong>.<br><br>` +
-        `Tip: select a ship and click a <strong>different node</strong> to redirect it — you'll need a variety of materials to build new hulls!`,
+        `You've just collected your first batch of resources. Sell them back to Star Command for coins, or use them to <strong>craft more ships</strong>.`,
       base_lv2_upgrade:
         `${C}, Admiral Juno here. Excellent work — your <strong>Base Station upgrade</strong> has expanded operational radius and increased local fleet availability.<br><br>` +
         `New deposits have appeared in range, including <strong>Oxygen</strong> and <strong>Silicon</strong>. Prioritize survey assignments and secure extraction lanes.<br><br>` +
@@ -26,6 +69,11 @@ export const NPCS = {
         `Repair the Base Station to restore docking and transfer operations.`,
       hq_support: (cost) =>
         `Copy, ${C}. Star Command is diverting a combat wing to your sector (−$${cost.toLocaleString?.() || cost}). Hold the line — help is inbound.`,
+      factions_unlock:
+        `${C}, Admiral Juno. Faction Comms is live.<br><br>` +
+        `You can now track standing with <strong>The Frontier Union</strong>, <strong>The Ironhands</strong>, and <strong>The Astral Institute</strong>. ` +
+        `Open <strong>Overview → FACTIONS</strong> for the board. Some daily quests will carry a faction tag — those are the only jobs that move reputation for now.<br><br>` +
+        `No exclusive allegiance required. Build trust where it serves the operation.`,
     },
   },
   sera: {
@@ -40,6 +88,17 @@ export const NPCS = {
         `${C}, Admiral Sera here. Your operation is growing fast — I'd strongly recommend <strong>upgrading your Base Station</strong>.<br><br>` +
         `A higher base level increases your <strong>ship capacity</strong>, expands your <strong>map range</strong> to reach richer nodes, and unlocks heavier ship classes in the Craft tab.<br><br>` +
         `Click the <strong>Base Station</strong> on the map and hit Upgrade when you're ready.`,
+      mission_distress_start:
+        `${C}, Sera. Sensors just locked a <strong>distress beacon</strong> inside your operational envelope.<br><br>` +
+        `It's broadcasting on an old emergency band — coordinates are noisy, but the pulse is real. ` +
+        `Find it on the map, inspect the unit, and recover whatever it's carrying. I'll take the data from there.`,
+      mission_databox_secured:
+        `${C}, Sera again. The <strong>Data Box</strong> is in the vault and already on the analysis stack.<br><br>` +
+        `Decrypt layers look non-standard — this will take time. I'll ping you the moment we have a clean readout. Stand by.`,
+      daily_quests_unlock:
+        `${C}, Admiral Sera — research uplink complete.<br><br>` +
+        `We've spun up the <strong>Daily Quests</strong> protocol. Each SOL you'll get <strong>three rotating objectives</strong> scaled to your base tier — coin targets, resource drives, the works.<br><br>` +
+        `Open <strong>Command → Quests</strong> to track them, pin favorites to your log, and <strong>claim rewards</strong> when they're fulfilled. Fresh board every solar day — don't leave payouts on the table.`,
     },
   },
   vex: {
@@ -80,10 +139,14 @@ export const NPCS = {
         `${C}, it's Rigs down at the yard. Just got word your base hit a new tier — that means I can now build you a ${names}.<br><br>` +
         `Open <strong>CRAFT</strong> up top and let's get to work!`,
       base_lv2_hauler:
-        `Rigs here — with that base upgrade I can now build you a <strong>Hauler</strong>.<br><br>` +
-        `It's slower than your light runners, but it's built to move serious volume. Perfect for steady iron and copper routes.<br><br>` +
+        `Rigs here — with that base upgrade I can now build you a <strong>Courier</strong>.<br><br>` +
+        `Pure transport hull — no mining gear, just serious cargo between depots. Handy once you're moving bulk ore around.<br><br>` +
         `Also, your current ships can now be upgraded to <strong>Tier II</strong> mining rigs. Check each ship's upgrades and push your fleet harder.<br><br>` +
-        `Open <strong>CRAFT → Ships</strong> when you're ready and I'll prep the frame.`,
+        `The big mining <strong>Hauler</strong> lands at <strong>Base Tier III</strong> once silicon comes online. Open <strong>CRAFT → Ships</strong> anytime.`,
+      base_lv3_hauler:
+        `Rigs here — Base Tier III is live. I can finally frame up a <strong>Hauler</strong>.<br><br>` +
+        `Slow and heavy, but it moves real volume. Silicon's in the recipe, so this is the first hull that needs those Tier III nodes.<br><br>` +
+        `Open <strong>CRAFT → Ships</strong> and we'll get one on the pad.`,
       sol_idle: ({ names, count }) =>
         `Hey! ${count > 1 ? `${count} ships are` : `${names} is`} sitting idle and doing absolutely nothing!<br><br>` +
         `${count > 1 ? `That includes: ${names}.<br><br>` : ''}` +
@@ -125,7 +188,7 @@ export const NPCS = {
         `They selectively damage exposed resource depots. Oxygen is shielded by its containment units, but metals and silicates take the hit.<br><br>` +
         `I'm working on a shielding upgrade. Until then — expect more of these.`,
       vane_rp_upgrade:
-        `Dr. Vane here. Quick systems note: each <strong>Base Upgrade</strong> now grants <strong>+1 Research Point</strong>.<br><br>` +
+        `Dr. Vane here. Quick systems note: each <strong>Base Upgrade</strong> now grants <strong>+5 Research Points</strong>.<br><br>` +
         `If you're planning expansion, time your upgrades around research unlocks to keep your progression efficient.`,
       vane_comet_explain: (hpPct) =>
         `${C}, Vane. That comet was a stray fragment from the outer debris field — they hit harder the longer you've been out here.<br><br>` +

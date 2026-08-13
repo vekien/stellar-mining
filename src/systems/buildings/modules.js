@@ -13,6 +13,7 @@ import {
   POWER_STATION_ID,
   RESEARCH_LAB_ID,
   STORAGE_FACILITY_ID,
+  CONTRACT_CENTER_ID,
   createBuildingInstance,
   formatPowerFuelRate,
   getBuildingDef,
@@ -37,6 +38,7 @@ export {
   POWER_STATION_ID,
   RESEARCH_LAB_ID,
   STORAGE_FACILITY_ID,
+  CONTRACT_CENTER_ID,
   createBuildingInstance as createModuleInstance,
   formatPowerFuelRate,
   getPowerFuelOptions,
@@ -62,12 +64,19 @@ export function isStorageModule(moduleOrType) {
   return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === STORAGE_FACILITY_ID;
 }
 
+export function isContractCenterModule(moduleOrType) {
+  return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === CONTRACT_CENTER_ID;
+}
+
 export function isResearchLabModule(moduleOrType) {
   return (typeof moduleOrType === 'string' ? moduleOrType : moduleOrType?.type) === RESEARCH_LAB_ID;
 }
 
 export function isPoweredBuildingModule(moduleOrType) {
-  return isStorageModule(moduleOrType) || isResearchLabModule(moduleOrType) || isDroneLabModule(moduleOrType);
+  return isStorageModule(moduleOrType)
+    || isContractCenterModule(moduleOrType)
+    || isResearchLabModule(moduleOrType)
+    || isDroneLabModule(moduleOrType);
 }
 
 export function isPowerStationModule(moduleOrType) {
@@ -93,7 +102,9 @@ export function getModuleInventoryTotal(module) {
 }
 
 export function getModuleFreeCapacity(module) {
-  if (isStorageModule(module)) return Math.max(0, (module?.storageCapacity || 0) - getModuleInventoryTotal(module));
+  if (isStorageModule(module) || isContractCenterModule(module)) {
+    return Math.max(0, (module?.storageCapacity || 0) - getModuleInventoryTotal(module));
+  }
   if (isResearchLabModule(module)) return Number.MAX_SAFE_INTEGER;
   // Power station capacity is per resource type (not a shared total tank).
   // Without a resource type, prefer getPowerStationResourceFreeCapacity(module, type).
@@ -250,7 +261,7 @@ export function getDepotModules(modules) {
   if (_depotModulesCache && _depotModulesCacheVer === _entityListVersion) return _depotModulesCache;
   const list = [];
   for (const module of modules) {
-    if (isStorageModule(module) || isPowerStationModule(module)) {
+    if (isStorageModule(module) || isContractCenterModule(module) || isPowerStationModule(module)) {
       list.push(module);
     }
   }

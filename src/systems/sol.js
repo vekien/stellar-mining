@@ -25,14 +25,28 @@ import { startDailyRaid } from './combat.js';
 import { showTransmissionMessage } from '../ui/transmissions.js';
 import { checkTradeTutorial } from '../ui/tutorial.js';
 import { NPCS } from '../data/npcs.js';
-import { patchSolPanel } from '../ui/panels.js';
+import { patchSolPanel, openHdrPanel, isHdrPanelOpen } from '../ui/panels.js';
 import { getResearchPointCap } from '../data/research.js';
+import { rollMarketBuyOffers } from './market.js';
+import { onSolContractsTick } from './contracts.js';
+import { runAutoAssignPass } from './autoAssign.js';
+import { runAutoTradePass } from './autoTrade.js';
+import { onSolDailyQuests } from './dailyQuests.js';
+import { UNIQUE_SCANNER_CHANCE } from './research/definitions.js';
+import { BASE_POS } from '../render/camera.js';
+import { BASE_RANGE } from '../data/base.js';
 import {
   getPirateThreatLevel,
   getPirateStatusSolIncrease,
   PIRATE_STATUS_RAID_AT,
 } from '../data/combat.js';
 import { recordSolSnapshot } from './statsHistory.js';
+import {
+  getFactionPirateHeatMult,
+  getFactionSolRpBonus,
+  getFactionRpCapBonus,
+  ensureFactionRep,
+} from './factions.js';
 
 export function scheduleNextEvent() {
   const solsFromNow = EVENT_SCHEDULE_MIN_SOLS + Math.floor(Math.random() * (EVENT_SCHEDULE_MAX_SOLS - EVENT_SCHEDULE_MIN_SOLS + 1));
@@ -71,6 +85,7 @@ export function rollMarketDemands() {
     state.extraDemands = picked.slice(1).map((t) => ({ type: t, multiplier: randomDemandMultiplier() }));
   }
   rollMarketVariance();
+  rollMarketBuyOffers();
 }
 
 /**
@@ -148,9 +163,19 @@ export function tickSOL(dt) {
     state.solTimer -= SOL_DURATION;
     state.sol++;
 
-    // Earn 1 RP per SOL, capped
-    const rpCap = getResearchPointCap(state.base.level);
-    if (state.rp < rpCap) { state.rp++; updateHeaderRP(); addLog(`🔬 Research Point earned! (${state.rp}/${rpCap})`); }
+    // Earn RP per SOL, capped (Deep Survey Mandate can add +1)
+    ensureFactionRep();
+    const rpCap = getResearchPointCap(state.base.level) + getFactionRpCapBonus();
+    const rpGain = 1 + getFactionSolRpBonus();
+    if (state.rp < rpCap) {
+      const before = state.rp || 0;
+      state.rp = Math.min(rpCap, before + rpGain);
+      const gained = state.rp - before;
+      if (gained > 0) {
+        updateHeaderRP();
+        addLog(`🔬 Research Point${gained > 1 ? 's' : ''} earned! +${gained} (${state.rp}/${rpCap})`);
+      }
+    }
 
     // Random demand + daily price variance
     rollMarketDemands();
@@ -161,6 +186,22 @@ export function tickSOL(dt) {
       addLog(`📈 Market demand: ${demandLabels.join(', ')} selling at a premium this SOL!`);
     }
     addLog(`☀ SOL ${state.sol} begins.`);
+
+    // Trade panel shows demand / prices / buy lots — rebuild if open
+    if (isHdrPanelOpen('market')) {
+      openHdrPanel('market', { refresh: true, preserveScroll: true });
+    }
+
+    // AI Trader (before contracts/assign so stockpile reflects sells)
+    runAutoTradePass();
+    // Daily quests refresh
+    onSolDailyQuests();
+    // Sector contracts period roll
+    onSolContractsTick();
+    // AI node assignment
+    runAutoAssignPass();
+    // Unique ship scanner pulse
+    pulseUniqueShipScanner();
 
     // Statistics: snapshot stockpile + credits at each SOL open
     recordSolSnapshot();
@@ -177,7 +218,7 @@ export function tickSOL(dt) {
     // Pirate Status / raids unlock at base rank 4+
     if (state.sol > 1 && (state.base.level || 1) >= COMBAT_EVENT_MIN_BASE_LEVEL) {
       const threat = getPirateThreatLevel(state);
-      const gain = getPirateStatusSolIncrease(threat);
+      const gain = Math.max(0, Math.round(getPirateStatusSolIncrease(threat) * getFactionPirateHeatMult()));
       state.pirateStatus = Math.min(
         PIRATE_STATUS_RAID_AT,
         Math.max(0, (state.pirateStatus || 0) + gain),
@@ -197,4 +238,29 @@ export function tickSOL(dt) {
 
     saveGame();
   }
+}
+
+/** Unique Ship Scanner — 5% chance per SOL; signatures expire at next SOL. */
+function pulseUniqueShipScanner() {
+  // Clear prior SOL signatures
+  state.uniqueSignatures = (state.uniqueSignatures || []).filter((s) => (s.expiresSol || 0) > state.sol);
+  if (!state.researchUnlocks?.unique_scanner) return;
+  if (Math.random() > UNIQUE_SCANNER_CHANCE) return;
+
+  const halfR = BASE_RANGE[(state.base.level || 1) - 1] || 6;
+  const base = BASE_POS();
+  // Random point in visible ring (avoid base footprint)
+  const ang = Math.random() * Math.PI * 2;
+  const dist = 3 + Math.random() * Math.max(2, halfR - 2);
+  const sig = {
+    id: `uniq_${state.sol}_${Math.random().toString(36).slice(2, 7)}`,
+    sol: state.sol,
+    expiresSol: state.sol + 1,
+    wx: base.x + Math.cos(ang) * dist * 64,
+    wy: base.y + Math.sin(ang) * dist * 36,
+    claimed: false,
+  };
+  if (!Array.isArray(state.uniqueSignatures)) state.uniqueSignatures = [];
+  state.uniqueSignatures.push(sig);
+  addLog(`□ Unique scanner ping — anomalous hull signature detected (fades end of SOL).`);
 }

@@ -4,6 +4,7 @@
 import { RESOURCE_DEFS, getResourceTier, isStorableResource } from '../../data/resources.js';
 
 export const STORAGE_FACILITY_ID = 'storage_facility';
+export const CONTRACT_CENTER_ID = 'contract_center';
 export const POWER_STATION_ID = 'power_station';
 export const POWER_POLE_ID = 'power_pole';
 export const RESEARCH_LAB_ID = 'research_lab';
@@ -196,6 +197,37 @@ class StorageFacilityBuildingType extends PoweredInventoryBuildingType {
     return [
       ['HEALTH', fmtStat(stats.maxHealth)],
       ['STORAGE', fmtStat(stats.storageCapacity)],
+      ['POWER USE', `${stats.powerUsage}/s`],
+      ['POWER CAP', fmtStat(stats.powerCapacity)],
+    ];
+  }
+}
+
+class ContractCenterBuildingType extends PoweredInventoryBuildingType {
+  constructor() {
+    super({
+      id: CONTRACT_CENTER_ID,
+      name: 'Contracts Office',
+      panelTitle: 'CONTRACTS OFFICE',
+      unlockId: 'unlock_contracts',
+      footprintSize: 3,
+      craftTimeMs: 16000,
+      baseStats: {
+        maxHealthByLevel: (lvl) => 11000 + ((lvl - 1) * 2500),
+        storageCapacity: 80000,
+        powerUsage: 1,
+        powerCapacity: 1000,
+      },
+      storageCapacityByLevel: (lvl) => 80000 + ((lvl - 1) * 30000),
+      powerCapacityByLevel: (lvl) => 1000 + ((lvl - 1) * 250),
+    });
+  }
+
+  cardStats(level = 1) {
+    const stats = this.getStats(level);
+    return [
+      ['HEALTH', fmtStat(stats.maxHealth)],
+      ['INTAKE', fmtStat(stats.storageCapacity)],
       ['POWER USE', `${stats.powerUsage}/s`],
       ['POWER CAP', fmtStat(stats.powerCapacity)],
     ];
@@ -397,6 +429,7 @@ class DroneLabBuildingType extends BuildingType {
 
 export const BUILDING_DEFS = {
   [STORAGE_FACILITY_ID]: new StorageFacilityBuildingType(),
+  [CONTRACT_CENTER_ID]: new ContractCenterBuildingType(),
   [RESEARCH_LAB_ID]: new ResearchLabBuildingType(),
   [POWER_STATION_ID]: new PowerStationBuildingType(),
   [POWER_POLE_ID]: new PowerPoleBuildingType(),

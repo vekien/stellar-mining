@@ -18,6 +18,7 @@ import { drawStars } from './stars.js';
 import { drawTurrets, drawTurretPlacementHover, setTurretCtx } from './turrets.js';
 import { drawPowerLinks, drawLabLinks, drawStorageFootprints, drawStorageSprites, drawStoragePlacementHover, setStorageCtx } from './storage.js';
 import { drawClusterProjectiles } from '../systems/combat.js';
+import { getMissionBeacon } from '../systems/missions.js';
 
 let ctx = null;
 export let W = 0, H = 0;
@@ -1060,7 +1061,10 @@ export function drawShipWorld(ship) {
 export function drawDroneWorld(drone) {
   const size = 5;
   const isScanning = drone.status === 'scanning';
-  const color = isScanning ? '#40ffcc' : '#4ab8ff';
+  const isNullwell = drone.taskType === 'black_hole';
+  const color = isNullwell
+    ? (isScanning ? '#c49bff' : '#9a70e8')
+    : (isScanning ? '#40ffcc' : '#4ab8ff');
   const showEffects = state.settings?.showVisualEffects !== false;
   const t = Date.now() / 1000;
 
@@ -1210,6 +1214,83 @@ export function drawDroneWorld(drone) {
   ctx.restore(); // undo translate
 }
 
+function drawMissionBeacon() {
+  const b = getMissionBeacon();
+  if (!b) return;
+  const w = gridToWorld(b.col, b.row);
+  if (!isInView(w.x, w.y + TILE_H / 2)) return;
+  const t = performance.now() / 1000;
+  const hovered = !!canvasState.beaconHovered;
+  const pulse = 0.55 + 0.45 * Math.sin(t * (hovered ? 4.4 : 3.2));
+  const cx = w.x;
+  const cy = w.y + TILE_H / 2;
+  const glowBoost = hovered ? 1.35 : 1;
+
+  // Hover halo
+  if (hovered) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22 + pulse * 4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(93, 255, 160, ${0.12 + pulse * 0.08})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(180, 255, 210, ${0.55 + pulse * 0.25})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Outer pulse rings
+  for (let i = 0; i < 3; i++) {
+    const phase = (t * 0.55 + i * 0.33) % 1;
+    const r = 10 + phase * (hovered ? 44 : 36);
+    const a = (1 - phase) * 0.45 * pulse * glowBoost;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(93, 255, 160, ${a})`;
+    ctx.lineWidth = hovered ? 2.5 : 2;
+    ctx.stroke();
+  }
+
+  // Core
+  const coreR = (hovered ? 13 : 11) + pulse * 2;
+  const grd = ctx.createRadialGradient(cx, cy - 4, 2, cx, cy, coreR + 4);
+  grd.addColorStop(0, `rgba(240, 255, 245, ${hovered ? 1 : 0.95})`);
+  grd.addColorStop(0.4, `rgba(93, 255, 160, ${hovered ? 0.95 : 0.85})`);
+  grd.addColorStop(1, 'rgba(20, 80, 50, 0.15)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+  ctx.strokeStyle = `rgba(180, 255, 210, ${0.7 + pulse * 0.25})`;
+  ctx.lineWidth = hovered ? 2.5 : 2;
+  ctx.stroke();
+
+  // Antenna stem
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 10);
+  ctx.lineTo(cx, cy - 22 - pulse * 3);
+  ctx.strokeStyle = 'rgba(160, 255, 200, 0.9)';
+  ctx.lineWidth = hovered ? 2.5 : 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy - 24 - pulse * 3, hovered ? 4 : 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#b8ffd0';
+  ctx.fill();
+
+  // Label
+  ctx.font = `bold ${hovered ? 11 : 10}px 'Orbitron', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = hovered ? 'rgba(210, 255, 230, 1)' : 'rgba(180, 255, 210, 0.95)';
+  ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  ctx.shadowBlur = hovered ? 8 : 4;
+  ctx.fillText('DISTRESS BEACON', cx, cy + 28);
+  if (hovered) {
+    ctx.font = "9px 'Share Tech Mono', monospace";
+    ctx.fillStyle = 'rgba(140, 230, 180, 0.95)';
+    const hint = b.phase === 'ready' ? 'Click · recover Data Box' : b.phase === 'decrypting' ? 'Decrypting…' : 'Click · inspect';
+    ctx.fillText(hint, cx, cy + 42);
+  }
+  ctx.shadowBlur = 0;
+}
+
 function drawSelectedShipLine() {
   if (!state.selectedShip) return;
   if (state.settings?.showVisualEffects === false) return;
@@ -1291,6 +1372,7 @@ export function render(ts) {
     if (!isInView(x, y + TILE_H / 2)) continue;
     drawNode(n);
   }
+  drawMissionBeacon();
   drawStorageSprites();
   drawBase(BASE_COL, BASE_ROW);
   drawSelectedShipLine();

@@ -88,6 +88,7 @@ import {
   showTransmissionMessage,
 } from '../ui/transmissions.js';
 import { refresh } from '../ui/refresh.js';
+import { getFactionCombatHpMult, getFactionRepairCostMult, getFactionTurretDmgMult, getFactionPirateHeatMult } from './factions.js';
 
 let _enemyIdCounter = 1;
 let _raidSpawnTimer = null;
@@ -457,7 +458,10 @@ function getShipBaseHp(ship) {
 export function getShipMaxHp(ship) {
   const base = getShipBaseHp(ship);
   if (ship?.isHqSupport || ship?.isEnemy) return base;
-  return Math.max(1, Math.round(base * getShipHpMultiplier(ship)));
+  let mult = getShipHpMultiplier(ship);
+  const role = SHIP_DEFS[ship?.type]?.role;
+  if (isCombatRole(role)) mult *= getFactionCombatHpMult();
+  return Math.max(1, Math.round(base * mult));
 }
 
 function markShipDestroyed(ship) {
@@ -477,7 +481,7 @@ export function getShipRepairCost(ship) {
   const missing = Math.max(0, Math.ceil(maxHp - (ship.currentHp || 0)));
   if (missing <= 0) return 0;
   const rank = Math.max(1, Math.floor(ship.mineTier || ship.hpLevel || 1));
-  return missing * rank;
+  return Math.max(1, Math.floor(missing * rank * getFactionRepairCostMult()));
 }
 
 export function repairShip(shipId) {
@@ -523,6 +527,12 @@ export function ensureShipCombatHp(ship) {
   const maxHp = getShipMaxHp(ship);
   if (!Number.isFinite(ship.currentHp)) ship.currentHp = maxHp;
   ship.currentHp = Math.max(0, Math.min(maxHp, ship.currentHp));
+  // Combat Shields research — max shield = max HP
+  if (state.researchUnlocks?.combat_shields && maxHp > 0) {
+    ship.maxShield = maxHp;
+    if (!Number.isFinite(ship.shield)) ship.shield = maxHp;
+    ship.shield = Math.max(0, Math.min(maxHp, ship.shield));
+  }
   if (role === 'combat' || ship.isHqSupport) {
     // Fighters share fixed cruise — fly speed is not an upgrade
     ship.flySpeed = COMBAT_CRUISE_SPEED;
@@ -756,6 +766,13 @@ function tickShipAttachments(ship, enemy, dt, shootRange) {
       ship.currentHp = Math.min(maxHp, ship.currentHp + maxHp * regen * dt);
     }
   }
+  // Combat shield recharge (out of active fire)
+  if (state.researchUnlocks?.combat_shields && (ship.currentHp || 0) > 0) {
+    const maxSh = ship.maxShield || getShipMaxHp(ship);
+    if ((ship.shield || 0) < maxSh && (ship.atkCd || 0) <= 0) {
+      ship.shield = Math.min(maxSh, (ship.shield || 0) + maxSh * 0.04 * dt);
+    }
+  }
 }
 
 function getCombatShips() {
@@ -981,7 +998,13 @@ function applyDamageToTarget(target, dmg) {
     ensureShipCombatHp(ship);
     let remaining = dmg;
     if (state.researchUnlocks?.armor_plating) remaining *= 0.9;
-    ship.currentHp = Math.max(0, ship.currentHp - remaining);
+    // Combat Shields — absorb before hull
+    if (state.researchUnlocks?.combat_shields && (ship.shield || 0) > 0) {
+      const absorbed = Math.min(ship.shield, remaining);
+      ship.shield = Math.max(0, ship.shield - absorbed);
+      remaining -= absorbed;
+    }
+    if (remaining > 0) ship.currentHp = Math.max(0, ship.currentHp - remaining);
     return dmg;
   }
   return 0;
@@ -996,6 +1019,7 @@ function grantLoot(enemy, killerPos) {
       RESOURCE_CAP,
       (state.resources[entry.type] || 0) + entry.amount,
     );
+    import('./lifetime.js').then((m) => m.recordLifetimeResource?.(entry.type, entry.amount)).catch(() => {});
     spawnFloatie(entry.type, entry.amount, pos);
   }
   const bossBonus = enemy.isBoss ? 800 + raidTier * 200 : 0;
@@ -1036,7 +1060,7 @@ function refreshOverviewThreat() {
 
 /** Raise pirate aggression (expansion / craft). Clamped 0–100. */
 export function bumpPirateStatus(amount) {
-  const add = Math.max(0, Number(amount) || 0);
+  const add = Math.max(0, Math.round((Number(amount) || 0) * getFactionPirateHeatMult()));
   if (add <= 0) return state.pirateStatus || 0;
   state.pirateStatus = Math.min(100, Math.max(0, (state.pirateStatus || 0) + add));
   refreshOverviewThreat();
@@ -2094,7 +2118,7 @@ function turretMuzzle(wx, wy) {
 
 function fireAutomaticTurret(turret, target) {
   const { enemy, wx, wy } = target;
-  const dmg = Math.max(0, turret.damage || 0);
+  const dmg = Math.max(0, Math.round((turret.damage || 0) * getFactionTurretDmgMult()));
   if (dmg > 0) {
     enemy.hp = Math.max(0, (enemy.hp || 0) - dmg);
     markEnemyEngaged(enemy);
@@ -2118,7 +2142,7 @@ function fireAutomaticTurret(turret, target) {
 
 function fireLaserTurret(turret, target) {
   const { enemy, wx, wy } = target;
-  const dmg = Math.max(0, turret.damage || 0);
+  const dmg = Math.max(0, Math.round((turret.damage || 0) * getFactionTurretDmgMult()));
   if (dmg > 0) {
     enemy.hp = Math.max(0, (enemy.hp || 0) - dmg);
     markEnemyEngaged(enemy);

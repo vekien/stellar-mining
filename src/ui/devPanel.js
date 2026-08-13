@@ -214,15 +214,16 @@ function devFillMaxShips() {
 function devFloodIronNodes() {
   const existingPositions = new Set(state.nodes.map(n => `${n.gr[0]},${n.gr[1]}`));
   let nextId = state.nodes.reduce((max, n) => Math.max(max, n.id), -1) + 1;
+  const noSpawn = 2;
 
-  for (let dc = -50; dc <= 50; dc++) {
-    for (let dr = -50; dr <= 50; dr++) {
+  for (let dc = -70; dc <= 70; dc++) {
+    for (let dr = -70; dr <= 70; dr++) {
+      const cheb = Math.max(Math.abs(dc), Math.abs(dr));
+      if (cheb <= noSpawn) continue;
       const col = BASE_COL + dc;
       const row = BASE_ROW + dr;
       const key = `${col},${row}`;
       if (existingPositions.has(key)) continue;
-      // Skip the base tile itself
-      if (dc === 0 && dr === 0) continue;
       state.nodes.push({ id: nextId++, type: 'iron', gr: [col, row], minLevel: 1 });
       existingPositions.add(key);
     }

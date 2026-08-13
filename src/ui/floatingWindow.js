@@ -2,9 +2,18 @@
 // FLOATING WINDOW — shared drag / resize / z-order helpers
 // ============================================================
 
+/** Hard cap on floating window height (px). */
+export const FLOATING_MAX_HEIGHT = 1000;
+
 let _topZ = 100;
 /** @type {Map<string, { left: number, top: number, width?: number, height?: number, moved: boolean }>} */
 const _layouts = new Map();
+
+function clampFloatingHeight(h, minH = 0) {
+  const n = Number(h);
+  if (!Number.isFinite(n)) return minH || undefined;
+  return Math.max(minH || 0, Math.min(FLOATING_MAX_HEIGHT, Math.round(n)));
+}
 
 export function bringFloatingToFront(modal) {
   if (!modal) return;
@@ -102,8 +111,12 @@ export function placeFloatingWindow(overlay, modal, key = null) {
     modal.dataset.width = String(saved.width);
   }
   if (saved?.height) {
-    modal.style.height = `${saved.height}px`;
-    modal.dataset.height = String(saved.height);
+    const h = clampFloatingHeight(saved.height) ?? saved.height;
+    modal.style.height = `${h}px`;
+    modal.dataset.height = String(h);
+    modal.style.maxHeight = `${FLOATING_MAX_HEIGHT}px`;
+  } else {
+    modal.style.maxHeight = `${FLOATING_MAX_HEIGHT}px`;
   }
 
   if (saved?.moved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
@@ -210,6 +223,17 @@ export function initFloatingResize(modal, overlay, opts = {}) {
   modal.dataset.resizeReady = '1';
   const minW = opts.minW ?? 360;
   const minH = opts.minH ?? 220;
+  const maxHeightCap = opts.maxH ?? FLOATING_MAX_HEIGHT;
+  modal.style.maxHeight = `${maxHeightCap}px`;
+
+  // Clamp any pre-set height above the cap
+  if (modal.dataset.height) {
+    const h = clampFloatingHeight(modal.dataset.height, minH);
+    if (h != null) {
+      modal.style.height = `${h}px`;
+      modal.dataset.height = String(h);
+    }
+  }
 
   let handle = modal.querySelector('.panel-resize-handle');
   if (!handle) {
@@ -246,7 +270,10 @@ export function initFloatingResize(modal, overlay, opts = {}) {
     didResize = true;
     const overlayRect = overlay.getBoundingClientRect();
     const maxW = Math.max(minW, overlayRect.width - Number(modal.dataset.left || 0));
-    const maxH = Math.max(minH, overlayRect.height - Number(modal.dataset.top || 0));
+    const maxH = Math.max(
+      minH,
+      Math.min(maxHeightCap, overlayRect.height - Number(modal.dataset.top || 0))
+    );
     const nextW = Math.max(minW, Math.min(maxW, startW + (event.clientX - startX)));
     const nextH = Math.max(minH, Math.min(maxH, startH + (event.clientY - startY)));
     modal.style.width = `${Math.round(nextW)}px`;
@@ -270,6 +297,13 @@ export function initFloatingResize(modal, overlay, opts = {}) {
   window.addEventListener('resize', () => {
     const active = opts.isActive ? opts.isActive() : true;
     if (!active) return;
+    if (modal.dataset.height) {
+      const h = clampFloatingHeight(modal.dataset.height, minH);
+      if (h != null) {
+        modal.style.height = `${h}px`;
+        modal.dataset.height = String(h);
+      }
+    }
     applyFloatingPosition(overlay, modal);
   });
 }

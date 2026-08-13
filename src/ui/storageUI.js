@@ -323,6 +323,7 @@ function buildingIconFor(entity, isTurret = false) {
   if (isResearchLabModule(entity)) return 'assets/images/buildings/lab.png';
   if (isLabTowerModule(entity)) return 'assets/images/buildings/lab_pole.png';
   if (isDroneLabModule(entity)) return 'assets/images/buildings/drone_lab.png';
+  if (isContractCenterModule(entity)) return 'assets/images/buildings/contracts.png';
   if (isStorageModule(entity)) return 'assets/images/buildings/storage.png';
   return 'assets/images/buildings/storage.png';
 }
@@ -334,6 +335,7 @@ function typeLabelFor(entity, isTurret = false) {
   if (isResearchLabModule(entity)) return 'Research Lab';
   if (isLabTowerModule(entity)) return 'Lab Tower';
   if (isDroneLabModule(entity)) return 'Drone Lab';
+  if (isContractCenterModule(entity)) return 'Contracts Office';
   if (isStorageModule(entity)) return 'Storage';
   return getModuleDef(entity.type)?.name || entity.type || 'Module';
 }
@@ -687,6 +689,8 @@ import {
   placeFloatingWindow,
 } from './floatingWindow.js';
 import { getCraft } from '../data/crafts.js';
+import { BASE_UPGRADE_COSTS, BASE_TIER_REQS } from '../data/base.js';
+import { scaleCraftReqs, getFactionBuildingUpgradeCoinMult, getFactionRpCapBonus } from '../systems/factions.js';
 import {
   STORAGE_FACILITY_ID,
   DRONE_LAB_ID,
@@ -696,6 +700,7 @@ import {
   moduleContainsCell,
   normalizeModule,
   isStorageModule,
+  isContractCenterModule,
   isResearchLabModule,
   isDroneLabModule,
   isPoweredBuildingModule,
@@ -744,19 +749,67 @@ function getModuleFootprintLabel(moduleOrType) {
   return `${size}x${size}`;
 }
 
+/** Power pole upgrades: coins scale hard with tier; RP flat 5. No mats. */
+const POWER_POLE_UPGRADE_RP = 5;
+/** Full buildings (stations, storage, labs…): ~75% of base upgrade costs + 10 RP. */
+const BUILDING_UPGRADE_COIN_MULT = 0.75;
+const BUILDING_UPGRADE_MAT_MULT = 0.75;
+const BUILDING_UPGRADE_RP = 10;
+
+function getPowerPoleUpgradeCoins(currentLevel) {
+  // Cost to advance FROM currentLevel → next (L1→2 … L9→10)
+  const lvl = Math.max(1, Math.min(9, Math.floor(currentLevel || 1)));
+  // 5k → 15k → 45k → 135k → 405k → 1.2M → 3.6M → 11M → 33M
+  return Math.floor(5000 * Math.pow(3, lvl - 1));
+}
+
+function getBuildingUpgradeTargetTier(module) {
+  return Math.max(2, Math.min(10, Math.floor((module?.level || 1) + 1)));
+}
+
 function getModuleUpgradeCost(module) {
-  const moduleDef = getCraft('buildings', module.type || STORAGE_FACILITY_ID);
   const tier = Math.max(1, module.level || 1);
+  if (isPowerPoleModule(module)) {
+    return {
+      coins: getPowerPoleUpgradeCoins(tier),
+      rp: POWER_POLE_UPGRADE_RP,
+      reqs: {},
+    };
+  }
+  // Lab towers / 1×1 relays stay lighter? User asked buildings like power station — apply base-scale to all non-poles.
+  const targetTier = getBuildingUpgradeTargetTier(module);
+  const baseCoins = BASE_UPGRADE_COSTS[targetTier] || BASE_UPGRADE_COSTS[BASE_UPGRADE_COSTS.length - 1] || 100_000;
+  const baseReqs = BASE_TIER_REQS[targetTier] || {};
+  const reqs = {};
+  for (const [r, n] of Object.entries(baseReqs)) {
+    reqs[r] = Math.max(1, Math.floor(n * BUILDING_UPGRADE_MAT_MULT));
+  }
   return {
-    coins: (moduleDef?.cost || 0) * tier,
-    reqs: Object.fromEntries(Object.entries(moduleDef?.reqs || {}).map(([r, n]) => [r, n * tier])),
+    coins: Math.max(1, Math.floor(baseCoins * BUILDING_UPGRADE_COIN_MULT * getFactionBuildingUpgradeCoinMult())),
+    rp: BUILDING_UPGRADE_RP,
+    reqs,
   };
+}
+
+function canAffordModuleUpgrade(module, cost = null) {
+  const c = cost || getModuleUpgradeCost(module);
+  if ((state.coins || 0) < (c.coins || 0)) return false;
+  if ((c.rp || 0) > 0 && (state.rp || 0) < c.rp) return false;
+  for (const [r, n] of Object.entries(c.reqs || {})) {
+    if ((state.resources[r] || 0) < n) return false;
+  }
+  return true;
 }
 
 function getModuleInvestedCoins(module) {
   const moduleDef = getCraft('buildings', module.type || STORAGE_FACILITY_ID);
   let total = moduleDef?.cost || 0;
-  for (let lvl = 1; lvl < (module.level || 1); lvl++) total += (moduleDef?.cost || 0) * lvl;
+  // Sum prior upgrade steps using current cost curves
+  const fake = { type: module.type, level: 1 };
+  for (let lvl = 1; lvl < (module.level || 1); lvl++) {
+    fake.level = lvl;
+    total += getModuleUpgradeCost(fake).coins || 0;
+  }
   return total;
 }
 
@@ -891,6 +944,7 @@ function getModuleAccentClass(module) {
   if (isPowerStationModule(module) || isPowerPoleModule(module)) return 'modal-accent-power';
   if (isResearchLabModule(module) || isLabTowerModule(module)) return 'modal-accent-lab';
   if (isDroneLabModule(module)) return 'modal-accent-drone';
+  if (isContractCenterModule(module)) return 'modal-accent-contracts';
   if (isStorageModule(module)) return 'modal-accent-storage';
   return '';
 }
@@ -900,6 +954,7 @@ function isWideBuildingModal(module) {
     isResearchLabModule(module)
     || isPowerStationModule(module)
     || isStorageModule(module)
+    || isContractCenterModule(module)
     || isDroneLabModule(module)
     || isPowerPoleModule(module)
     || isLabTowerModule(module)
@@ -1130,13 +1185,29 @@ function buildSynthesisSlotsHtml(module) {
 }
 
 function buildUpgradeReqsHtml(upgradeCost) {
+  const chips = [];
   const coinMet = state.coins >= upgradeCost.coins;
-  let html = `<span class="lab-req${coinMet ? '' : ' unmet'}" title="Credits"><span class="lab-req-cash">$</span><span class="lab-req-amt">${fmtCompact(upgradeCost.coins)}</span></span>`;
-  for (const [r, n] of Object.entries(upgradeCost.reqs)) {
-    const met = (state.resources[r] || 0) >= n;
-    html += `<span class="lab-req${met ? '' : ' unmet'}" title="${RESOURCE_DEFS[r]?.label || r}">${resourceIconHtml(r, 16)}<span class="lab-req-amt">${fmtCompact(n)}</span></span>`;
+  chips.push(`<span class="lab-req is-coins${coinMet ? '' : ' unmet'}" title="Credits — have $${fmt(state.coins || 0)}">
+    <span class="lab-req-cash">$</span><span class="lab-req-amt">${fmtCompact(upgradeCost.coins)}</span>
+  </span>`);
+  const rpCost = Math.floor(Number(upgradeCost.rp) || 0);
+  if (rpCost > 0) {
+    const rpMet = (state.rp || 0) >= rpCost;
+    chips.push(`<span class="lab-req is-rp${rpMet ? '' : ' unmet'}" title="Research Points — have ${fmt(state.rp || 0)} RP">
+      <span class="ms-icon ms-icon-fill lab-req-rp-ico" aria-hidden="true">science</span>
+      <span class="lab-req-amt">${fmtCompact(rpCost)} RP</span>
+    </span>`);
   }
-  return html;
+  for (const [r, n] of Object.entries(upgradeCost.reqs || {})) {
+    const have = state.resources[r] || 0;
+    const met = have >= n;
+    const label = RESOURCE_DEFS[r]?.label || r;
+    chips.push(`<span class="lab-req${met ? '' : ' unmet'}" title="${label} — have ${fmt(have)}">
+      ${resourceIconHtml(r, 18)}
+      <span class="lab-req-amt">${fmtCompact(n)}</span>
+    </span>`);
+  }
+  return chips.join('');
 }
 
 function buildPowerConsumerListHtml(linkedStorages, linkedTurrets) {
@@ -2811,8 +2882,8 @@ export function patchModuleModal(moduleId = state.selectedModule, modalRoot = nu
 
   const upgradeCost = getModuleUpgradeCost(module);
   const atMaxTier = module.level >= 10;
-  const canUpgrade = !atMaxTier && state.coins >= upgradeCost.coins && Object.entries(upgradeCost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', `<span class="bp-craft-req ${state.coins >= upgradeCost.coins ? 'met' : 'unmet'}">$${fmt(upgradeCost.coins)}</span>${Object.entries(upgradeCost.reqs).map(([r, n]) => `<span class="bp-craft-req ${(state.resources[r] || 0) >= n ? 'met' : 'unmet'}">${RESOURCE_DEFS[r].label}: ${fmt(n)}</span>`).join('')}`);
+  const canUpgrade = !atMaxTier && canAffordModuleUpgrade(module, upgradeCost);
+  setHtmlIfChangedIn(modal, '#storage-upgrade-reqs', buildUpgradeReqsHtml(upgradeCost));
   const upBtn = qs('#storage-upgrade-btn');
   upBtn.textContent = atMaxTier ? '★ MAX TIER' : (isPowerPoleModule(module) || isLabTowerModule(module) || isPowerStationModule(module) || isPoweredBuildingModule(module)) ? 'UPGRADE' : `⬆ UPGRADE ${moduleDef.name.toUpperCase()}`;
   upBtn.disabled = !canUpgrade || (isPoweredBuildingModule(module) && (module.power || 0) <= 0);
@@ -3062,11 +3133,11 @@ window.upgradeStorageFacility = function(moduleId) {
   const module = getModuleById(moduleId);
   if (!module || module.level >= 10) return;
   const cost = getModuleUpgradeCost(module);
-  if (state.coins < cost.coins) return;
-  for (const [r, n] of Object.entries(cost.reqs)) if ((state.resources[r] || 0) < n) return;
+  if (!canAffordModuleUpgrade(module, cost)) return;
   if (isPoweredBuildingModule(module) && (module.power || 0) <= 0) return;
   spendCoins(cost.coins);
-  for (const [r, n] of Object.entries(cost.reqs)) state.resources[r] -= n;
+  if ((cost.rp || 0) > 0) state.rp = Math.max(0, (state.rp || 0) - cost.rp);
+  for (const [r, n] of Object.entries(cost.reqs || {})) state.resources[r] -= n;
   module.level++;
   const nextStats = getModuleStats(module.type, module.level);
   const prevMaxHealth = module.maxHealth;
@@ -3078,6 +3149,7 @@ window.upgradeStorageFacility = function(moduleId) {
   addLog(`${module.name} upgraded to Tier ${module.level}.`);
   if (refresh.ui) refresh.ui();
   patchModuleModal(moduleId);
+  try { window.updateHeaderRP?.(); } catch (_) { /* ignore */ }
 };
 
 window.buyStoragePower = function(moduleId) {
@@ -3362,9 +3434,10 @@ window.startCraftBuilding = function(moduleType = STORAGE_FACILITY_ID) {
     return;
   }
   if (state.coins < moduleDef.cost) return;
-  for (const [r, n] of Object.entries(moduleDef.reqs)) if ((state.resources[r] || 0) < n) return;
+  const craftReqs = scaleCraftReqs(moduleDef.reqs);
+  for (const [r, n] of Object.entries(craftReqs)) if ((state.resources[r] || 0) < n) return;
   spendCoins(moduleDef.cost);
-  for (const [r, n] of Object.entries(moduleDef.reqs)) state.resources[r] -= n;
+  for (const [r, n] of Object.entries(craftReqs)) state.resources[r] -= n;
   const durationMs = getModuleCraftTimeMs(moduleType);
   const job = enqueueCraftJob({
     kind: 'building',
@@ -3374,7 +3447,7 @@ window.startCraftBuilding = function(moduleType = STORAGE_FACILITY_ID) {
   });
   if (!job) {
     addCoins(moduleDef.cost);
-    for (const [r, n] of Object.entries(moduleDef.reqs)) state.resources[r] = (state.resources[r] || 0) + n;
+    for (const [r, n] of Object.entries(craftReqs)) state.resources[r] = (state.resources[r] || 0) + n;
     return;
   }
   addLog(`🛠 Queued: ${moduleDef.name} (${Math.ceil(durationMs / 1000)}s)`);
@@ -3414,15 +3487,16 @@ window.completeCraftDroneJob = function() {
 window.startCraftDrone = function() {
   const droneDef = getCraft('drones', 'drone');
   if (!droneDef) return;
-  if (!state.researchUnlocks['drone_crafting']) return;
+  if (!(state.researchUnlocks['drone_crafting'] || state.researchUnlocks['drone_lab'])) return;
   if (!canEnqueueCraft()) {
     addLog(`⚠ Craft queue full (${getCraftQueueCap()} slots). Upgrade the Base for more.`);
     return;
   }
   if (state.coins < droneDef.cost) return;
-  for (const [r, n] of Object.entries(droneDef.reqs || {})) if ((state.resources[r] || 0) < n) return;
+  const craftReqs = scaleCraftReqs(droneDef.reqs || {});
+  for (const [r, n] of Object.entries(craftReqs)) if ((state.resources[r] || 0) < n) return;
   spendCoins(droneDef.cost);
-  for (const [r, n] of Object.entries(droneDef.reqs || {})) state.resources[r] -= n;
+  for (const [r, n] of Object.entries(craftReqs)) state.resources[r] -= n;
   const durationMs = droneDef.craftTimeMs || 1000;
   const job = enqueueCraftJob({
     kind: 'drone',
@@ -3432,7 +3506,7 @@ window.startCraftDrone = function() {
   });
   if (!job) {
     addCoins(droneDef.cost);
-    for (const [r, n] of Object.entries(droneDef.reqs || {})) state.resources[r] = (state.resources[r] || 0) + n;
+    for (const [r, n] of Object.entries(craftReqs)) state.resources[r] = (state.resources[r] || 0) + n;
     return;
   }
   addLog(`🛠 Queued: Drone (${Math.ceil(durationMs / 1000)}s)`);
@@ -3575,9 +3649,18 @@ window.openModuleUpgradeOverlay = function(moduleId) {
   _upgradeOverlayModuleId = moduleId;
   const overlay = document.getElementById('module-upgrade-overlay');
   const title = document.getElementById('module-upgrade-title');
+  const nameEl = document.getElementById('module-upgrade-name');
   const sub = document.getElementById('module-upgrade-sub');
-  if (title) title.textContent = `◈ Upgrade ${getModuleLabel(module)}`;
-  if (sub) sub.innerHTML = `Advance <strong>${escapeHtml(module.name)}</strong> to Tier ${toRoman(Math.min(10, (module.level || 1) + 1))}`;
+  const fromLvl = Math.max(1, module.level || 1);
+  const toLvl = Math.min(10, fromLvl + 1);
+  if (title) title.textContent = `UPGRADE ${getModuleLabel(module).toUpperCase()}`;
+  if (nameEl) nameEl.textContent = module.name || getModuleLabel(module);
+  if (sub) {
+    sub.innerHTML = `
+      <span class="mu-tier from">${toRoman(fromLvl)}</span>
+      <span class="mu-tier-arrow ms-icon" aria-hidden="true">arrow_forward</span>
+      <span class="mu-tier to">${toRoman(toLvl)}</span>`;
+  }
   patchModuleUpgradeOverlay();
   if (overlay) {
     overlay.classList.add('show');
@@ -3592,8 +3675,7 @@ function patchModuleUpgradeOverlay() {
   const confirmBtn = document.getElementById('module-upgrade-confirm');
   if (!module || !reqsEl) return;
   const cost = getModuleUpgradeCost(module);
-  const canUpgrade = state.coins >= cost.coins
-    && Object.entries(cost.reqs).every(([r, n]) => (state.resources[r] || 0) >= n)
+  const canUpgrade = canAffordModuleUpgrade(module, cost)
     && !(isPoweredBuildingModule(module) && (module.power || 0) <= 0);
   reqsEl.innerHTML = buildUpgradeReqsHtml(cost);
   if (confirmBtn) {

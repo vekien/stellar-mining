@@ -13,10 +13,11 @@ import {
   formatWeaponRangeTiles,
 } from '../data/ships.js';
 import { NODE_BANDS, CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
-import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS } from '../data/base.js';
+import { BASE_MAX_SHIPS, BASE_UPGRADE_COSTS, BASE_RANGE } from '../data/base.js';
+import { BASE_COL, BASE_ROW } from '../constants.js';
 import { eventIconHtml } from '../data/events.js';
 import { NPCS } from '../data/npcs.js';
-import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap } from '../data/research.js';
+import { RESEARCH_TREE, getRepeatableCount, getRepeatableMax, getResearchPointCap, hasThreatDetector } from '../data/research.js';
 import { TURRET_BASE_STATS } from '../data/turrets.js';
 import { MODULE_DEFS, getModuleDef, getModuleStats, getPowerFuelOutput, POWER_DISABLED_RESOURCES, POWER_RESOURCE_CONSUMPTION, STORAGE_FACILITY_ID, DRONE_LAB_ID, isDroneLabModule } from '../data/modules.js';
 import { SYNTHESIS_RECIPES, SYNTHESIS_CRAFT_TIMES, getSynthesisCraftTime } from '../data/synthesis.js';
@@ -35,7 +36,32 @@ import {
   countCraftJobs,
 } from '../systems/craftQueue.js';
 import { isTracked, refreshTrackButtons } from './craftTracker.js';
-import { getSellPrice, getMarketVariancePct, getDemandBonusPct, isDemandedType } from '../systems/market.js';
+import {
+  getSellPrice, getBuyPrice, getMarketVariancePct, getDemandBonusPct, isDemandedType,
+  getMarketBuyOffers, getBuyOfferRemaining,
+} from '../systems/market.js';
+import {
+  getQuestsUiModel,
+  getTrackedQuestsUiModel,
+  isShipCraftLocked,
+  isQuestTracked,
+  formatRewards,
+  claimQuest,
+  toggleTrackQuest,
+} from '../systems/quests.js';
+import { getContractsUiModel, CONTRACT_PERIOD_SOLS } from '../systems/contracts.js';
+import { getAutoTradeRule, setAutoTradeRule } from '../systems/autoTrade.js';
+import { CARGO_STRAPS_MULT } from '../systems/research/definitions.js';
+import { getKeyItemDef } from '../data/keyItems.js';
+import { ensureKeyItems } from '../systems/keyItems.js';
+import {
+  getFactionDef, standingLabel, standingTone, listFactions,
+  STANDING_TIERS, getStandingTier, standingTierTip, factionLogoHtml,
+} from '../data/factions.js';
+import {
+  hasFactionsUnlocked, getFactionRep, ensureFactionRep,
+  getFactionPerksForUi, getFactionRpCapBonus, scaleCraftReqs,
+} from '../systems/factions.js';
 import { cancelTurretPlacement } from './turretUI.js';
 import { cancelStoragePlacement } from './storageUI.js';
 import { renderBasePanel } from './basePanel.js';
@@ -53,8 +79,8 @@ import {
 const HDR_PANEL_TITLES = {
   sol: 'SECTOR OVERVIEW',
   command: 'COMMAND',
-  transmissions: 'TRANSMISSIONS',
-  resources: 'RESOURCES',
+  transmissions: 'COMMS',
+  resources: 'INVENTORY',
   craft: 'CRAFT',
   market: 'TRADE',
   fleet: 'SHIPS',
@@ -97,8 +123,771 @@ let _fleetCompSig = '';
 let _fleetSortKey = 'name';
 let _fleetSortDir = 1;
 let _fleetRoleTab = 'all';
+let _tradeTab = 'sell'; // sell | buy | auto
+/** Inventory panel tab: resources | keyitems */
+let _invTab = 'resources';
+/** Remembered sell qty per resource so SELL refresh doesn't reset inputs */
+const _sellQtyByType = Object.create(null);
 let _stockpileMineableKeys = null;
+
+window.setInvTab = function(tab) {
+  _invTab = tab === 'keyitems' ? 'keyitems' : 'resources';
+  openHdrPanel('resources', { refresh: true, preserveScroll: true });
+};
 let _selectedTransmissionIndex = 0;
+
+window.setTradeTab = function(tab) {
+  _tradeTab = tab === 'auto' ? 'auto' : (tab === 'buy' ? 'buy' : 'sell');
+  openHdrPanel('market', { refresh: true, preserveScroll: true });
+};
+
+function rememberSellQty(resType, qty, maxAmt) {
+  const max = Math.max(0, Math.floor(Number(maxAmt) || 0));
+  let q = Math.floor(Number(qty) || 0);
+  if (!Number.isFinite(q) || q < 1) q = 1;
+  if (max > 0 && q > max) q = max;
+  _sellQtyByType[resType] = q;
+  return q;
+}
+
+function getRememberedSellQty(resType, maxAmt, fallback) {
+  const max = Math.max(0, Math.floor(Number(maxAmt) || 0));
+  const remembered = _sellQtyByType[resType];
+  if (remembered == null) return fallback;
+  let q = Math.floor(Number(remembered) || 0);
+  if (!Number.isFinite(q) || q < 1) q = 1;
+  if (max > 0 && q > max) q = max;
+  return q;
+}
+
+window.updateSellBtnEarn = function(resType) {
+  const card = document.querySelector(`.sell-card[data-sell-type="${resType}"]`);
+  const inp = document.getElementById(`sell-qty-${resType}`);
+  const earnEl = document.getElementById(`sell-earn-${resType}`);
+  if (!card || !inp || !earnEl) return;
+  const price = Number(card.dataset.sellPrice) || 0;
+  const max = Math.max(0, Math.floor(Number(card.dataset.sellMax) || 0));
+  const qty = rememberSellQty(resType, inp.value, max);
+  if (String(inp.value) !== String(qty)) inp.value = qty;
+  earnEl.textContent = `$${fmt(Math.max(0, qty) * price)}`;
+};
+
+window.setAutoTradeRuleField = function(type, field, value) {
+  if (field === 'enabled') setAutoTradeRule(type, { enabled: !!value });
+  else if (field === 'demandOnly') setAutoTradeRule(type, { demandOnly: !!value });
+  else if (field === 'keepPct') setAutoTradeRule(type, { keepPct: Number(value) || 0 });
+  openHdrPanel('market', { refresh: true, preserveScroll: true });
+};
+
+function buildContractsPanelHtml() {
+  const model = getContractsUiModel();
+  if (!model.unlocked) {
+    return `
+      <div class="ov-threat-lock">
+        <div class="ov-threat-lock-ico"><span class="ms-icon ms-icon-fill">handshake</span></div>
+        <div class="ov-threat-lock-title">CONTRACTS OFFLINE</div>
+        <div class="ov-threat-lock-desc">
+          Research <strong>Unlock Contracts</strong> (Base Level 3 · 3 RP), then craft and place a powered
+          <strong>Contracts Office</strong> to receive sector supply orders every ${CONTRACT_PERIOD_SOLS} SOLs.
+        </div>
+        <button type="button" class="btn primary ov-threat-lock-btn" onclick="openHdrPanel('research',{refresh:true})">
+          <span class="ms-icon">science</span> OPEN RESEARCH
+        </button>
+      </div>`;
+  }
+  if (!model.hasCenter) {
+    return `<div class="banner banner-warning">No powered Contracts Office on the map. Craft and place one, then link power.</div>`;
+  }
+  if (!model.cap) {
+    return `<div class="tx-empty">Contracts research inactive.</div>`;
+  }
+  const slots = model.slots || [];
+  if (!slots.length) {
+    return `<div class="banner banner-default">Awaiting next contract cycle · ${model.solsLeft} SOL(s) left in period</div>`;
+  }
+  const cards = slots.map((s) => {
+    const def = RESOURCE_DEFS[s.resource];
+    const pct = Math.min(100, Math.round(((s.delivered || 0) / Math.max(1, s.needed || 1)) * 100));
+    const status = s.status === 'complete' ? 'done' : (s.status === 'expired' ? 'expired' : 'active');
+    return `<div class="contract-card status-${status}">
+      <div class="contract-card-top">
+        <span class="contract-ico">${resourceIconHtml(s.resource, 22)}</span>
+        <div>
+          <div class="contract-name">${def?.label || s.resource}</div>
+          <div class="contract-meta">Band T${(s.tierBand || []).join('–')} · Reward $${fmt(s.rewardCoins || 0)}</div>
+        </div>
+        <span class="contract-status">${(s.status || 'active').toUpperCase()}</span>
+      </div>
+      <div class="contract-prog-row">
+        <span>${fmt(s.delivered || 0)} / ${fmt(s.needed || 0)}</span>
+        <span>${pct}%</span>
+      </div>
+      <div class="contract-bar"><i style="width:${pct}%"></i></div>
+    </div>`;
+  }).join('');
+  return `<div class="contracts-panel">
+    <div class="ui-section-title sm">◈ ACTIVE ORDERS · ${model.solsLeft} SOL LEFT</div>
+    <div class="contracts-list">${cards}</div>
+    <div class="quest-detail-stage-blurb">Set ship dropoff to your Contracts Office. Deliveries tally here and do not enter stockpile.</div>
+  </div>`;
+}
+
+window.patchContractsPanel = function() {
+  if (!isHdrPanelOpen('command')) return;
+  const body = getHdrModalWindow('command')?.querySelector('.hdr-modal-body');
+  if (!body || body.dataset.cmdTab !== 'contracts') return;
+  const host = body.querySelector('#cmd-contracts-body');
+  if (host) host.innerHTML = buildContractsPanelHtml();
+};
+
+let _selectedQuestId = null;
+let _questPanelSig = '';
+let _questListTab = 'active'; // active | done
+
+function objectiveProgressParts(obj, rt) {
+  if (rt?.progress?.[obj.id] != null && rt?.targets?.[obj.id] != null) {
+    const cur = rt.progress[obj.id];
+    const max = Math.max(1, rt.targets[obj.id]);
+    const isMoney = obj.type === 'daily' && /\$/.test(obj.label || '');
+    return {
+      cur,
+      max,
+      text: isMoney ? `$${fmt(cur)} / $${fmt(max)}` : `${fmt(cur)} / ${fmt(max)}`,
+      pct: Math.min(100, Math.round((cur / max) * 100)),
+    };
+  }
+  if (obj.type === 'collect') {
+    const max = obj.amount || 1;
+    const cur = Math.min(max, state.resources[obj.resource] || 0);
+    return { cur, max, text: `${fmt(cur)} / ${fmt(max)}`, pct: Math.round((cur / max) * 100) };
+  }
+  if (obj.type === 'ships_on_diff_resources') {
+    const max = obj.amount || 2;
+    const types = new Set();
+    let assigned = 0;
+    for (const s of state.ships || []) {
+      if (s.targetNode == null) continue;
+      assigned += 1;
+      const node = (state.nodes || []).find((n) => n.id === s.targetNode);
+      if (node?.type) types.add(node.type);
+    }
+    const cur = Math.min(max, Math.min(assigned, types.size));
+    return { cur, max, text: `${cur} / ${max}`, pct: Math.round((cur / max) * 100) };
+  }
+  if (obj.type === 'craft_ship' || obj.type === 'sell_resource' || obj.type === 'upgrade_ship') {
+    const cur = rt?.done?.[obj.id] ? 1 : 0;
+    return { cur, max: 1, text: `${cur} / 1`, pct: cur * 100 };
+  }
+  const cur = rt?.done?.[obj.id] ? 1 : 0;
+  return { cur, max: 1, text: cur ? 'Done' : '—', pct: cur * 100 };
+}
+
+function objectiveProgressText(obj, rt) {
+  return objectiveProgressParts(obj, rt).text;
+}
+
+function objectiveShortLabel(obj) {
+  if (obj.type === 'collect' && obj.resource) {
+    const name = RESOURCE_DEFS[obj.resource]?.label || obj.resource;
+    return `Collect ${fmt(obj.amount)} ${name}`;
+  }
+  return obj.label;
+}
+
+function questListMeta(entry, done) {
+  const { def, rt } = entry;
+  if (done || rt.status === 'completed') {
+    const rewardLine = formatRewards(rt.rewards || def.rewards);
+    return rewardLine || (def.kind === 'daily' ? 'Daily' : 'Story');
+  }
+  if (rt.status === 'ready') return 'Ready to claim';
+  if (def.kind === 'daily') {
+    const cur = rt.progress?.main ?? 0;
+    const max = rt.targets?.main ?? 1;
+    return `${Math.min(100, Math.round((cur / Math.max(1, max)) * 100))}%`;
+  }
+  const stage = def.stages[rt.stageIndex];
+  const total = def.stages?.length || 0;
+  if (total <= 1) return stage?.title || 'In progress';
+  const stageIdx = Math.min(rt.stageIndex + 1, total);
+  return stage ? `${stageIdx}/${total} · ${stage.title}` : `${stageIdx}/${total}`;
+}
+
+function collectQuestObjectives(entry, done) {
+  const { def, rt } = entry;
+  const stages = def.stages || [];
+  if (!stages.length) return [];
+  const lastIdx = done || rt.status === 'completed' || rt.status === 'ready'
+    ? stages.length - 1
+    : Math.min(rt.stageIndex, stages.length - 1);
+  const out = [];
+  for (let i = 0; i <= lastIdx; i++) {
+    const stage = stages[i];
+    const stageDone = done || rt.status === 'completed' || rt.status === 'ready' || i < rt.stageIndex;
+    for (const obj of (stage.objectives || [])) {
+      out.push({ obj, forceDone: stageDone || !!rt.done?.[obj.id] });
+    }
+  }
+  return out;
+}
+
+function buildQuestObjectivesHtml(entry, done) {
+  const rows = collectQuestObjectives(entry, done);
+  if (!rows.length) return '<div class="tx-empty">No objectives.</div>';
+  return rows.map(({ obj, forceDone }) => {
+    const isDone = forceDone || !!entry.rt.done?.[obj.id];
+    return `
+      <div class="quest-obj${isDone ? ' done' : ''}">
+        <span class="quest-obj-check">${isDone ? '✓' : '<span class="ms-icon quest-obj-circle" aria-hidden="true">circle</span>'}</span>
+        <span class="quest-obj-label">${obj.label}</span>
+        <span class="quest-obj-prog">${isDone ? 'Done' : objectiveProgressText(obj, entry.rt)}</span>
+      </div>`;
+  }).join('');
+}
+
+function displayQuestName(def) {
+  const name = def?.name || 'Quest';
+  // Already titled Daily / Daily Faction — don't double-prefix
+  if (def?.kind === 'daily' && !/^daily\b/i.test(name)) return `Daily: ${name}`;
+  return name;
+}
+
+/** Split long daily names for compact list rows. */
+function questListTitleParts(def) {
+  const full = displayQuestName(def);
+  const fid = def.factionId || def.rewards?.factionId || null;
+  const fDef = fid ? getFactionDef(fid) : null;
+  if (fDef) {
+    // "Daily Faction: Ironhands · Cash Flow" → kind FACTION, title Cash Flow, sub Ironhands
+    const m = full.match(/·\s*(.+)$/);
+    return {
+      kind: 'faction',
+      kindLab: 'FACTION',
+      title: m ? m[1].trim() : full,
+      sub: fDef.shortName,
+      color: fDef.color,
+    };
+  }
+  if (def.kind === 'daily' || /^daily\b/i.test(full)) {
+    const m = full.match(/^daily\s*:\s*(.+)$/i);
+    return {
+      kind: 'daily',
+      kindLab: 'DAILY',
+      title: m ? m[1].trim() : full.replace(/^daily\s*:\s*/i, ''),
+      sub: '',
+      color: '#5ec8ff',
+    };
+  }
+  return {
+    kind: 'story',
+    kindLab: 'STORY',
+    title: full,
+    sub: '',
+    color: '#c8a868',
+  };
+}
+
+function questListProgress(entry, done) {
+  const { def, rt } = entry;
+  if (done || rt.status === 'completed') {
+    return { pct: 100, text: formatRewards(rt.rewards || def.rewards) || 'Complete', done: true };
+  }
+  if (rt.status === 'ready') {
+    return { pct: 100, text: 'Ready to claim', done: false, ready: true };
+  }
+  if (def.kind === 'daily' || rt.progress?.main != null) {
+    const cur = rt.progress?.main ?? 0;
+    const max = Math.max(1, rt.targets?.main ?? 1);
+    const pct = Math.min(100, Math.round((cur / max) * 100));
+    const stage = def.stages?.[rt.stageIndex];
+    const obj = stage?.objectives?.[0];
+    const text = obj ? objectiveProgressText(obj, rt) : `${pct}%`;
+    return { pct, text, done: false };
+  }
+  const stage = def.stages?.[rt.stageIndex];
+  const objs = stage?.objectives || [];
+  if (!objs.length) return { pct: 0, text: 'In progress', done: false };
+  const doneN = objs.filter((o) => rt.done?.[o.id]).length;
+  const pct = Math.round((doneN / objs.length) * 100);
+  return { pct, text: `${doneN}/${objs.length} objectives`, done: false };
+}
+
+function buildRewardChipsHtml(rewards) {
+  if (!rewards || typeof rewards !== 'object') return '';
+  const chips = [];
+  const coins = Math.floor(Number(rewards.coins) || 0);
+  const rp = Math.floor(Number(rewards.rp) || 0);
+  const rep = Math.floor(Number(rewards.rep) || 0);
+  if (coins > 0) {
+    chips.push(`
+      <div class="qr-chip is-coins">
+        <span class="qr-chip-ico"><span class="ms-icon ms-icon-fill" aria-hidden="true">paid</span></span>
+        <span class="qr-chip-body">
+          <span class="qr-chip-lab">Credits</span>
+          <span class="qr-chip-val">$${fmt(coins)}</span>
+        </span>
+      </div>`);
+  }
+  if (rewards.resources && typeof rewards.resources === 'object') {
+    for (const [type, amt] of Object.entries(rewards.resources)) {
+      const n = Math.floor(Number(amt) || 0);
+      if (n <= 0) continue;
+      const label = RESOURCE_DEFS[type]?.label || (type.charAt(0).toUpperCase() + type.slice(1));
+      chips.push(`
+        <div class="qr-chip is-res">
+          <span class="qr-chip-ico">${resourceIconHtml(type, 18)}</span>
+          <span class="qr-chip-body">
+            <span class="qr-chip-lab">${label}</span>
+            <span class="qr-chip-val">${fmt(n)}</span>
+          </span>
+        </div>`);
+    }
+  }
+  if (rp > 0) {
+    chips.push(`
+      <div class="qr-chip is-rp">
+        <span class="qr-chip-ico"><span class="ms-icon ms-icon-fill" aria-hidden="true">science</span></span>
+        <span class="qr-chip-body">
+          <span class="qr-chip-lab">Research</span>
+          <span class="qr-chip-val">${rp} RP</span>
+        </span>
+      </div>`);
+  }
+  const fId = rewards.factionId;
+  const fRep = Math.floor(Number(rewards.factionRep) || 0);
+  if (fId && fRep > 0) {
+    const fDef = getFactionDef(fId);
+    const fName = fDef?.shortName || 'Faction';
+    const col = fDef?.color || '#b8f0c8';
+    chips.push(`
+      <div class="qr-chip is-rep" style="--faction-col:${col}">
+        <span class="qr-chip-ico"><span class="ms-icon ms-icon-fill" aria-hidden="true">${fDef?.icon || 'military_tech'}</span></span>
+        <span class="qr-chip-body">
+          <span class="qr-chip-lab">${fName}</span>
+          <span class="qr-chip-val">+${fRep}</span>
+        </span>
+      </div>`);
+  } else if (rep > 0) {
+    chips.push(`
+      <div class="qr-chip is-rep">
+        <span class="qr-chip-ico"><span class="ms-icon ms-icon-fill" aria-hidden="true">military_tech</span></span>
+        <span class="qr-chip-body">
+          <span class="qr-chip-lab">Reputation</span>
+          <span class="qr-chip-val">+${rep}</span>
+        </span>
+      </div>`);
+  }
+  return chips.join('');
+}
+
+function buildQuestDetailHtml(entry, done) {
+  if (!entry) return '<div class="tx-empty">No quest selected.</div>';
+  const { def, rt } = entry;
+  const isReady = rt.status === 'ready';
+  const isDone = done || rt.status === 'completed';
+  const totalStages = def.stages?.length || 0;
+  const badge = isDone
+    ? '<span class="quest-check-done" aria-label="Complete">✓</span>'
+    : (isReady
+      ? '<span class="quest-badge ready">FULFILLED</span>'
+      : (totalStages > 1 ? `<span class="quest-step">Stages: ${totalStages}</span>` : ''));
+  const tracked = isQuestTracked(def.id);
+  const trackBtn = !isDone
+    ? `<button type="button" class="quest-track-btn${tracked ? ' is-on' : ''}" onclick="toggleTrackQuest('${def.id}')" title="${tracked ? 'Untrack' : 'Track'}">
+        <span class="ms-icon${tracked ? ' ms-icon-fill' : ''}" aria-hidden="true">bookmark</span>
+        <span>${tracked ? 'TRACKED' : 'TRACK'}</span>
+      </button>`
+    : '';
+  const rewards = rt.rewards || def.rewards || entry.daily?.rewards || null;
+  const rewardChips = buildRewardChipsHtml(rewards);
+  const objectivesPanel = `
+    <div class="quest-panel quest-objectives-panel">
+      <div class="quest-panel-lab">QUEST OBJECTIVES</div>
+      <div class="quest-objs">${buildQuestObjectivesHtml(entry, isDone || isReady)}</div>
+    </div>`;
+  let rewardsPanel = '';
+  if (isReady) {
+    rewardsPanel = `
+      <div class="quest-claim">
+        <div class="quest-claim-title">QUEST FULFILLED</div>
+        <div class="quest-claim-sub">Claim your rewards</div>
+        ${rewardChips ? `<div class="quest-reward-chips">${rewardChips}</div>` : ''}
+        <button type="button" class="btn primary quest-claim-btn" onclick="claimQuest('${def.id}')">ACCEPT</button>
+      </div>`;
+  } else if (isDone && rewardChips) {
+    rewardsPanel = `
+      <div class="quest-panel quest-rewards-claimed">
+        <div class="quest-panel-lab">REWARDS CLAIMED</div>
+        <div class="quest-reward-chips">${rewardChips}</div>
+      </div>`;
+  } else if (rewardChips) {
+    rewardsPanel = `
+      <div class="quest-panel quest-reward-preview">
+        <div class="quest-panel-lab">REWARDS</div>
+        <div class="quest-reward-chips">${rewardChips}</div>
+      </div>`;
+  }
+  const parts = questListTitleParts(def);
+  const statusMeta = isDone ? 'Quest complete' : (isReady ? 'Ready to claim' : 'In progress');
+  const kindLine = parts.sub
+    ? `${parts.kindLab} · ${parts.sub.toUpperCase()}`
+    : parts.kindLab;
+  return `
+    <div class="tx-detail-head quest-detail-head" style="--q-accent:${parts.color}">
+      <div class="tx-detail-identity">
+        <span class="ms-icon ms-icon-lg" style="color:${parts.color}" aria-hidden="true">assignment</span>
+        <div>
+          <div class="qd-kind-row"><span class="ql-kind">${kindLine}</span></div>
+          <div class="tx-detail-name">${parts.title}</div>
+          <div class="tx-detail-meta">${statusMeta}</div>
+        </div>
+      </div>
+      <div class="quest-detail-head-right">
+        ${trackBtn}
+        ${badge}
+      </div>
+    </div>
+    <div class="quest-detail-stack">
+      ${objectivesPanel}
+      ${rewardsPanel}
+    </div>`;
+}
+
+function renderQuestsPanel(host) {
+  if (!host) return;
+  host.innerHTML = `
+    <div class="tx-layout quest-layout">
+      <div class="tx-list-card quest-list-card">
+        <div class="quest-list-tabs" role="tablist">
+          <button type="button" class="quest-list-tab on" data-qtab="active" role="tab" onclick="setQuestListTab('active')">
+            Active <span class="quest-list-tab-count" id="quest-tab-count-active">0</span>
+          </button>
+          <button type="button" class="quest-list-tab" data-qtab="done" role="tab" onclick="setQuestListTab('done')">
+            Done <span class="quest-list-tab-count" id="quest-tab-count-done">0</span>
+          </button>
+        </div>
+        <div id="quest-list" class="tx-list quest-list"></div>
+      </div>
+      <div id="quest-detail" class="tx-detail-card"></div>
+    </div>`;
+  _questPanelSig = '';
+  patchQuestsPanel(true);
+}
+
+/** Left HUD side tabs: mission | quests | collapsed */
+function getLeftHudPanel() {
+  const dock = document.getElementById('left-hud-dock');
+  const v = dock?.dataset?.panel || document.body.dataset.leftHud || 'collapsed';
+  if (v === 'mission' || v === 'quests') return v;
+  return 'collapsed';
+}
+
+function setLeftHudPanel(panel) {
+  const next = (panel === 'mission' || panel === 'quests') ? panel : 'collapsed';
+  const dock = document.getElementById('left-hud-dock');
+  if (dock) dock.dataset.panel = next;
+  document.body.dataset.leftHud = next;
+  document.body.classList.toggle('quest-log-collapsed', next === 'collapsed');
+  document.body.classList.toggle('left-hud-collapsed', next === 'collapsed');
+  document.body.classList.toggle('left-hud-mission', next === 'mission');
+  document.body.classList.toggle('left-hud-quests', next === 'quests');
+}
+
+window.syncLeftHudUi = function syncLeftHudUi() {
+  const dock = document.getElementById('left-hud-dock');
+  const missionTab = document.getElementById('mission-log-tab');
+  const questTab = document.getElementById('quest-log-tab');
+  const missionEl = document.getElementById('mission-tracker');
+  const questEl = document.getElementById('quest-tracker');
+  const hasMission = !!(missionEl && !missionEl.classList.contains('mt-hidden') && missionEl.innerHTML.trim());
+  const hasQuestBody = !!(questEl && !questEl.classList.contains('qt-hidden') && questEl.innerHTML.trim());
+  const openQuestCount = Number(document.getElementById('quest-log-tab-count')?.textContent || 0);
+  // Tab available if any open quests OR tracker has content
+  const hasQuestTab = openQuestCount > 0 || hasQuestBody;
+  if (missionTab) missionTab.hidden = !hasMission;
+  if (questTab) questTab.hidden = !hasQuestTab;
+
+  let panel = getLeftHudPanel();
+  // Only leave a panel if its tab is gone — stay collapsed by default (no auto-open)
+  if (panel === 'mission' && !hasMission) panel = 'collapsed';
+  if (panel === 'quests' && !hasQuestTab) panel = 'collapsed';
+  setLeftHudPanel(panel);
+
+  if (missionTab) {
+    missionTab.setAttribute('aria-expanded', panel === 'mission' ? 'true' : 'false');
+    missionTab.classList.toggle('is-active', panel === 'mission');
+  }
+  if (questTab) {
+    questTab.setAttribute('aria-expanded', panel === 'quests' ? 'true' : 'false');
+    questTab.classList.toggle('is-active', panel === 'quests');
+  }
+  if (missionEl) {
+    missionEl.classList.toggle('lh-open', panel === 'mission');
+    missionEl.classList.toggle('lh-away', panel !== 'mission');
+  }
+  if (questEl) {
+    // Keep quest shell available whenever quests tab is selected (even if nothing tracked)
+    const showQuests = panel === 'quests' && hasQuestTab;
+    questEl.classList.toggle('lh-open', showQuests);
+    questEl.classList.toggle('lh-away', !showQuests);
+    if (showQuests && !hasQuestBody) {
+      questEl.classList.remove('qt-hidden');
+      if (!questEl.innerHTML.trim()) {
+        questEl.innerHTML = questLogShellHtml(
+          `<div class="qt-empty-track">No tracked quests.<br><span>Pin quests from Command → Quests.</span></div>`
+        );
+      }
+    }
+  }
+  if (dock) dock.classList.toggle('is-collapsed', panel === 'collapsed');
+};
+
+window.openLeftHud = function openLeftHud(panel, opts = {}) {
+  const dock = document.getElementById('left-hud-dock');
+  const cur = getLeftHudPanel();
+  const force = !!opts.force;
+  // Clicking the active tab while open collapses (toggle), unless forced open
+  if (!force && cur === panel) {
+    if (dock) dock.dataset.userCollapsed = '1';
+    setLeftHudPanel('collapsed');
+  } else {
+    if (dock) dock.dataset.userCollapsed = '0';
+    setLeftHudPanel(panel);
+  }
+  // Apply visibility without re-running auto-open steal
+  window.syncLeftHudUi?.();
+};
+
+window.collapseLeftHud = function collapseLeftHud() {
+  const dock = document.getElementById('left-hud-dock');
+  if (dock) dock.dataset.userCollapsed = '1';
+  setLeftHudPanel('collapsed');
+  window.syncLeftHudUi?.();
+};
+
+// Back-compat
+window.toggleQuestLog = function toggleQuestLog() {
+  window.openLeftHud('quests');
+};
+
+function syncQuestLogTab(activeCount) {
+  const countEl = document.getElementById('quest-log-tab-count');
+  if (countEl) countEl.textContent = String(activeCount);
+}
+
+function questLogShellHtml(bodyHtml) {
+  return `
+    <div class="qt-shell">
+      <div class="qt-sheen" aria-hidden="true"></div>
+      <div class="qt-top-row">
+        <span class="qt-kind">QUEST LOG</span>
+        <button type="button" class="qt-collapse-btn" onclick="event.stopPropagation();collapseLeftHud()" aria-label="Hide quest log">
+          <span class="ms-icon">left_panel_close</span>
+        </button>
+      </div>
+      <div class="qt-shell-body">${bodyHtml}</div>
+    </div>`;
+}
+
+function patchQuestsPanel(force = false) {
+  const tracker = document.getElementById('quest-tracker');
+  const { active, ready, completed } = getQuestsUiModel();
+  const tracked = getTrackedQuestsUiModel();
+  const openCount = active.length + ready.length;
+  // HUD tracker = tracked quests only (empty shell allowed while Quests tab open)
+  if (tracker) {
+    if (!tracked.length) {
+      const panel = getLeftHudPanel();
+      if (panel === 'quests' && openCount > 0) {
+        tracker.classList.remove('qt-hidden');
+        tracker.innerHTML = questLogShellHtml(
+          `<div class="qt-empty-track">No tracked quests.<br><span>Pin quests from Command → Quests.</span></div>`
+        );
+      } else {
+        tracker.classList.add('qt-hidden');
+        tracker.innerHTML = '';
+      }
+    } else {
+      tracker.classList.remove('qt-hidden');
+      const cards = tracked.map(({ def, rt }) => {
+        const isReady = rt.status === 'ready';
+        const stage = def.stages[Math.min(rt.stageIndex, def.stages.length - 1)];
+        if (!stage) return '';
+        const totalStages = def.stages.length;
+        const parts = questListTitleParts(def);
+        const kindLine = parts.sub
+          ? `${parts.kindLab} · ${parts.sub.toUpperCase()}`
+          : parts.kindLab;
+        if (isReady) {
+          return `
+            <div class="qt-card qt-ready" style="--q-accent:${parts.color}">
+              <div class="qt-kind-row"><span class="ql-kind">${kindLine}</span></div>
+              <div class="qt-card-top">
+                <span class="qt-title">${parts.title}</span>
+              </div>
+              <div class="qt-stage-name qt-complete-line"><span class="qt-complete-tick">✓</span> QUEST COMPLETE</div>
+              <button type="button" class="btn primary qt-claim-btn" onclick="event.stopPropagation();claimQuest('${def.id}')">ACCEPT</button>
+            </div>`;
+        }
+        const objs = (stage.objectives || []).map((obj) => {
+          const isDone = !!rt.done?.[obj.id];
+          const prog = objectiveProgressParts(obj, rt);
+          const icon = obj.type === 'collect' && obj.resource
+            ? resourceIconHtml(obj.resource, 14)
+            : '';
+          return `
+            <div class="qt-obj${isDone ? ' done' : ''}">
+              <span class="qt-check" aria-hidden="true">${isDone ? '✓' : '<span class="ms-icon quest-obj-circle" aria-hidden="true">circle</span>'}</span>
+              <div class="qt-obj-main">
+                <div class="qt-obj-row">
+                  <span class="qt-obj-label">${icon}${objectiveShortLabel(obj)}</span>
+                  <span class="qt-obj-prog">${prog.text}</span>
+                </div>
+                <div class="qt-bar"><i style="width:${isDone ? 100 : prog.pct}%"></i></div>
+              </div>
+            </div>`;
+        }).join('');
+        const stageTitle = stage.title || '';
+        const showStage = totalStages > 1
+          && stageTitle
+          && stageTitle.toLowerCase() !== (def.name || '').toLowerCase()
+          && stageTitle.toLowerCase() !== parts.title.toLowerCase();
+        return `
+          <button type="button" class="qt-card" style="--q-accent:${parts.color}" onclick="event.stopPropagation();window._pendingCmdTab='quests';selectQuest('${def.id}');openHdrPanel('command')">
+            <div class="qt-kind-row"><span class="ql-kind">${kindLine}</span></div>
+            <div class="qt-card-top">
+              <span class="qt-title">${parts.title}</span>
+              ${totalStages > 1 ? `<span class="qt-step">Stages: ${totalStages}</span>` : ''}
+            </div>
+            ${showStage ? `<div class="qt-stage-name">${stageTitle}</div>` : ''}
+            <div class="qt-obj-panel">
+              <div class="qt-obj-lab">OBJECTIVES</div>
+              <div class="qt-objs">${objs}</div>
+            </div>
+          </button>`;
+      }).join('');
+      tracker.innerHTML = questLogShellHtml(cards);
+    }
+  }
+  syncQuestLogTab(openCount);
+  window.syncLeftHudUi?.();
+
+  // Command panel list/detail
+  if (!isHdrPanelOpen('command')) return;
+  const win = getHdrModalWindow('command');
+  const body = win?.querySelector('.hdr-modal-body');
+  if (!body || body.dataset.cmdTab !== 'quests') return;
+  const listEl = body.querySelector('#quest-list');
+  const detailEl = body.querySelector('#quest-detail');
+  if (!listEl || !detailEl) return;
+
+  const openEntries = [...ready, ...active];
+  const all = [
+    ...openEntries.map((e) => ({ ...e, done: false })),
+    ...completed.map((e) => ({ ...e, done: true })),
+  ];
+  const sig = all.map((e) => {
+    const stage = e.def.stages[e.rt.stageIndex];
+    const prog = (stage?.objectives || []).map((o) => `${o.id}:${e.rt.done?.[o.id] ? 1 : 0}:${objectiveProgressText(o, e.rt)}:${e.rt.progress?.[o.id]||0}`).join(',');
+    return `${e.def.id}|${e.rt.status}|${e.rt.stageIndex}|${prog}|${isQuestTracked(e.def.id)?1:0}`;
+  }).join(';') + `|sel:${_selectedQuestId || ''}|tab:${_questListTab}`;
+
+  if (!force && sig === _questPanelSig) return;
+  _questPanelSig = sig;
+
+  // Stay on the user's tab — never auto-jump Active ↔ Done
+  const showDone = _questListTab === 'done';
+  const listEntries = showDone ? completed : openEntries;
+  // Selection must belong to the visible list
+  if (!_selectedQuestId || !listEntries.some((e) => e.def.id === _selectedQuestId)) {
+    _selectedQuestId = listEntries[0]?.def.id || null;
+  }
+
+  const countActive = body.querySelector('#quest-tab-count-active');
+  const countDone = body.querySelector('#quest-tab-count-done');
+  if (countActive) countActive.textContent = String(openEntries.length);
+  if (countDone) countDone.textContent = String(completed.length);
+  body.querySelectorAll('.quest-list-tab').forEach((btn) => {
+    btn.classList.toggle('on', btn.dataset.qtab === _questListTab);
+  });
+
+  const renderListItems = (entries, isDone) => {
+    if (!entries.length) {
+      return `<div class="tx-empty">${isDone ? 'No completed quests yet.' : 'No active quests.'}</div>`;
+    }
+    return entries.map((entry) => {
+      const { def, rt } = entry;
+      const activeCls = def.id === _selectedQuestId ? ' active' : '';
+      const ready = rt.status === 'ready';
+      const parts = questListTitleParts(def);
+      const prog = questListProgress(entry, isDone);
+      const tracked = !isDone && isQuestTracked(def.id);
+      const kindLine = parts.sub
+        ? `${parts.kindLab} · ${parts.sub.toUpperCase()}`
+        : parts.kindLab;
+      return `
+        <button type="button" class="tx-item quest-list-item kind-${parts.kind}${activeCls}${ready ? ' is-ready' : ''}${isDone ? ' is-done' : ''}"
+          style="--q-accent:${parts.color}"
+          onclick="selectQuest('${def.id}')">
+          <div class="ql-row">
+            <span class="ql-kind">${kindLine}</span>
+            ${tracked ? '<span class="ql-track ms-icon ms-icon-fill" aria-hidden="true">bookmark</span>' : ''}
+            ${isDone ? '<span class="quest-check-done" aria-label="Complete">✓</span>' : ''}
+            ${ready && !isDone ? '<span class="quest-badge ready">READY</span>' : ''}
+          </div>
+          <div class="ql-title">${parts.title}</div>
+          ${isDone
+            ? (prog.text ? `<div class="ql-meta">${prog.text}</div>` : '')
+            : `<div class="ql-prog">
+                <div class="ql-bar"><i style="width:${prog.pct}%"></i></div>
+                <span class="ql-prog-txt">${prog.text}</span>
+              </div>`}
+        </button>`;
+    }).join('');
+  };
+
+  listEl.innerHTML = renderListItems(listEntries, showDone);
+
+  const selected = all.find((e) => e.def.id === _selectedQuestId) || null;
+  detailEl.innerHTML = buildQuestDetailHtml(selected, !!selected?.done);
+}
+
+window.patchQuestsPanel = patchQuestsPanel;
+window.setQuestListTab = function setQuestListTab(tab) {
+  _questListTab = tab === 'done' ? 'done' : 'active';
+  const { active, ready, completed } = getQuestsUiModel();
+  const pool = _questListTab === 'done' ? completed : [...ready, ...active];
+  if (!pool.some((e) => e.def.id === _selectedQuestId)) {
+    _selectedQuestId = pool[0]?.def.id || null;
+  }
+  patchQuestsPanel(true);
+};
+window.toggleResearchTier = function toggleResearchTier(tier) {
+  const t = Math.max(1, Math.min(10, Math.floor(Number(tier) || 1)));
+  const active = Math.max(1, Math.min(10, Math.floor(state.base?.level || 1)));
+  if (!_researchOpenTiers) {
+    _researchOpenTiers = new Set([active]);
+    _researchPinnedBaseLevel = active;
+  }
+  if (_researchOpenTiers.has(t)) _researchOpenTiers.delete(t);
+  else _researchOpenTiers.add(t);
+  if (typeof window.openHdrPanel === 'function') {
+    window.openHdrPanel('research', { refresh: true, preserveScroll: true });
+  }
+};
+window.selectQuest = function selectQuest(id) {
+  _selectedQuestId = id || null;
+  // If Command not on quests, stash tab for openHdrPanel flow
+  if (isHdrPanelOpen('command')) {
+    const body = getHdrModalWindow('command')?.querySelector('.hdr-modal-body');
+    if (body && body.dataset.cmdTab !== 'quests') {
+      body.dataset.cmdTab = 'quests';
+      openHdrPanel('command', { refresh: true, preserveScroll: true });
+      return;
+    }
+  }
+  patchQuestsPanel(true);
+};
 
 function getHdrModalHost() {
   return document.getElementById('hdr-modal-host');
@@ -155,10 +944,14 @@ function ensureHdrModalWindow(type) {
   if (type === 'codex') modal.classList.add('hdr-modal-codex');
   if (type === 'research') modal.classList.add('hdr-modal-research');
   if (type === 'craft') modal.classList.add('hdr-modal-craft');
-  // Compact default open height for tall catalog panels (user can still resize)
-  if ((type === 'codex' || type === 'research') && !modal.dataset.height) {
+  // Default open heights (user can still resize; research opens maxed)
+  if (type === 'codex' && !modal.dataset.height) {
     modal.style.height = '500px';
     modal.dataset.height = '500';
+  }
+  if (type === 'research' && !modal.dataset.height) {
+    modal.style.height = '1000px';
+    modal.dataset.height = '1000';
   }
   if (type === 'craft' && !modal.dataset.height) {
     modal.style.height = '620px';
@@ -215,6 +1008,16 @@ function closeHdrPanelType(type) {
 }
 window.closeHdrPanelType = closeHdrPanelType;
 
+let _txPanelSig = '';
+let _txPanelSel = -1;
+
+function transmissionHistorySig(history) {
+  // Identity of the log only — not selection. Length + newest entry stamp.
+  if (!history.length) return '0';
+  const top = history[0];
+  return `${history.length}|${top?.sol ?? ''}|${top?.solTime ?? ''}|${top?.npcId ?? ''}|${top?.title ?? ''}|${String(top?.text || '').length}`;
+}
+
 function renderTransmissionsPanel(body) {
   // body may be the command tab body container or a full panel body
   const host = body || getHdrModalWindow('command')?.querySelector('.hdr-modal-body');
@@ -227,10 +1030,12 @@ function renderTransmissionsPanel(body) {
       </div>
       <div id="tx-detail" class="tx-detail-card"></div>
     </div>`;
-  patchTransmissionsPanel();
+  _txPanelSig = '';
+  _txPanelSel = -1;
+  patchTransmissionsPanel(true);
 }
 
-export function patchTransmissionsPanel() {
+export function patchTransmissionsPanel(force = false) {
   // Live in Command → Transmissions tab (or legacy standalone panel)
   if (!isHdrPanelOpen('command') && !isHdrPanelOpen('transmissions')) return;
   const win = getHdrModalWindow('command') || getHdrModalWindow('transmissions');
@@ -238,49 +1043,71 @@ export function patchTransmissionsPanel() {
   const listEl = win?.querySelector('#tx-list') || document.getElementById('tx-list');
   const detailEl = win?.querySelector('#tx-detail') || document.getElementById('tx-detail');
   if (!listEl || !detailEl) return;
+
+  const sig = transmissionHistorySig(history);
+  // New inbound message → jump selection to newest
+  if (_txPanelSig && sig !== _txPanelSig && history.length) {
+    _selectedTransmissionIndex = 0;
+  }
+  const sel = Math.max(0, Math.min(_selectedTransmissionIndex, Math.max(0, history.length - 1)));
+  // Skip DOM work unless history changed, selection changed, or forced rebuild
+  if (!force && sig === _txPanelSig && sel === _txPanelSel && listEl.childElementCount > 0) return;
+  _txPanelSig = sig;
+  _txPanelSel = sel;
+  _selectedTransmissionIndex = sel;
+
   if (!history.length) {
     listEl.innerHTML = '<div class="tx-empty">No transmissions recorded yet.</div>';
     detailEl.innerHTML = '<div class="tx-empty">No transmission selected.</div>';
     return;
   }
-  _selectedTransmissionIndex = Math.max(0, Math.min(_selectedTransmissionIndex, history.length - 1));
   const selected = history[_selectedTransmissionIndex];
   listEl.innerHTML = history.map((entry, idx) => {
+    const isMission = entry.kind === 'mission' || entry.eventType === 'mission';
+    const isEvent = !!entry.eventType && !isMission;
     const name = entry.title || entry.npcName || 'Unknown';
-    const iconName = entry.eventType ? 'warning' : 'person';
-    const iconClass = entry.eventType ? 'tx-list-icon tx-list-icon-event' : 'tx-list-icon tx-list-icon-person';
+    const iconName = isMission ? 'flag' : (isEvent ? 'warning' : 'person');
+    const iconClass = isMission
+      ? 'tx-list-icon tx-list-icon-mission'
+      : (isEvent ? 'tx-list-icon tx-list-icon-event' : 'tx-list-icon tx-list-icon-person');
     const icon = `<span class="ms-icon ms-icon-sm ${iconClass}" aria-hidden="true">${iconName}</span>`;
+    const tag = isMission
+      ? '<span class="tx-item-mission-tag">MISSION</span>'
+      : (isEvent ? '<span class="tx-item-event-tag">EVENT</span>' : '');
     return `
-    <button onclick="selectTransmissionHistory(${idx})" class="tx-item${idx===_selectedTransmissionIndex?' active':''}${entry.eventType ? ' tx-item-event' : ''}">
+    <button onclick="selectTransmissionHistory(${idx})" class="tx-item${idx===_selectedTransmissionIndex?' active':''}${isMission ? ' tx-item-mission' : ''}${isEvent ? ' tx-item-event' : ''}">
       <div class="tx-item-top">
         <span class="tx-item-name">${icon}${name}</span>
-        ${entry.eventType ? '<span class="tx-item-event-tag">EVENT</span>' : ''}
+        ${tag}
       </div>
-      <div class="tx-item-meta">SOL ${entry.sol} - ${entry.solTime || '--:--'} - ${entry.eventType ? (entry.npcName || 'Sector Ops') : (entry.npcRole || '')}</div>
+      <div class="tx-item-meta">SOL ${entry.sol} - ${entry.solTime || '--:--'} - ${isEvent ? (entry.npcName || 'Sector Ops') : (entry.npcRole || '')}</div>
     </button>`;
   }).join('');
   const npc = NPCS[selected.npcId];
   const portrait = npc?.portrait || '';
-  const detailTitle = selected.eventType
+  const selMission = selected.kind === 'mission' || selected.eventType === 'mission';
+  const selEvent = !!selected.eventType && !selMission;
+  const detailTitle = selEvent
     ? `${eventIconHtml(selected.eventType, { size: 'md', className: 'tx-event-icon' })}${selected.title || selected.npcName || 'Event'}`
     : (selected.title || selected.npcName || 'Unknown');
   detailEl.innerHTML = `
-    <div class="tx-detail-head">
+    <div class="tx-detail-head${selMission ? ' is-mission' : ''}">
       <div class="tx-detail-identity">
         ${portrait ? `<img class="tx-detail-avatar" src="${portrait}" alt="${selected.npcName || 'Unknown'}">` : ''}
         <div>
           <div class="tx-detail-name">${detailTitle}</div>
-          <div class="tx-detail-role">${selected.eventType ? `${selected.npcName || 'Sector Ops'} · Event Report` : (selected.npcRole || '')}</div>
+          <div class="tx-detail-role">${selMission ? `${selected.npcName || 'Command'} · Mission Briefing` : (selEvent ? `${selected.npcName || 'Sector Ops'} · Event Report` : (selected.npcRole || ''))}</div>
         </div>
       </div>
       <div class="tx-detail-time">SOL ${selected.sol} · ${selected.solTime || '--:--'}</div>
     </div>
-    <div class="transmission-history-body">${selected.text || ''}</div>`;
+    <div class="transmission-history-body${selMission ? ' is-mission' : ''}">${selected.text || ''}</div>`;
 }
 
 window.selectTransmissionHistory = function(idx) {
+  if (_selectedTransmissionIndex === idx) return;
   _selectedTransmissionIndex = idx;
-  patchTransmissionsPanel();
+  patchTransmissionsPanel(true);
 };
 
 function getResourceAbundanceHint(resourceKey) {
@@ -340,9 +1167,9 @@ export function refreshHdrPanelIfOpen() {
   if (focused === 'codex') return;
   if (focused === 'sol') return;
   if (focused === 'command') {
-    // Keep transmission list fresh while that tab is open
+    // Only refresh when history actually changed (sig check inside)
     const cmdBody = getHdrModalWindow('command')?.querySelector('.hdr-modal-body');
-    if (cmdBody?.dataset?.cmdTab === 'transmissions') patchTransmissionsPanel();
+    if (cmdBody?.dataset?.cmdTab === 'transmissions') patchTransmissionsPanel(false);
     return;
   }
   if (focused === 'craft') return;
@@ -358,7 +1185,10 @@ export function refreshHdrPanelIfOpen() {
   openHdrPanel(focused, { refresh: true, preserveScroll: true });
 }
 
-let _solTab = 'threat';
+let _solTab = 'overview';
+/** Research tier expand state: null = default (only active base tier open) */
+let _researchOpenTiers = null;
+let _researchPinnedBaseLevel = 0;
 
 function getThreatRankLabel(level) {
   const lv = Math.max(1, Math.floor(level || 1));
@@ -668,9 +1498,86 @@ function buildOverviewStatsPane() {
   </div>`;
 }
 
+function buildFactionsPane() {
+  if (!hasFactionsUnlocked()) {
+    return `
+      <div class="ov-threat-lock">
+        <div class="ov-threat-lock-ico"><span class="ms-icon ms-icon-fill">groups</span></div>
+        <div class="ov-threat-lock-title">FACTION COMMS OFFLINE</div>
+        <div class="ov-threat-lock-desc">
+          Research <strong>Faction Comms</strong> (Base Level 2 · 1 RP) to open channels with
+          The Frontier Union, The Ironhands, and The Astral Institute.
+        </div>
+        <button type="button" class="btn primary ov-threat-lock-btn" onclick="openHdrPanel('research',{refresh:true})">
+          <span class="ms-icon">science</span> OPEN RESEARCH
+        </button>
+      </div>`;
+  }
+  ensureFactionRep();
+  const rows = listFactions().map((def) => {
+    const rep = getFactionRep(def.id);
+    const tier = getStandingTier(rep);
+    const label = standingLabel(rep);
+    const tone = standingTone(rep);
+    const tags = (def.interests || []).map((t) => `<span class="faction-tag">${t}</span>`).join('');
+    const track = STANDING_TIERS.map((t) => {
+      let cls = 'idle';
+      if (t.tier === tier) cls = 'current';
+      else if (tier > 0 && t.tier > 0 && t.tier < tier) cls = 'filled';
+      else if (tier < 0 && t.tier < 0 && t.tier > tier) cls = 'filled-neg';
+      else if (t.tier === 0 && tier !== 0) cls = tier > 0 ? 'filled' : 'filled-neg';
+      const tip = standingTierTip(t.tier).replace(/"/g, '&quot;');
+      return `<span class="faction-tier-pip ${cls} t${t.tier}" data-tier="${t.tier}" data-tippy-content="${tip}"></span>`;
+    }).join('');
+    const perks = getFactionPerksForUi(def.id);
+    const perkHtml = perks.map((p) => {
+      const cls = p.owned ? 'owned' : (p.unlocked ? 'ready' : 'locked');
+      const rankLab = `R+${p.rank}`;
+      const tip = `<strong>${p.name}</strong> · ${rankLab}<br>${p.desc}${p.owned ? '<br><em>Active</em>' : ''}`.replace(/"/g, '&quot;');
+      return `<div class="faction-perk ${cls}" data-tippy-content="${tip}">
+        <span class="faction-perk-rank">${rankLab}</span>
+        <span class="ms-icon ms-icon-fill faction-perk-ico">${p.icon}</span>
+        <span class="faction-perk-name">${p.name}</span>
+      </div>`;
+    }).join('');
+    return `
+      <div class="faction-row" style="--faction-col:${def.color}">
+         <div class="faction-row-ico" aria-hidden="true">
+           ${factionLogoHtml(def, 52)}
+         </div>
+        <div class="faction-row-main">
+          <div class="faction-row-top">
+            <div class="faction-row-titles">
+              <div class="faction-card-name">${def.name}</div>
+              <div class="faction-card-tags">${tags}</div>
+            </div>
+            <div class="faction-row-standing tone-${tone}">
+              <span class="faction-standing-val">${label}</span>
+              <span class="faction-standing-num">${rep >= 0 ? '+' : ''}${fmt(rep)}</span>
+            </div>
+          </div>
+          <div class="faction-tier-track" aria-label="Standing tiers from Nemesis to Vanguard">
+            <span class="faction-tier-end neg">−5</span>
+            <div class="faction-tier-pips">${track}</div>
+            <span class="faction-tier-end pos">+5</span>
+          </div>
+          <div class="faction-perks" aria-label="Standing perks">
+            ${perkHtml}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <div class="factions-pane">
+      <div class="factions-list">${rows}</div>
+    </div>`;
+}
+
 window.setSolTab = function(tab) {
-  const allowed = ['overview', 'threat', 'galaxy', 'stats'];
-  _solTab = allowed.includes(tab) ? tab : 'overview';
+  const allowed = ['overview', 'threat', 'rep', 'factions', 'galaxy', 'stats'];
+  let next = allowed.includes(tab) ? tab : 'overview';
+  if (next === 'rep') next = 'factions';
+  _solTab = next;
   openHdrPanel('sol', { refresh: true, preserveScroll: true });
 };
 
@@ -706,6 +1613,7 @@ export function patchSolPanel(what) {
     setStat('sol-power-base-val', basePow);
   }
   if (what === 'pirate' || what === 'threat' || what === 'power' || !what) {
+    if (!hasThreatDetector(state)) return;
     const threat = getThreatBreakdown(state);
     const pct = Math.max(0, Math.min(PIRATE_STATUS_RAID_AT, Math.floor(state.pirateStatus || 0)));
     const tone = getPirateStatusTone(pct);
@@ -913,7 +1821,12 @@ function refreshFleetPanelPartial() {
     const nodeLabel = getShipNodeLabel(ship);
     const depotLabel = getShipDepotLabel(ship);
     const tier = shipTierPill(ship);
-    const cargo = `${ship.cargo}/${ship.capacity}`;
+    const effCap = (() => {
+      let c = Math.max(0, ship.capacity || 0);
+      if (state.researchUnlocks?.cargo_straps && (ship.mineSpeed || 0) > 0) c = Math.floor(c * CARGO_STRAPS_MULT);
+      return c;
+    })();
+    const cargo = `${ship.cargo}/${effCap}`;
 
     const nodeEl = row.querySelector('[data-cell="node"]');
     const depotEl = row.querySelector('[data-cell="depot"]');
@@ -947,9 +1860,62 @@ function switchCodexTab(tab) {
 window.switchCodexTab = switchCodexTab;
 
 function normalizeCraftTab(tab) {
-  if (tab === 'modules' || tab === 'buildings') return 'storage';
+  // Legacy tabs → unified buildings tab
+  if (tab === 'modules' || tab === 'storage' || tab === 'research' || tab === 'drones') return 'buildings';
   if (tab === 'queue') return 'queue';
   return tab;
+}
+
+/** Empty craft tab — links to Research with unlock tier when known. */
+function craftEmptyStateHtml(tab) {
+  const locks = {
+    ships: {
+      icon: 'rocket_launch',
+      title: 'NO SHIPS AVAILABLE',
+      desc: 'No ship classes match your current base tier.',
+      meta: null,
+      researchId: null,
+    },
+    defense: {
+      icon: 'shield',
+      title: 'DEFENSE LOCKED',
+      desc: 'Automatic turrets are locked until you research them.',
+      meta: 'Unlocks with <strong>Automatic Turret</strong> · Base Level 3',
+      researchId: 'turrets',
+    },
+    buildings: {
+      icon: 'apartment',
+      title: 'BUILDINGS LOCKED',
+      desc: 'No base buildings unlocked yet. Research Storage, Contracts, Labs, or Drones to open fabrication.',
+      meta: 'Earliest unlocks from <strong>Base Level 3+</strong> research',
+      researchId: null,
+    },
+    power: {
+      icon: 'bolt',
+      title: 'POWER GRID LOCKED',
+      desc: 'Power Stations and Poles are locked until you research the grid.',
+      meta: 'Unlocks with <strong>Power Station</strong> / <strong>Power Poles</strong> · Base Level 2',
+      researchId: 'power_station',
+    },
+  };
+  const info = locks[tab] || {
+    icon: 'lock',
+    title: 'FABRICATION LOCKED',
+    desc: 'Unlock modules in Research first.',
+    meta: null,
+    researchId: null,
+  };
+  const btn = `<button type="button" class="btn primary cf-empty-lock-btn" onclick="openHdrPanel('research',{refresh:true})">
+      <span class="ms-icon">science</span> OPEN RESEARCH
+    </button>`;
+  return `
+    <div class="cf-empty-lock">
+      <div class="cf-empty-lock-ico"><span class="ms-icon ms-icon-fill">${info.icon}</span></div>
+      <div class="cf-empty-lock-title">${info.title}</div>
+      <div class="cf-empty-lock-desc">${info.desc}</div>
+      ${info.meta ? `<div class="cf-empty-lock-meta">${info.meta}</div>` : ''}
+      ${btn}
+    </div>`;
 }
 
 function switchCraftTab(tab) {
@@ -971,6 +1937,11 @@ window.setCraftShipRoleTab = switchCraftShipRoleTab;
 
 function selectCraftItem(kind, id) {
   _craftSelected = { kind, id };
+  // Craft tutorial: list pick → BUILD step
+  if (state.tutStep === 7 && kind === 'ship') {
+    state.tutStep = 8;
+    document.querySelectorAll('.tut-pointer').forEach((el) => el.remove());
+  }
   openHdrPanel('craft', { refresh: true, preserveScroll: true });
 }
 window.selectCraftItem = selectCraftItem;
@@ -978,13 +1949,10 @@ window.selectCraftItem = selectCraftItem;
 function craftTabForItem(kind, id) {
   if (kind === 'ship') return 'ships';
   if (kind === 'turret') return 'defense';
-  if (kind === 'drone') return 'drones';
+  if (kind === 'drone') return 'buildings';
   if (kind === 'building') {
-    if (id === 'storage_facility') return 'storage';
     if (id === 'power_station' || id === 'power_pole') return 'power';
-    if (id === 'research_lab' || id === 'lab_tower') return 'research';
-    if (id === 'drone_lab') return 'drones';
-    return 'storage';
+    return 'buildings';
   }
   return 'ships';
 }
@@ -1008,13 +1976,42 @@ function craftTrackBtn(kind, id) {
   return `<button type="button" class="cf-track${tracked ? ' ct-tracked' : ''}" data-ct-kind="${kind}" data-ct-id="${id}" title="${tracked ? 'Untrack' : 'Track in craft queue'}" ${!tracked && atMax ? 'disabled' : ''} onclick="event.stopPropagation();toggleTrackCraft('${kind}','${id}')"><span class="ms-icon${tracked ? ' ms-icon-fill' : ''}" aria-hidden="true">bookmark</span></button>`;
 }
 
+function countNodesInRangeForResource(type) {
+  const halfR = BASE_RANGE[(state.base?.level || 1) - 1] || 6;
+  let total = 0;
+  let free = 0;
+  for (const n of (state.nodes || [])) {
+    if (n.type !== type || !n.gr) continue;
+    if ((n.minLevel || 1) > (state.base?.level || 1)) continue;
+    const dist = Math.max(Math.abs(n.gr[0] - BASE_COL), Math.abs(n.gr[1] - BASE_ROW));
+    if (dist > halfR) continue;
+    total += 1;
+    const occupied = (state.ships || []).some((s) => s.targetNode === n.id);
+    if (!occupied) free += 1;
+  }
+  return { total, free };
+}
+
 function craftMatGridHtml(reqs) {
   // Credits shown on the BUILD button — materials grid is resources only
   const cells = [];
   for (const [r, n] of Object.entries(reqs || {})) {
-    const met = (state.resources[r] || 0) >= n;
+    const have = Math.floor(state.resources[r] || 0);
+    const need = Math.floor(n || 0);
+    const met = have >= need;
     const label = RESOURCE_DEFS[r]?.label || r;
-    cells.push(`<div class="cf-mat ${met ? 'ok' : 'bad'}" title="${label}: ${fmt(n)}">
+    const tier = getResourceTier(r) || 1;
+    const tierLab = MINE_TIERS[tier]?.label || `Tier ${toRoman(tier)}`;
+    const nodes = countNodesInRangeForResource(r);
+    const tip = [
+      `<strong>${label}</strong>`,
+      `Have: <b>${fmt(have)}</b> · Need: <b>${fmt(need)}</b>`,
+      `Tier: <b>${tierLab}</b>`,
+      nodes.total > 0
+        ? `Nodes in range: <b>${nodes.free}</b> free / <b>${nodes.total}</b> total`
+        : `Nodes in range: <b>none</b>`,
+    ].join('<br>');
+    cells.push(`<div class="cf-mat ${met ? 'ok' : 'bad'}" data-tippy-content="${tip.replace(/"/g, '&quot;')}">
       <span class="cf-mat-check">${met ? '✓' : '!'}</span>
       ${resourceIconHtml(r, 28, '') || `<span class="cf-mat-icon cash">?</span>`}
       <div class="cf-mat-name">${label}</div>
@@ -1026,11 +2023,15 @@ function craftMatGridHtml(reqs) {
 }
 
 function craftBuildBtnHtml({ id, kind, label, can, timer, placeQueued, placeOnclick, buildOnclick, notice, queueCount = 0 }) {
-  if (notice) {
-    return `<button class="cf-build" type="button" disabled><span class="bp-craft-btn-label">${notice}</span></button>`;
-  }
+  // Ready-to-place items always win over queue-full / other notices
   if (placeQueued > 0) {
     return `<button class="cf-build place" type="button" onclick="${placeOnclick}">PLACE (${placeQueued})</button>`;
+  }
+  if (notice) {
+    const warnCls = notice === 'QUEUE FULL'
+      ? ' queue-full'
+      : (notice.includes('FULL') ? ' warn' : ' locked');
+    return `<button class="cf-build${warnCls}" type="button" disabled><span class="bp-craft-btn-label">${notice}</span></button>`;
   }
   // Always allow queueing more if slots free — show progress of first active job as secondary state
   if (timer && Date.now() < timer.endsAt && !canEnqueueCraft()) {
@@ -1082,16 +2083,15 @@ function buildStatsData() {
   return { maxShips, assigned, idle, totalNodes, occupiedNodes, nodesByType };
 }
 
-function buildStatsHtml() {
+function buildResourcesGridHtml() {
   const { nodesByType } = buildStatsData();
 
-  // Inventory grid: any stored amount, plus types with accessible sector nodes
+  // Inventory grid: only types currently in stock (qty > 0)
   const stockpileKeys = new Set();
   for (const [k, def] of Object.entries(RESOURCE_DEFS)) {
-    if (!def || def.special || !isStorableResource(k)) continue;
+    if (!isStorableResource(k) && !def?.special) continue;
     const stored = state.resources[k] || 0;
-    const nodes = nodesByType[k];
-    if (stored > 0 || (nodes && nodes.total > 0)) stockpileKeys.add(k);
+    if (stored > 0) stockpileKeys.add(k);
   }
   _stockpileMineableKeys = stockpileKeys;
 
@@ -1126,14 +2126,58 @@ function buildStatsHtml() {
     : '<div class="resources-empty">No resources in stockpile yet.</div>';
 }
 
+function buildKeyItemsHtml() {
+  ensureKeyItems();
+  const items = (state.keyItems || []).map((entry) => {
+    const def = getKeyItemDef(entry.id);
+    if (!def) return '';
+    const col = def.color || '#5dffa0';
+    const sol = entry.acquiredSol || '—';
+    const tip = `${def.name}<br>${def.desc || ''}<br><span style="color:#8ab">Acquired SOL ${sol}</span>`.replace(/"/g, '&quot;');
+    return `
+      <div class="key-item-card" style="--ki-col:${col}" data-tippy-content="${tip}">
+        <div class="key-item-sheen" aria-hidden="true"></div>
+        <div class="key-item-ico-wrap">
+          <span class="ms-icon ms-icon-fill key-item-ico">${def.icon || 'inventory_2'}</span>
+        </div>
+        <div class="key-item-meta">
+          <div class="key-item-kicker">KEY ITEM</div>
+          <div class="key-item-name">${def.name}</div>
+          <div class="key-item-desc">${def.desc || ''}</div>
+          <div class="key-item-sol">SOL ${sol}</div>
+        </div>
+      </div>`;
+  }).filter(Boolean);
+
+  if (!items.length) {
+    return `<div class="resources-empty key-items-empty">No key items secured yet.<br><span>Mission recoveries and special finds appear here.</span></div>`;
+  }
+  return `<div class="key-items-row" id="key-items-row">${items.join('')}</div>`;
+}
+
+function buildStatsHtml() {
+  const tab = _invTab === 'keyitems' ? 'keyitems' : 'resources';
+  const tabs = `
+    <div class="inv-tabs sm-tabs">
+      <button type="button" class="mod-tab sm-tab${tab === 'resources' ? ' on' : ''}" onclick="setInvTab('resources')">
+        <span class="ms-icon">inventory_2</span> RESOURCES
+      </button>
+      <button type="button" class="mod-tab sm-tab${tab === 'keyitems' ? ' on' : ''}" onclick="setInvTab('keyitems')">
+        <span class="ms-icon">database</span> KEY ITEMS
+      </button>
+    </div>`;
+  const body = tab === 'keyitems' ? buildKeyItemsHtml() : buildResourcesGridHtml();
+  return `<div class="inv-panel">${tabs}<div class="inv-panel-body">${body}</div></div>`;
+}
+
 function patchStockpileCards(nodesByType) {
-  // Rebuild if the set of stockpile keys changed (new stock or newly accessible nodes)
+  if (_invTab === 'keyitems') return;
+  // Rebuild if the set of stocked resources changed
   const nextKeys = new Set();
   for (const [k, def] of Object.entries(RESOURCE_DEFS)) {
-    if (!def || def.special || !isStorableResource(k)) continue;
+    if (!isStorableResource(k) && !def?.special) continue;
     const stored = state.resources[k] || 0;
-    const nodes = nodesByType[k];
-    if (stored > 0 || (nodes && nodes.total > 0)) nextKeys.add(k);
+    if (stored > 0) nextKeys.add(k);
   }
   const newKeys = [...nextKeys].sort().join(',');
   const curKeys = _stockpileMineableKeys ? [..._stockpileMineableKeys].sort().join(',') : null;
@@ -1257,15 +2301,17 @@ export function openHdrPanel(type, options = {}) {
     const basePow   = getFleetBasePower();
     const fleetPower = shipPow + turretPow + basePow;
     const maxPow = Math.max(1, fleetPower);
-    const threat = getThreatBreakdown(state);
+    const threatUnlocked = hasThreatDetector(state);
+    const threat = threatUnlocked ? getThreatBreakdown(state) : null;
     const piratePct = Math.max(0, Math.min(PIRATE_STATUS_RAID_AT, Math.floor(state.pirateStatus || 0)));
     const pirateLabel = getPirateStatusLabel(piratePct);
     const pirateTone = getPirateStatusTone(piratePct);
     const pirateHint = piratePct >= PIRATE_STATUS_RAID_AT
       ? `${piratePct}% — raid inbound`
       : `${piratePct}% aggression · raid at ${PIRATE_STATUS_RAID_AT}%`;
-    const threatRank = getThreatRankLabel(threat.level);
-    const tab = _solTab;
+    const threatRank = threat ? getThreatRankLabel(threat.level) : '';
+    let tab = _solTab;
+    // If threat locked and somehow on threat, stay (show lock pane)
     const powerBar = (val) => Math.max(4, Math.round((val / maxPow) * 100));
 
     const wipPane = (icon, title, blurb) => `
@@ -1276,7 +2322,20 @@ export function openHdrPanel(type, options = {}) {
         <div class="ov-wip-badge">WORK IN PROGRESS</div>
       </div>`;
 
-    const threatPane = `
+    const threatLockedPane = `
+      <div class="ov-threat-lock">
+        <div class="ov-threat-lock-ico"><span class="ms-icon ms-icon-fill">radar</span></div>
+        <div class="ov-threat-lock-title">THREAT DETECTOR OFFLINE</div>
+        <div class="ov-threat-lock-desc">
+          Sector combat intel is dark. Research <strong>Threat Detector</strong> (Base Level 2 · 1 RP)
+          to unlock fleet power, pirate heat, and notoriety rank on this tab.
+        </div>
+        <button type="button" class="btn primary ov-threat-lock-btn" onclick="openHdrPanel('research',{refresh:true})">
+          <span class="ms-icon">science</span> OPEN RESEARCH
+        </button>
+      </div>`;
+
+    const threatPane = threatUnlocked ? `
       <div class="ov-threat-grid">
         <div class="ov-rpg-card power" id="sol-power-card">
           <div class="ov-rpg-seal">⚔</div>
@@ -1335,7 +2394,7 @@ export function openHdrPanel(type, options = {}) {
           <div id="sol-threat-breakdown" class="ov-rpg-sub">FLT ${threat.shipPts} · DEF ${threat.turretPts} · INF ${threat.buildingPts} · KILL ${threat.killPts}</div>
           <div class="ov-rpg-note">Raises pirate aggression speed and HQ support cost.</div>
         </div>
-      </div>`;
+      </div>` : threatLockedPane;
 
     body.innerHTML = `
       <div class="overview-root">
@@ -1349,20 +2408,24 @@ export function openHdrPanel(type, options = {}) {
           <button type="button" class="mod-tab sm-tab${tab === 'overview' ? ' on' : ''}" onclick="setSolTab('overview')">
             <span class="ms-icon">public</span> OVERVIEW
           </button>
-          <button type="button" class="mod-tab sm-tab${tab === 'threat' ? ' on' : ''}" onclick="setSolTab('threat')">
-            <span class="ms-icon">swords</span> THREAT LEVEL
+          <button type="button" class="mod-tab sm-tab${tab === 'threat' ? ' on' : ''}${threatUnlocked ? '' : ' is-locked'}" onclick="setSolTab('threat')">
+            <span class="ms-icon">${threatUnlocked ? 'swords' : 'lock'}</span> THREAT
+          </button>
+          <button type="button" class="mod-tab sm-tab${tab === 'rep' || tab === 'factions' ? ' on' : ''}${hasFactionsUnlocked() ? '' : ' is-locked'}" onclick="setSolTab('factions')">
+            <span class="ms-icon">${hasFactionsUnlocked() ? 'groups' : 'lock'}</span> FACTIONS
           </button>
           <button type="button" class="mod-tab sm-tab${tab === 'galaxy' ? ' on' : ''}" onclick="setSolTab('galaxy')">
             <span class="ms-icon">travel_explore</span> GALAXY
           </button>
           <button type="button" class="mod-tab sm-tab${tab === 'stats' ? ' on' : ''}" onclick="setSolTab('stats')">
-            <span class="ms-icon">analytics</span> STATISTICS
+            <span class="ms-icon">analytics</span> STATS
           </button>
         </div>
 
         <div class="ov-tab-body">
           ${tab === 'overview' ? wipPane('◈', 'SECTOR BRIEFING', 'Sector intel, contracts, and operational summaries will land here.') : ''}
           ${tab === 'threat' ? threatPane : ''}
+          ${tab === 'rep' || tab === 'factions' ? buildFactionsPane() : ''}
           ${tab === 'galaxy' ? `
             <div class="overview-probe-wrap ov-galaxy-pane">
               <div class="overview-probe-title">◈ GALAXY PROBE — COMING SOON</div>
@@ -1375,7 +2438,7 @@ export function openHdrPanel(type, options = {}) {
           ${tab === 'stats' ? buildOverviewStatsPane() : ''}
         </div>
       </div>`;
-    if (tab === 'stats') {
+    if (tab === 'stats' || tab === 'factions' || tab === 'rep') {
       requestAnimationFrame(() => bindTippyIn(body));
     }
   }
@@ -1384,33 +2447,44 @@ export function openHdrPanel(type, options = {}) {
   else if (type === 'command') {
     heading.textContent = 'COMMAND';
     const cmdTabs = [
-      { id: 'missions', label: 'MISSIONS', icon: 'flag' },
+      { id: 'missions', label: 'MISSION', icon: 'flag' },
       { id: 'quests',   label: 'QUESTS',   icon: 'assignment' },
-      { id: 'bounties', label: 'BOUNTIES', icon: 'crisis_alert' },
-      { id: 'rep',      label: 'REP',      icon: 'military_tech' },
-      { id: 'transmissions', label: 'TRANSMISSIONS', icon: 'cell_tower' },
+      { id: 'contracts', label: 'CONTRACTS', icon: 'handshake' },
+      { id: 'bounties', label: 'BOUNTY', icon: 'crisis_alert' },
+      { id: 'transmissions', label: 'COMMS', icon: 'cell_tower' },
     ];
     if (window._pendingCmdTab) {
+      // Factions live on Overview — redirect legacy deep-links
+      if (window._pendingCmdTab === 'rep' || window._pendingCmdTab === 'factions') {
+        window._pendingCmdTab = null;
+        _solTab = 'factions';
+        return openHdrPanel('sol', { refresh: true });
+      }
       body.dataset.cmdTab = window._pendingCmdTab;
       window._pendingCmdTab = null;
     }
-    const activeCmd = body.dataset.cmdTab === 'controls' ? 'missions'
+    let activeCmd = body.dataset.cmdTab === 'controls' || body.dataset.cmdTab === 'rep'
+      ? 'missions'
       : (body.dataset.cmdTab || 'missions');
+    if (body.dataset.cmdTab === 'rep') body.dataset.cmdTab = 'missions';
     const tabBar = cmdTabs.map((t) => `
       <button type="button" class="mod-tab sm-tab${activeCmd === t.id ? ' on' : ''}" onclick="setCmdTab('${t.id}')">
         <span class="ms-icon">${t.icon}</span> ${t.label}
       </button>`).join('');
     const placeholders = {
-      missions: { icon: 'flag', title: 'MAIN MISSIONS', desc: 'Story-driven command missions with NPC transmissions, objectives, and sector-altering consequences. Follow the Andromeda narrative arc.' },
-      quests:   { icon: 'assignment', title: 'ACTIVE QUESTS', desc: 'Rotating short-term objectives refreshed each SOL. Collect resources, hit milestones, and earn bonus rewards.' },
       bounties: { icon: 'crisis_alert', title: 'BOUNTY BOARD',  desc: 'Pirate targets and faction contracts posted each SOL. Requires combat capability. Rewards scale with threat level.' },
-      rep:      { icon: 'military_tech', title: 'REPUTATION',    desc: 'Your standing with Outer Rim Collective, Helix Corp, Vanguard Fleet, and the Black Market. Affects prices, access, and story outcomes.' },
     };
     let tabBody = '';
     if (activeCmd === 'transmissions') {
       tabBody = `<div class="ov-tab-body" id="cmd-tab-body"></div>`;
+    } else if (activeCmd === 'quests') {
+      tabBody = `<div class="ov-tab-body" id="cmd-quests-body"></div>`;
+    } else if (activeCmd === 'missions') {
+      tabBody = `<div class="ov-tab-body" id="cmd-missions-body"></div>`;
+    } else if (activeCmd === 'contracts') {
+      tabBody = `<div class="ov-tab-body" id="cmd-contracts-body">${buildContractsPanelHtml()}</div>`;
     } else {
-      const p = placeholders[activeCmd] || placeholders.missions;
+      const p = placeholders[activeCmd] || placeholders.bounties;
       tabBody = `
         <div class="ov-tab-body">
           <div class="command-card">
@@ -1431,9 +2505,14 @@ export function openHdrPanel(type, options = {}) {
     if (activeCmd === 'transmissions') {
       const txHost = body.querySelector('#cmd-tab-body') || body.querySelector('.ov-tab-body');
       renderTransmissionsPanel(txHost);
+    } else if (activeCmd === 'quests') {
+      const qHost = body.querySelector('#cmd-quests-body') || body.querySelector('.ov-tab-body');
+      renderQuestsPanel(qHost);
+    } else if (activeCmd === 'missions') {
+      const mHost = body.querySelector('#cmd-missions-body') || body.querySelector('.ov-tab-body');
+      import('./missionsUI.js').then((m) => m.renderMissionsPanel?.(mHost)).catch(() => {});
     }
   }
-
 
 
   // ── CRAFT ─────────────────────────────────────────────────
@@ -1458,16 +2537,18 @@ export function openHdrPanel(type, options = {}) {
       { id: 'queue', label: 'QUEUE', icon: 'hourglass_top' },
       { id: 'ships', label: 'SHIPS', icon: 'rocket_launch' },
       { id: 'defense', label: 'DEFENSE', icon: 'shield' },
-      { id: 'storage', label: 'STORAGE', icon: 'warehouse' },
       { id: 'power', label: 'POWER', icon: 'bolt' },
-      { id: 'research', label: 'RESEARCH', icon: 'science' },
-      { id: 'drones', label: 'DRONES', icon: 'drone_2' },
+      { id: 'buildings', label: 'BUILDINGS', icon: 'apartment' },
     ];
     const moduleTabIds = {
-      storage: new Set(['storage_facility']),
+      buildings: new Set([
+        'storage_facility',
+        'contract_center',
+        'research_lab',
+        'lab_tower',
+        'drone_lab',
+      ]),
       power: new Set(['power_station', 'power_pole']),
-      research: new Set(['research_lab', 'lab_tower']),
-      drones: new Set(['drone_lab']),
     };
     const unplacedModuleQueue = Array.isArray(state.unplacedModuleQueue)
       ? state.unplacedModuleQueue
@@ -1478,10 +2559,8 @@ export function openHdrPanel(type, options = {}) {
     const tabHasPlaceable = {
       ships: false,
       defense: unplacedTurretQueue.length > 0,
-      storage: unplacedModuleQueue.some((id) => moduleTabIds.storage.has(id)),
+      buildings: unplacedModuleQueue.some((id) => moduleTabIds.buildings.has(id)),
       power: unplacedModuleQueue.some((id) => moduleTabIds.power.has(id)),
-      research: unplacedModuleQueue.some((id) => moduleTabIds.research.has(id)),
-      drones: unplacedModuleQueue.some((id) => moduleTabIds.drones.has(id)),
     };
 
     const ROLE_META = {
@@ -1541,7 +2620,7 @@ export function openHdrPanel(type, options = {}) {
           ].join('');
         }
         const reqsMet = Object.entries(recipe.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
-        const builtNoticeUntil = state.shipCraftNotices?.[recipe.id] || 0;
+        const tutLocked = isShipCraftLocked(recipe.id);
         items.push({
           key: `ship:${recipe.id}`,
           kind: 'ship',
@@ -1555,14 +2634,12 @@ export function openHdrPanel(type, options = {}) {
           blurb: recipe.desc || `${role} vessel for fleet operations.`,
           cost: 0,
           reqs: recipe.reqs || {},
-          can: reqsMet && !atCap && !queueFull,
+          can: reqsMet && !atCap && !queueFull && !tutLocked,
           timer: getFirstJobForRecipe('ship', recipe.id),
           placeQueued: 0,
           placeOnclick: '',
           buildOnclick: `startCraftShip('${recipe.id}')`,
-          notice: Date.now() < builtNoticeUntil
-            ? 'SHIP BUILT AND DEPLOYED!'
-            : (queueFull ? 'QUEUE FULL' : (atCap ? 'FLEET FULL' : '')),
+          notice: tutLocked ? 'COMPLETE TUTORIAL' : (queueFull ? 'QUEUE FULL' : (atCap ? 'FLEET FULL' : '')),
           trackKind: 'ship',
           queueCount: countCraftJobs('ship', recipe.id),
         });
@@ -1611,8 +2688,17 @@ export function openHdrPanel(type, options = {}) {
           });
         }
       }
-    } else if (activeCraftTab === 'storage' || activeCraftTab === 'power' || activeCraftTab === 'research' || activeCraftTab === 'drones') {
-      const unlockedBuildings = Object.values(MODULE_DEFS).filter((module) => state.researchUnlocks[module.unlockId] && moduleTabIds[activeCraftTab].has(module.id));
+    } else if (activeCraftTab === 'buildings' || activeCraftTab === 'power') {
+      const buildingRoleMeta = {
+        storage_facility: { label: 'storage', color: '#ff9a4a' },
+        contract_center: { label: 'contracts', color: '#7dffb0' },
+        research_lab: { label: 'research', color: '#6fff9a' },
+        lab_tower: { label: 'research', color: '#6fff9a' },
+        drone_lab: { label: 'drones', color: '#5af0ff' },
+        power_station: { label: 'power', color: '#ffe066' },
+        power_pole: { label: 'power', color: '#ffe066' },
+      };
+      const unlockedBuildings = Object.values(MODULE_DEFS).filter((module) => state.researchUnlocks[module.unlockId] && moduleTabIds[activeCraftTab]?.has(module.id));
       for (const moduleConfig of unlockedBuildings) {
         const moduleDef = getCraft('buildings', moduleConfig.id);
         const queued = unplacedModuleQueue.filter((t) => t === moduleConfig.id).length;
@@ -1623,20 +2709,22 @@ export function openHdrPanel(type, options = {}) {
         const statsHtml = moduleConfig.cardStats(1).map(([label, value]) => `<span><i>${label}</i><b>${value}</b></span>`).join('');
         const iconMap = {
           storage_facility: 'warehouse',
+          contract_center: 'handshake',
           power_station: 'bolt',
           power_pole: 'electrical_services',
           research_lab: 'science',
           lab_tower: 'cell_tower',
           drone_lab: 'drone_2',
         };
+        const role = buildingRoleMeta[moduleConfig.id] || { label: activeCraftTab, color: '#ff9a4a' };
         items.push({
           key: `building:${moduleConfig.id}`,
           kind: 'building',
           id: moduleConfig.id,
           name: moduleDef?.name || moduleConfig.name,
           tier: 1,
-          roleLabel: activeCraftTab,
-          roleColor: activeCraftTab === 'power' ? '#ffe066' : activeCraftTab === 'research' ? '#6fff9a' : activeCraftTab === 'drones' ? '#5af0ff' : '#ff9a4a',
+          roleLabel: role.label,
+          roleColor: role.color,
           iconHtml: `<span class="ms-icon ms-icon-fill" aria-hidden="true">${iconMap[moduleConfig.id] || 'apartment'}</span>`,
           statsHtml,
           blurb: moduleDef?.desc || moduleConfig.desc || 'Placeable base module.',
@@ -1653,14 +2741,15 @@ export function openHdrPanel(type, options = {}) {
           queueCount: countCraftJobs('building', moduleConfig.id),
         });
       }
-      if (activeCraftTab === 'drones') {
+      // Drone unit craft lives under Buildings (requires a Drone Lab on the map)
+      if (activeCraftTab === 'buildings') {
         const droneDef = getCraft('drones', 'drone');
         const droneLabsBuilt = (state.modules || []).filter((m) => m.type === DRONE_LAB_ID);
         if (droneDef && droneLabsBuilt.length > 0) {
           const totalDroneCount = (state.drones || []).length;
           const totalDroneCapacity = droneLabsBuilt.reduce((sum, m) => sum + (m.droneCapacity || 2), 0);
           const dronesFull = totalDroneCount >= totalDroneCapacity;
-          const droneCraftingUnlocked = !!state.researchUnlocks['drone_crafting'];
+          const droneCraftingUnlocked = !!(state.researchUnlocks['drone_crafting'] || state.researchUnlocks['drone_lab']);
           const droneCanCoins = state.coins >= droneDef.cost;
           const droneCanBuild = droneCraftingUnlocked && !dronesFull && droneCanCoins
             && Object.entries(droneDef.reqs || {}).every(([r, n]) => (state.resources[r] || 0) >= n);
@@ -1720,9 +2809,10 @@ export function openHdrPanel(type, options = {}) {
       if (job.kind === 'building') {
         const mid = job.recipeId || '';
         if (mid.includes('power')) return 'bolt';
-        if (mid.includes('research') || mid.includes('lab')) return 'science';
+        if (mid.includes('contract')) return 'handshake';
+        if (mid.includes('research') || mid === 'lab_tower') return 'science';
         if (mid.includes('drone')) return 'drone_2';
-        return 'warehouse';
+        return 'apartment';
       }
       return 'build';
     };
@@ -1771,7 +2861,10 @@ export function openHdrPanel(type, options = {}) {
       mainTop = `
         <div class="cf-main-row">
           <div class="cf-main-title" style="color:${roleMeta.color};">${roleMeta.title}</div>
-          <div class="cf-cap">Fleet <strong>${state.ships.length + activeShipCrafts} / ${maxShips}</strong></div>
+          <div class="cf-cap${atCap ? ' is-full' : ''}" data-tippy-content="Fleet capacity · upgrade Base to expand">
+            <span class="cf-cap-lab">FLEET</span>
+            <span class="cf-cap-vals"><b>${state.ships.length + activeShipCrafts}</b><i>/</i><em>${maxShips}</em></span>
+          </div>
         </div>
         <div class="cf-chips">
           ${roleOrder.map((role) => {
@@ -1781,24 +2874,27 @@ export function openHdrPanel(type, options = {}) {
             </button>`;
           }).join('')}
         </div>`;
-      if (atCap) listHtml += `<div class="cf-cap-warn">Ship capacity full (${state.ships.length + activeShipCrafts}/${maxShips}). Upgrade the Base or sell a ship.</div>`;
+      if (atCap) listHtml += `<div class="banner banner-error">Ship capacity full (${state.ships.length + activeShipCrafts}/${maxShips}). Upgrade the Base or sell a ship.</div>`;
     } else {
-      const titles = { defense: 'DEFENSE SYSTEMS', storage: 'STORAGE MODULES', power: 'POWER GRID', research: 'LAB NETWORK', drones: 'DRONE OPS' };
-      const colors = { defense: '#ff8c40', storage: '#ff9a4a', power: '#ffe066', research: '#6fff9a', drones: '#5af0ff' };
+      const titles = {
+        defense: 'DEFENSE SYSTEMS',
+        buildings: 'BASE BUILDINGS',
+        power: 'POWER GRID',
+      };
+      const colors = {
+        defense: '#ff8c40',
+        buildings: '#9ad0ff',
+        power: '#ffe066',
+      };
       mainTop = `<div class="cf-main-row"><div class="cf-main-title" style="color:${colors[activeCraftTab] || '#4ab0ff'};">${titles[activeCraftTab] || activeCraftTab.toUpperCase()}</div></div>`;
     }
 
     if (!items.length) {
-      const emptyMsg = activeCraftTab === 'ships'
-        ? 'No ships available at current base tier.'
-        : activeCraftTab === 'defense'
-          ? 'No defense systems unlocked yet. Visit Research to unlock turrets.'
-          : `${activeCraftTab.charAt(0).toUpperCase() + activeCraftTab.slice(1)} fabrication is locked. Unlock modules in Research first.`;
-      listHtml += `<div class="cf-empty">${emptyMsg}</div>`;
+      listHtml += craftEmptyStateHtml(activeCraftTab);
     } else {
       listHtml += items.map((it) => {
         const selectedCls = selected && selected.key === it.key ? ' selected' : '';
-        return `<div class="cf-card ${craftRankClass(it.tier)}${selectedCls}" style="--rank:${it.roleColor}" onclick="selectCraftItem('${it.kind}','${it.id}')">
+        return `<div class="cf-card ${craftRankClass(it.tier)}${selectedCls}" style="--rank:${it.roleColor}" data-craft-kind="${it.kind}" data-craft-id="${it.id}" onclick="selectCraftItem('${it.kind}','${it.id}')">
           <div class="cf-ico">${it.iconHtml}<span class="cf-tier">${toRoman(it.tier)}</span></div>
           <div class="cf-meta">
             <div class="cf-name-line">
@@ -1864,26 +2960,32 @@ export function openHdrPanel(type, options = {}) {
     if (activeCraftTab === 'ships' && state.tutStep === 6) { state.tutStep = 7; }
     if (state.tutStep === 7) {
       requestAnimationFrame(() => {
-        const btn = document.querySelector('.hdr-modal-window[data-panel-type="craft"] .cf-build');
+        const card = document.querySelector('.hdr-modal-window[data-panel-type="craft"] .cf-card[data-craft-id="scout"]')
+          || document.querySelector('.hdr-modal-window[data-panel-type="craft"] .cf-card[data-craft-kind="ship"]');
+        if (card?.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+    if (state.tutStep === 8 && activeCraftTab === 'ships' && !state.seenMsgs['tut_build_pressed']) {
+      requestAnimationFrame(() => {
+        const btn = document.querySelector('.hdr-modal-window[data-panel-type="craft"] .cf-detail .cf-build');
         if (btn?.scrollIntoView) btn.scrollIntoView({ block: 'center', behavior: 'smooth' });
       });
     }
     requestAnimationFrame(() => {
       refreshTrackButtons();
       bindTippyIn(body);
+      renderTutPointers();
     });
   }
 
   // ── RESEARCH ───────────────────────────────────────────────
   else if (type === 'research') {
-    const rpCap = getResearchPointCap(state.base.level);
+    const rpCap = getResearchPointCap(state.base.level) + getFactionRpCapBonus();
     const rpPct = Math.max(0, Math.min(100, Math.round((state.rp / Math.max(1, rpCap)) * 100)));
     const RESEARCH_ICONS = {
       health_increase: 'favorite',
       shield_increase: 'shield',
-      drone_lab: 'precision_manufacturing',
-      drone_crafting: 'drone_2',
-      resource_synthesis: 'science',
+      drone_lab: 'drone_2',
       anti_comet: 'rocket_launch',
       solar_shield: 'wb_sunny',
       turrets: 'crisis_alert',
@@ -1902,13 +3004,36 @@ export function openHdrPanel(type, options = {}) {
       emp_turrets: 'electric_bolt',
       unique_scanner: 'radar',
       multi_demand: 'analytics',
+      cargo_straps: 'luggage',
+      daily_quests: 'event',
+      threat_detector: 'radar',
+      factions: 'groups',
+      haul_integrity: 'inventory_2',
+      contract_center: 'handshake',
+      unlock_contracts: 'handshake',
+      hazard_hardening: 'cyclone',
+      combat_shields: 'shield_with_heart',
+      craft_efficiency: 'precision_manufacturing',
+      ai_assign: 'smart_toy',
+      ai_trader: 'storefront',
+      salvage_flag: 'flag',
+      salvage_protocols: 'recycling',
+      nullwell_protocol: 'blur_on',
+      mine_boost_t1: 'arrow_upward',
+      mine_boost_t2: 'arrow_upward',
+      mine_boost_t3: 'arrow_upward',
+      mine_boost_t4: 'arrow_upward',
+      mine_boost_t5: 'arrow_upward',
+      mine_boost_t6: 'arrow_upward',
+      mine_boost_t7: 'arrow_upward',
+      mine_boost_t8: 'arrow_upward',
+      mine_boost_t9: 'arrow_upward',
+      mine_boost_t10: 'arrow_upward',
     };
     const SHORT_DESC = {
       health_increase: 'Base max HP +8,000 each rank. Max 10.',
       shield_increase: 'Shield +5% of max HP each rank. Auto-regens. Max 10.',
-      drone_lab: 'Unlock Drone Lab for salvage & recon ops.',
-      drone_crafting: 'Unlock drone fabrication at Drone Labs.',
-      resource_synthesis: 'Combine raw resources into compounds.',
+      drone_lab: 'Unlock Drone Lab building and drone crafting.',
       anti_comet: '+5% comet intercept chance each rank. Max 10.',
       solar_shield: '−8% Solar Flare losses each rank. Max 10.',
       turrets: 'Build automatic defense turrets on the map.',
@@ -1922,11 +3047,35 @@ export function openHdrPanel(type, options = {}) {
       power_poles: 'Unlock power pole grid relays.',
       market_influence: 'All sell prices permanently +10%.',
       laser_turrets: 'Unlock long-range laser turrets.',
-      research_lab: 'Unlock research lab buildings.',
-      lab_tower: 'Unlock lab tower network relays.',
+      research_lab: 'Labs + synthesis composites (Base Lv 5).',
+      lab_tower: 'Link resource nodes into lab networks.',
       emp_turrets: 'Unlock EMP stun turrets.',
       unique_scanner: 'Detect unique ship signatures.',
       multi_demand: 'Up to 3 market demands each SOL.',
+      cargo_straps: 'Mining ship bay capacity +20%.',
+      daily_quests: '3 rotating daily objectives each SOL.',
+      threat_detector: 'Unlock Sector Overview THREAT intel.',
+      factions: 'Faction standings + faction daily quests.',
+      haul_integrity: 'Reassign keeps cargo in Resource Hold.',
+      contract_center: 'Unlock Contracts Office deliveries.',
+      unlock_contracts: 'Unlock Contracts Office + sector contracts.',
+      hazard_hardening: 'Black hole damage floor reduced.',
+      nullwell_protocol: 'Idle drones collapse black holes faster.',
+      combat_shields: 'Combat ship shield systems.',
+      craft_efficiency: 'Faster craft jobs / lower waste.',
+      ai_assign: 'Auto-assign idle miners each SOL.',
+      ai_trader: 'Auto-sell surplus each SOL.',
+      salvage_flag: 'Mark wrecks for salvage priority.',
+      mine_boost_t1: 'T1 node mine rate +10%.',
+      mine_boost_t2: 'T2 node mine rate +10%.',
+      mine_boost_t3: 'T3 node mine rate +10%.',
+      mine_boost_t4: 'T4 node mine rate +10%.',
+      mine_boost_t5: 'T5 node mine rate +10%.',
+      mine_boost_t6: 'T6 node mine rate +10%.',
+      mine_boost_t7: 'T7 node mine rate +10%.',
+      mine_boost_t8: 'T8 node mine rate +10%.',
+      mine_boost_t9: 'T9 node mine rate +10%.',
+      mine_boost_t10: 'T10 node mine rate +10%.',
     };
     const nextGainFor = (id) => {
       if (id === 'health_increase') return '+8,000 HP';
@@ -1937,6 +3086,15 @@ export function openHdrPanel(type, options = {}) {
       return 'Next rank';
     };
     heading.textContent = 'RESEARCH';
+    const activeTier = Math.max(1, Math.min(10, Math.floor(state.base.level || 1)));
+    if (!_researchOpenTiers) {
+      _researchOpenTiers = new Set([activeTier]);
+      _researchPinnedBaseLevel = activeTier;
+    } else if (_researchPinnedBaseLevel !== activeTier) {
+      // Base tier advanced — open the new current tier (keep other user expands)
+      _researchOpenTiers.add(activeTier);
+      _researchPinnedBaseLevel = activeTier;
+    }
     let treeHtml = '';
     for (const tier of RESEARCH_TREE) {
       const tierLocked = tier.minBaseLevel && state.base.level < tier.minBaseLevel;
@@ -1950,18 +3108,24 @@ export function openHdrPanel(type, options = {}) {
         6: 'looks_6', 7: 'military_tech', 8: 'workspace_premium', 9: 'diamond', 10: 'trophy',
       };
       const tierMark = tierMarks[tier.tier] || 'hexagon';
-      treeHtml += `<div class="rs-tier ${tierLocked ? 'locked' : ''}" style="--tier-col:${tierCol}">
-        <div class="rs-tier-head">
+      const isOpen = _researchOpenTiers.has(tier.tier);
+      const isActiveTier = tier.tier === activeTier;
+      treeHtml += `<div class="rs-tier${tierLocked ? ' locked' : ''}${isOpen ? ' is-open' : ' is-collapsed'}${isActiveTier ? ' is-active-tier' : ''}" style="--tier-col:${tierCol}" data-tier="${tier.tier}">
+        <button type="button" class="rs-tier-head" onclick="toggleResearchTier(${tier.tier})" aria-expanded="${isOpen ? 'true' : 'false'}">
           <div class="rs-tier-mark" aria-hidden="true"><span class="ms-icon ms-icon-fill">${tierMark}</span></div>
           <div class="rs-tier-head-main">
             <span class="rs-tier-badge">T${toRoman(tier.tier)}</span>
             <span class="rs-tier-lab">BASE LEVEL ${tier.tier}</span>
+            ${isActiveTier ? '<span class="rs-tier-current">CURRENT</span>' : ''}
           </div>
-          ${tierLocked
-            ? '<span class="rs-tier-lock"><span class="ms-icon">lock</span> Requires base upgrade</span>'
-            : `<span class="rs-tier-prog">${unlockedInTier}/${tier.unlocks.length}</span>`}
-        </div>
-        <div class="rs-track">`;
+          <div class="rs-tier-head-right">
+            ${tierLocked
+              ? '<span class="rs-tier-lock"><span class="ms-icon">lock</span> Requires base upgrade</span>'
+              : `<span class="rs-tier-prog">${unlockedInTier}/${tier.unlocks.length}</span>`}
+            <span class="rs-tier-chevron ms-icon" aria-hidden="true">expand_more</span>
+          </div>
+        </button>
+        <div class="rs-track" ${isOpen ? '' : 'hidden'}>`;
       for (const u of tier.unlocks) {
         const isUnlocked = !!state.researchUnlocks[u.id];
         const tierReqMet = !tier.minBaseLevel || state.base.level >= tier.minBaseLevel;
@@ -2003,7 +3167,7 @@ export function openHdrPanel(type, options = {}) {
             </div>
             <div class="rs-node-action">
               ${tierReqMet
-                ? `<button type="button" class="rs-btn${purchasable ? ' go' : ''}${done ? ' done' : ''}" ${purchasable ? '' : 'disabled'} onclick="purchaseResearch('${u.id}')">${btnLabel}</button>`
+                ? `<button type="button" class="rs-btn${purchasable ? ' go' : ''}${done ? ' done' : ''}" ${purchasable ? '' : 'disabled'} onclick="event.stopPropagation();purchaseResearch('${u.id}')">${btnLabel}</button>`
                 : '<span class="rs-btn locked-tag"><span class="ms-icon">lock</span></span>'}
             </div>
           </div>
@@ -2030,21 +3194,20 @@ export function openHdrPanel(type, options = {}) {
   // ── MARKET ─────────────────────────────────────────────────
   else if (type === 'market') {
     heading.textContent = 'TRADE';
+    const tradeTab = _tradeTab === 'auto' ? 'auto' : (_tradeTab === 'buy' ? 'buy' : 'sell');
+    const aiTraderUnlocked = !!state.researchUnlocks?.ai_trader;
     const demandMap = new Map();
     if (state.marketBoost?.type) demandMap.set(state.marketBoost.type, state.marketBoost.multiplier ?? 1.5);
     for (const d of (state.extraDemands || [])) demandMap.set(d.type, d.multiplier ?? 1.5);
-    const sellable = Object.entries(RESOURCE_DEFS).filter(([key, def]) => {
-      if (!isStorableResource(key) || def.special) return false;
-      if ((def.sellPrice || 0) <= 0) return false;
-      return (state.resources[key] || 0) > 0;
-    });
-    // Highest mine tier first, then name
-    sellable.sort((a, b) => {
-      const tierA = getResourceTier(a[0]) || 0;
-      const tierB = getResourceTier(b[0]) || 0;
-      if (tierA !== tierB) return tierB - tierA;
-      return (a[1].label || a[0]).localeCompare(b[1].label || b[0]);
-    });
+
+    const defaultTradeQty = (amt) => {
+      if (amt >= 100000) return 10000;
+      if (amt >= 10000) return 1000;
+      if (amt >= 1000) return 100;
+      if (amt >= 100) return 10;
+      return Math.max(1, amt);
+    };
+
     let tradeHtml = '';
     if (demandMap.size) {
       const demandCells = Array.from(demandMap.entries()).map(([type, mult]) => {
@@ -2067,68 +3230,139 @@ export function openHdrPanel(type, options = {}) {
           <div class="trade-demand-head">
             <span class="trade-demand-kicker">◈ MARKET PULSE</span>
             <span class="trade-demand-title">SOL ${state.sol} · DEMAND</span>
-            <span class="trade-demand-sub">${demandMap.size > 1 ? `${demandMap.size} resources boosted this SOL` : 'Premium buy orders active this SOL'}</span>
           </div>
           <div class="trade-demand-row">${demandCells}</div>
         </div>`;
       }
     }
-    if (!sellable.length) {
-      tradeHtml += `<div class="trade-empty">⏳ No resources to sell yet.</div>`;
-    } else {
-      const defaultSellQty = (amt) => {
-        if (amt >= 10000) return 1000;
-        if (amt >= 1000) return 100;
-        if (amt >= 100) return 10;
-        return 1;
-      };
-      tradeHtml += '<div class="sell-grid">';
-      for (const [resType, def] of sellable) {
-        const amt = state.resources[resType] || 0;
-        const sellAmt = defaultSellQty(amt);
-        const price = getSellPrice(resType);
-        const earnedAll = amt * price;
-        const demanded = isDemandedType(resType);
-        const demandPct = getDemandBonusPct(resType);
-        const variancePct = getMarketVariancePct(resType);
-        let tone = 'flat';
-        if (demanded) tone = 'demand';
-        else if (variancePct > 0) tone = 'up';
-        else if (variancePct < 0) tone = 'down';
-        let arrow = '';
-        let priceTip = '';
-        if (demanded) {
-          priceTip = `Demand +${demandPct}% extra` + (variancePct ? ` · variance +${variancePct}%` : '');
-          arrow = '';
-        } else if (variancePct > 0) {
-          arrow = `<span class="sell-card-arrow up" title="Price up ${variancePct}% this SOL">▲</span>`;
-          priceTip = `+${variancePct}% vs base this SOL`;
-        } else if (variancePct < 0) {
-          arrow = `<span class="sell-card-arrow down" title="Price down ${Math.abs(variancePct)}% this SOL">▼</span>`;
-          priceTip = `${variancePct}% vs base this SOL`;
+
+    tradeHtml += `<div class="mod-tabs sm-tabs ov-tabs trade-tabs">
+      <button type="button" class="mod-tab sm-tab${tradeTab === 'sell' ? ' on' : ''}" onclick="setTradeTab('sell')">
+        <span class="ms-icon">sell</span> SELL
+      </button>
+      <button type="button" class="mod-tab sm-tab${tradeTab === 'buy' ? ' on' : ''}" onclick="setTradeTab('buy')">
+        <span class="ms-icon">shopping_cart</span> BUY
+      </button>
+      ${aiTraderUnlocked ? `<button type="button" class="mod-tab sm-tab${tradeTab === 'auto' ? ' on' : ''}" onclick="setTradeTab('auto')">
+        <span class="ms-icon">smart_toy</span> AUTO
+      </button>` : ''}
+    </div>`;
+
+    if (tradeTab === 'auto') {
+      if (!aiTraderUnlocked) {
+        tradeHtml += `<div class="trade-empty">Research AI Trader (Base L10) to configure auto-sell rules.</div>`;
+      } else {
+        const types = Object.keys(RESOURCE_DEFS).filter((k) => isStorableResource(k) && (RESOURCE_DEFS[k].sellPrice || 0) > 0);
+        types.sort((a, b) => (getResourceTier(b) || 0) - (getResourceTier(a) || 0) || a.localeCompare(b));
+        tradeHtml += `<div class="banner banner-default">Rules run at the start of each SOL. Keep % is retained in stockpile.</div>`;
+        tradeHtml += '<div class="auto-trade-list">';
+        for (const type of types) {
+          const rule = getAutoTradeRule(type);
+          const def = RESOURCE_DEFS[type];
+          const hot = isDemandedType(type);
+          tradeHtml += `<div class="auto-trade-row${rule.enabled ? ' on' : ''}">
+            <span class="auto-trade-ico">${resourceIconHtml(type, 18)}</span>
+            <span class="auto-trade-name">${def.label}${hot ? ' <span class="auto-trade-hot">DEMAND</span>' : ''}</span>
+            <label class="auto-trade-check"><input type="checkbox" ${rule.enabled ? 'checked' : ''} onchange="setAutoTradeRuleField('${type}','enabled',this.checked)" /> ON</label>
+            <label class="auto-trade-check"><input type="checkbox" ${rule.demandOnly ? 'checked' : ''} onchange="setAutoTradeRuleField('${type}','demandOnly',this.checked)" /> Demand only</label>
+            <label class="auto-trade-keep">Keep <input type="number" min="0" max="100" value="${rule.keepPct}" onchange="setAutoTradeRuleField('${type}','keepPct',this.value)" />%</label>
+          </div>`;
         }
-        tradeHtml += `<div class="sell-card tone-${tone}">
-          <div class="sell-card-top">
-            <div class="sell-card-ico">${resourceIconHtml(resType, 20)}</div>
-            <div class="sell-card-id">
-              <div class="sell-card-name" title="${fmt(amt)} ${def.label}"><span class="sell-stock">${fmt(amt)}</span> ${def.label}</div>
-            </div>
-            <div class="sell-card-price">
-              <span class="sell-card-unit" ${priceTip ? `title="${priceTip}"` : ''}>$${fmt(price)}${arrow}${demanded ? ' <span class="sell-card-star">✦</span>' : ''}</span>
-            </div>
-          </div>
-          <div class="sell-card-actions">
-            <input id="sell-qty-${resType}" type="number" min="1" max="${amt}" step="1" value="${sellAmt}" class="sell-qty-input" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" title="Quantity">
-            <button class="sell-btn-s" type="button" onmousedown="const _inp=document.getElementById('sell-qty-${resType}');const _raw=Math.floor(Number(_inp?.value||0));const _qty=Math.max(1,Math.min(${amt},Number.isFinite(_raw)?_raw:1));if(_inp)_inp.value=_qty;sellResource('${resType}',_qty);openHdrPanel('market',{refresh:true,preserveScroll:true})">SELL</button>
-            <button class="sell-btn-s sell-btn-all" type="button" title="Sell all · $${fmt(earnedAll)}" onmousedown="sellResource('${resType}',${amt});openHdrPanel('market',{refresh:true,preserveScroll:true})"><span>ALL</span><span class="trade-sell-earned">$${fmt(earnedAll)}</span></button>
-          </div>
-        </div>`;
+        tradeHtml += '</div>';
       }
-      tradeHtml += '</div>';
+    } else if (tradeTab === 'sell') {
+      const sellable = Object.entries(RESOURCE_DEFS).filter(([key, def]) => {
+        if (!isStorableResource(key) || def.special) return false;
+        if ((def.sellPrice || 0) <= 0) return false;
+        return (state.resources[key] || 0) > 0;
+      });
+      sellable.sort((a, b) => {
+        const tierA = getResourceTier(a[0]) || 0;
+        const tierB = getResourceTier(b[0]) || 0;
+        if (tierA !== tierB) return tierB - tierA;
+        return (a[1].label || a[0]).localeCompare(b[1].label || b[0]);
+      });
+      if (!sellable.length) {
+        tradeHtml += `<div class="trade-empty">⏳ No resources to sell yet.</div>`;
+      } else {
+        tradeHtml += '<div class="sell-grid">';
+        for (const [resType, def] of sellable) {
+          const amt = state.resources[resType] || 0;
+          const sellAmt = getRememberedSellQty(resType, amt, defaultTradeQty(amt));
+          const price = getSellPrice(resType);
+          const earnedAll = amt * price;
+          const demanded = isDemandedType(resType);
+          const demandPct = getDemandBonusPct(resType);
+          const variancePct = getMarketVariancePct(resType);
+          let tone = 'flat';
+          if (demanded) tone = 'demand';
+          else if (variancePct > 0) tone = 'up';
+          else if (variancePct < 0) tone = 'down';
+          let arrow = '';
+          let priceTip = '';
+          if (demanded) {
+            priceTip = `Demand +${demandPct}% extra` + (variancePct ? ` · variance +${variancePct}%` : '');
+          } else if (variancePct > 0) {
+            arrow = `<span class="sell-card-arrow up" title="Price up ${variancePct}% this SOL">▲</span>`;
+            priceTip = `+${variancePct}% vs base this SOL`;
+          } else if (variancePct < 0) {
+            arrow = `<span class="sell-card-arrow down" title="Price down ${Math.abs(variancePct)}% this SOL">▼</span>`;
+            priceTip = `${variancePct}% vs base this SOL`;
+          }
+          const earnedQty = sellAmt * price;
+          tradeHtml += `<div class="sell-card tone-${tone}" data-sell-type="${resType}" data-sell-price="${price}" data-sell-max="${amt}">
+            <div class="sell-card-ico">${resourceIconHtml(resType, 20)}</div>
+            <div class="sell-card-name" title="${fmt(amt)} ${def.label}"><span class="sell-stock">${fmt(amt)}</span> ${def.label}</div>
+            <span class="sell-card-unit" ${priceTip ? `title="${priceTip}"` : ''}>$${fmt(price)}${arrow}${demanded ? ' <span class="sell-card-star">✦</span>' : ''}</span>
+            <input id="sell-qty-${resType}" type="number" min="1" max="${amt}" step="1" value="${sellAmt}" class="sell-qty-input" data-sell-qty="${resType}" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" oninput="updateSellBtnEarn('${resType}')" onchange="updateSellBtnEarn('${resType}')" title="Quantity">
+            <button id="sell-btn-${resType}" class="sell-btn-s sell-btn-earn" type="button" onmousedown="const _inp=document.getElementById('sell-qty-${resType}');const _raw=Math.floor(Number(_inp?.value||0));const _qty=Math.max(1,Math.min(${amt},Number.isFinite(_raw)?_raw:1));if(_inp)_inp.value=_qty;updateSellBtnEarn('${resType}');sellResource('${resType}',_qty);openHdrPanel('market',{refresh:true,preserveScroll:true})"><span>SELL</span><span class="trade-sell-earned" id="sell-earn-${resType}">$${fmt(earnedQty)}</span></button>
+            <button class="sell-btn-s sell-btn-all" type="button" title="Sell all · $${fmt(earnedAll)}" onmousedown="sellResource('${resType}',${amt});openHdrPanel('market',{refresh:true,preserveScroll:true})"><span>ALL</span><span class="trade-sell-earned">$${fmt(earnedAll)}</span></button>
+          </div>`;
+        }
+        tradeHtml += '</div>';
+      }
+    } else {
+      // BUY tab — persistent SOL lots
+      const buyState = getMarketBuyOffers();
+      const offers = (buyState.offers || []).slice().sort((a, b) => {
+        const tierA = getResourceTier(a.type) || 0;
+        const tierB = getResourceTier(b.type) || 0;
+        if (tierA !== tierB) return tierA - tierB;
+        const la = RESOURCE_DEFS[a.type]?.label || a.type;
+        const lb = RESOURCE_DEFS[b.type]?.label || b.type;
+        return la.localeCompare(lb);
+      });
+      if (!offers.length) {
+        tradeHtml += `<div class="trade-empty">⏳ No market stock this SOL.</div>`;
+      } else {
+        tradeHtml += '<div class="sell-grid">';
+        for (const offer of offers) {
+          const resType = offer.type;
+          const def = RESOURCE_DEFS[resType];
+          if (!def) continue;
+          const remaining = getBuyOfferRemaining(offer);
+          const soldOut = remaining <= 0;
+          const unit = getBuyPrice(resType);
+          const buyAmt = soldOut ? 0 : defaultTradeQty(remaining);
+          const costAll = remaining * unit;
+          const canAffordAll = (state.coins || 0) >= costAll && remaining > 0;
+          const stockLabel = soldOut
+            ? 'SOLD OUT'
+            : `${fmt(remaining)} / ${fmt(offer.qty)}`;
+          tradeHtml += `<div class="sell-card tone-flat${soldOut ? ' sold-out' : ''}">
+            <div class="sell-card-ico">${resourceIconHtml(resType, 20)}</div>
+            <div class="sell-card-name" title="${def.label}"><span class="sell-stock">${stockLabel}</span> ${def.label}</div>
+            <span class="sell-card-unit" title="Buy price (2× sell)">$${fmt(unit)}</span>
+            <input id="buy-qty-${resType}" type="number" min="1" max="${Math.max(1, remaining)}" step="1" value="${Math.max(1, buyAmt)}" class="sell-qty-input" ${soldOut ? 'disabled' : ''} onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" title="Quantity">
+            <button class="sell-btn-s buy" type="button" ${soldOut ? 'disabled' : ''} onmousedown="const _inp=document.getElementById('buy-qty-${resType}');const _raw=Math.floor(Number(_inp?.value||0));const _qty=Math.max(1,Math.min(${remaining},Number.isFinite(_raw)?_raw:1));if(_inp)_inp.value=_qty;buyResource('${resType}',_qty)">BUY</button>
+            <button class="sell-btn-s sell-btn-all buy" type="button" ${soldOut || !canAffordAll ? 'disabled' : ''} title="Buy remaining · $${fmt(costAll)}" onmousedown="buyResource('${resType}',${remaining})"><span>ALL</span><span class="trade-sell-earned">$${fmt(costAll)}</span></button>
+          </div>`;
+        }
+        tradeHtml += '</div>';
+      }
     }
-    body.innerHTML = `
-      <div class="trade-section-title">◈ SELL RESOURCES</div>
-      ${tradeHtml}`;
+
+    body.innerHTML = tradeHtml;
   }
 
   // ── FLEET MANIFEST ─────────────────────────────────────────
@@ -2194,9 +3428,9 @@ export function openHdrPanel(type, options = {}) {
       </div>`;
   }
 
-  // ── RESOURCES ──────────────────────────────────────────────
+  // ── INVENTORY (resources + key items) ──────────────────────
   else if (type === 'resources') {
-    heading.textContent = 'RESOURCES';
+    heading.textContent = 'INVENTORY';
     body.innerHTML = buildStatsHtml();
     requestAnimationFrame(() => bindTippyIn(body));
   }
@@ -2206,6 +3440,7 @@ export function openHdrPanel(type, options = {}) {
     heading.textContent = 'CODEX';
     const codexTabs = [
       { id: 'crew',     label: 'Crew & Contacts' },
+      { id: 'factions', label: 'Factions' },
       { id: 'events',   label: 'Events' },
       { id: 'discoveries', label: 'Discoveries' },
       { id: 'resources',label: 'Resources' },
@@ -2226,6 +3461,7 @@ export function openHdrPanel(type, options = {}) {
 
     if (_codexTab === 'crew') {
       const groups = [
+        { label: '◈ Base Systems',                 ids: ['byte'] },
         { label: '◈ Star Command · ISV Hyperion', ids: ['juno','sera'] },
         { label: '◈ The Marauder · Pirate Crew',  ids: ['vex','scarlett'] },
         { label: '◈ Sector Specialists',           ids: ['rigs','vane','zoe','doran','kade','dax','kai'] },
@@ -2246,6 +3482,46 @@ export function openHdrPanel(type, options = {}) {
           </div>`;
         }).join('');
       }
+
+    } else if (_codexTab === 'factions') {
+      const unlocked = hasFactionsUnlocked();
+      tabContent = `
+        <div class="codex-factions-head">
+          <div class="codex-group-label codex-section-title">◈ SECTOR FACTIONS</div>
+          <div class="codex-factions-sub">${unlocked
+            ? 'Standing rises from Daily Faction quests. No exclusive allegiance required.'
+            : 'Research <strong>Faction Comms</strong> (Base Lv 2) to open diplomatic channels.'}</div>
+        </div>
+        <div class="codex-factions-grid">
+          ${listFactions().map((def) => {
+            const rep = unlocked ? getFactionRep(def.id) : 0;
+            const tier = unlocked ? getStandingTier(rep) : 0;
+            const stand = unlocked ? standingLabel(rep) : 'Locked';
+            const tone = unlocked ? standingTone(rep) : 'unknown';
+            const byline = def.byline || '';
+            const tags = (def.interests || []).map((t) => t.trim()).filter(Boolean);
+            return `
+              <article class="codex-faction-card${unlocked ? '' : ' is-locked'}" style="--faction-col:${def.color}">
+                <div class="codex-faction-banner">
+                  <div class="codex-faction-seal" aria-hidden="true">
+                     ${factionLogoHtml(def, 56)}
+                   </div>
+                  <div class="codex-faction-banner-text">
+                    <div class="codex-faction-name">${def.name}</div>
+                    <div class="codex-faction-tagline">${byline || def.tagline}</div>
+                  </div>
+                  <div class="codex-faction-rep tone-${tone}">
+                    <span class="codex-faction-rep-lab">${stand}</span>
+                    <span class="codex-faction-rep-num">${unlocked ? `R${tier > 0 ? `+${tier}` : tier} · ${rep >= 0 ? '+' : ''}${rep}` : '—'}</span>
+                  </div>
+                </div>
+                <div class="codex-faction-body">
+                  ${tags.length ? `<div class="codex-faction-tags">${tags.map((t) => `<span class="codex-faction-tag">${t}</span>`).join('')}</div>` : ''}
+                  ${def.futureNote ? `<div class="codex-faction-future"><span class="ms-icon">schedule</span>${def.futureNote}</div>` : ''}
+                </div>
+              </article>`;
+          }).join('')}
+        </div>`;
 
     } else if (_codexTab === 'discoveries') {
       const crashedShipDef = RESOURCE_DEFS[CRASHED_SHIP_NODE_TYPE];

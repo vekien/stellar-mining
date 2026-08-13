@@ -7,6 +7,7 @@ import { toRoman } from '../data/ships.js';
 import { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE, BASE_TIER_REQS } from '../data/base.js';
 import { fmt, fmtCompact, resourceIconHtml, showHintTooltip, hideTooltip, isLightColor, spendCoins, addLog } from '../helpers.js';
 import { getRepairCost } from '../systems/base.js';
+import { isBaseUpgradeLocked } from '../systems/quests.js';
 import { invalidateNetworkCache } from '../data/modules.js';
 import { refresh } from './refresh.js';
 import { renderTutPointers } from './tutorial.js';
@@ -21,6 +22,7 @@ import {
   RESEARCH_TREE,
 } from '../data/research.js';
 import { getMaxShield } from '../systems/research.js';
+import { getFactionRpCapBonus } from '../systems/factions.js';
 import {
   applyFloatingPosition,
   bringFloatingToFront,
@@ -154,17 +156,15 @@ function collectInstallations() {
     combatUpgrades.push({ id: 'emp_turrets', name: 'EMP Turrets', detail: 'Unlocked', icon: 'electric_bolt' });
 
   const perkDefs = [
-    ['resource_synthesis', 'Resource Synthesis', 'Unlocked', 'science'],
+    ['research_lab', 'Research Lab / Synthesis', 'Labs + composite recipes', 'science'],
     ['resource_fabrication', 'Resource Fabrication', 'Unlocked', 'precision_manufacturing'],
     ['unlock_bounties', 'Bounties', 'Unlocked', 'military_tech'],
     ['galaxy_probes', 'Galaxy Probes', 'Unlocked', 'travel_explore'],
     ['storage_facilities', 'Storage Facilities', 'Unlocked', 'warehouse'],
-    ['research_lab', 'Research Lab', 'Unlocked', 'biotech'],
     ['lab_tower', 'Lab Tower', 'Unlocked', 'cell_tower'],
     ['power_station', 'Power Station', 'Unlocked', 'bolt'],
     ['power_poles', 'Power Poles', 'Unlocked', 'electrical_services'],
-    ['drone_lab', 'Drone Lab', 'Unlocked', 'drone_2'],
-    ['drone_crafting', 'Drone Crafting', 'Unlocked', 'build'],
+    ['drone_lab', 'Drones', 'Drone Lab + crafting unlocked', 'drone_2'],
     ['market_influence', 'Market Influence', '+10% all sell prices', 'payments'],
     ['unique_scanner', 'Unique Ship Scanner', 'Unlocked', 'radar'],
     ['multi_demand', 'Multi-Demand', 'Up to 3 resources in demand per SOL', 'analytics'],
@@ -187,7 +187,7 @@ function collectInstallations() {
   };
 }
 
-let _basePanelTab = 'details'; // details | upgrade | controls | installations
+let _basePanelTab = 'details'; // details | controls | installations | upgrade
 let _lastRepairPanelSig = '';
 let _lastRepairRebuildTs = 0;
 let _baseTierTrackRo = null;
@@ -232,7 +232,7 @@ function observeBaseTierTrack(root, tier) {
   _baseTierTrackRo.observe(track);
 }
 
-function buildBaseUpgradePane(bl, nextCost, nextResReqs, canUpgrade) {
+function buildBaseUpgradePane(bl, nextCost, nextResReqs, canUpgrade, tutorialLocked = false) {
   const nt = bl < 10 ? bl + 1 : null;
   const nodes = [];
   for (let i = 1; i <= 10; i++) {
@@ -248,7 +248,7 @@ function buildBaseUpgradePane(bl, nextCost, nextResReqs, canUpgrade) {
     for (const [r, n] of Object.entries(nextResReqs)) {
       const met = (state.resources[r] || 0) >= n;
       const label = RESOURCE_DEFS[r]?.label || r;
-      costChips += `<span class="sm-bp-chip bp-upg-res${met ? '' : ' unmet'}" data-res="${r}" data-need="${n}" data-tippy-content="${label}">${resourceIconHtml(r, 18)}${fmt(n)}</span>`;
+      costChips += `<span class="sm-bp-chip bp-upg-res${met ? '' : ' unmet'}" data-res="${r}" data-need="${n}" data-tippy-content="${label}">${resourceIconHtml(r, 22)}${fmt(n)}</span>`;
     }
   }
   if (nt && nextCost != null) {
@@ -258,10 +258,9 @@ function buildBaseUpgradePane(bl, nextCost, nextResReqs, canUpgrade) {
 
   const tierActions = nt
     ? `<div class="sm-bp-cost">
-        <span class="cost-lab">COST</span>
         ${costChips}
       </div>
-      <button id="bp-upgrade-btn" class="sm-btn-tier" type="button" onclick="upgradeBase()" ${canUpgrade ? '' : 'disabled'}>ADVANCE TIER →</button>`
+      <button id="bp-upgrade-btn" class="sm-btn-tier" type="button" onclick="upgradeBase()" ${canUpgrade ? '' : 'disabled'}>${tutorialLocked ? 'COMPLETE TUTORIAL' : 'ADVANCE TIER →'}</button>`
     : '<div class="sm-maxed">★ MAX TIER REACHED</div>';
 
   const curShips = BASE_MAX_SHIPS[bl - 1] || 5;
@@ -322,6 +321,7 @@ function repairPanelSig(items) {
 
 const REPAIR_ICONS = {
   storage_facility: 'warehouse',
+  contract_center: 'handshake',
   research_lab: 'science',
   power_station: 'bolt',
   power_pole: 'electrical_services',
@@ -523,9 +523,6 @@ function buildStructureHtml(ctx) {
         <button type="button" class="bp-tab sm-tab${tab === 'details' ? ' on' : ''}" data-tab="details" onclick="setBasePanelTab('details')">
           <span class="ms-icon">circles</span> DETAILS
         </button>
-        <button type="button" class="bp-tab sm-tab${tab === 'upgrade' ? ' on' : ''}" data-tab="upgrade" onclick="setBasePanelTab('upgrade')">
-          <span class="ms-icon">upgrade</span> UPGRADE
-        </button>
         <button type="button" class="bp-tab sm-tab${tab === 'controls' ? ' on' : ''}" data-tab="controls" onclick="setBasePanelTab('controls')">
           <span class="ms-icon">tune</span> CONTROLS
           <span class="bp-tab-count${repairCount > 0 ? ' alert' : ''}" id="bp-repair-count"${repairCount > 0 ? '' : ' hidden'}>${repairCount}</span>
@@ -533,6 +530,9 @@ function buildStructureHtml(ctx) {
         <button type="button" class="bp-tab sm-tab${tab === 'installations' ? ' on' : ''}" data-tab="installations" onclick="setBasePanelTab('installations')">
           <span class="ms-icon">construction</span> INSTALLATIONS
           <span class="bp-tab-count" id="bp-install-count">${installCount}</span>
+        </button>
+        <button type="button" class="bp-tab sm-tab${tab === 'upgrade' ? ' on' : ''}" data-tab="upgrade" onclick="setBasePanelTab('upgrade')">
+          <span class="ms-icon">upgrade</span> UPGRADE
         </button>
       </div>
 
@@ -560,10 +560,6 @@ function buildStructureHtml(ctx) {
           </div>
         </div>
 
-        <div class="bp-tab-pane${tab === 'upgrade' ? ' on' : ''}" data-pane="upgrade">
-          ${buildBaseUpgradePane(bl, nextCost, nextResReqs, !!(nextCost && state.coins >= nextCost && (!nextResReqs || Object.entries(nextResReqs).every(([r, n]) => (state.resources[r] || 0) >= n))))}
-        </div>
-
         <div class="bp-tab-pane${tab === 'controls' ? ' on' : ''}" data-pane="controls">
           <div id="bp-controls-root" class="bp-controls-root">
             ${buildControlsPaneHtml(repairItems)}
@@ -587,6 +583,10 @@ function buildStructureHtml(ctx) {
               </div>
             </div>
           </div>
+        </div>
+
+        <div class="bp-tab-pane${tab === 'upgrade' ? ' on' : ''}" data-pane="upgrade">
+          ${buildBaseUpgradePane(bl, nextCost, nextResReqs, !!(nextCost && state.coins >= nextCost && (!nextResReqs || Object.entries(nextResReqs).every(([r, n]) => (state.resources[r] || 0) >= n)) && !isBaseUpgradeLocked()), isBaseUpgradeLocked())}
         </div>
       </div>
     </div>
@@ -659,7 +659,7 @@ function patchLiveValues(root, ctx) {
   setText(root.querySelector('#bp-shield-value'), `${fmt(shield)} / ${fmt(maxShield)}`);
 
   setText(root.querySelector('#bp-stat-fleet'), `${shipCount} / ${maxShips}`);
-  setText(root.querySelector('#bp-stat-rp'), `${state.rp} / ${getResearchPointCap(bl)}`);
+  setText(root.querySelector('#bp-stat-rp'), `${state.rp} / ${getResearchPointCap(bl) + getFactionRpCapBonus()}`);
 
   const hullStat = root.querySelector('#bp-stat-hull');
   if (hullStat) {
@@ -694,7 +694,12 @@ function patchLiveValues(root, ctx) {
       el.classList.toggle('unmet', !met);
     });
     const upBtn = root.querySelector('#bp-upgrade-btn');
-    if (upBtn) upBtn.disabled = !canUpgrade;
+    if (upBtn) {
+      upBtn.disabled = !canUpgrade;
+      const lock = isBaseUpgradeLocked();
+      const label = lock ? 'COMPLETE TUTORIAL' : 'ADVANCE TIER →';
+      if (upBtn.textContent !== label) upBtn.textContent = label;
+    }
   }
 }
 
@@ -719,7 +724,8 @@ export function renderBasePanel() {
   const nextCost = BASE_UPGRADE_COSTS[bl] || null;
   const nextResReqs = nextCost ? (BASE_TIER_REQS[bl + 1] || null) : null;
   const resReqsMet = !nextResReqs || Object.entries(nextResReqs).every(([r, n]) => (state.resources[r] || 0) >= n);
-  const canUpgrade = !!(nextCost && state.coins >= nextCost && resReqsMet);
+  const tutorialLocked = isBaseUpgradeLocked();
+  const canUpgrade = !!(nextCost && state.coins >= nextCost && resReqsMet && !tutorialLocked);
   const hpPct = Math.round((state.base.health / Math.max(1, state.base.maxHealth)) * 100);
   const installs = collectInstallations();
   const {

@@ -5,7 +5,7 @@ import { TILE_W, TILE_H } from '../constants.js';
 import { gridToIso, isInView, isSegmentInView } from './camera.js';
 import { state } from '../state.js';
 import { canvasState } from './canvasState.js';
-import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, DRONE_LAB_ID, getModuleDef, getModuleStats, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, isDroneLabModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, getLabTowerLinkedNodes, hasPowerStationFuel, getNetworkVersion } from '../data/modules.js';
+import { STORAGE_FACILITY_ID, RESEARCH_LAB_ID, POWER_STATION_ID, POWER_POLE_ID, LAB_TOWER_ID, DRONE_LAB_ID, CONTRACT_CENTER_ID, getModuleDef, getModuleStats, getModuleFootprintCells, getModuleFootprintHalf, moduleContainsCell, isStorageModule, isResearchLabModule, isPowerStationModule, isLabTowerModule, isDroneLabModule, isContractCenterModule, getNoFuelNetworkIds, getPowerNetworkState, getLabNetworkState, getLabTowerLinkedNodes, hasPowerStationFuel, getNetworkVersion } from '../data/modules.js';
 import { canPlaceModuleAt } from '../ui/storageUI.js';
 
 let ctx = null;
@@ -33,12 +33,24 @@ const droneLabImage = new Image();
 droneLabImage.src = 'assets/images/buildings/drone_lab.png';
 const droneLabHoverImage = new Image();
 droneLabHoverImage.src = 'assets/images/buildings/drone_lab_hover.png';
+const contractsImage = new Image();
+contractsImage.src = 'assets/images/buildings/contracts.png';
+const contractsHoverImage = new Image();
+contractsHoverImage.src = 'assets/images/buildings/contracts_hover.png';
 
 function getModuleSprite(module, hovered) {
   const defs = {
     [STORAGE_FACILITY_ID]: {
       normal: storageImage,
       hover: storageHoverImage,
+      width: 150,
+      height: 150,
+      offsetY: 31,
+      shadow: hovered ? 10 : 8,
+    },
+    [CONTRACT_CENTER_ID]: {
+      normal: contractsImage,
+      hover: contractsHoverImage,
       width: 150,
       height: 150,
       offsetY: 31,
@@ -799,7 +811,7 @@ function drawModuleForPhase(module, phase, noFuelIds) {
     const showRange = !state.placingModule && (module.type === POWER_POLE_ID || module.type === LAB_TOWER_ID) && (hovered || state.selectedModule === module.id);
     if (showRange) drawModuleRange(module);
   }
-  if (isStorageModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) {
+  if (isStorageModule(module) || isContractCenterModule(module) || isResearchLabModule(module) || isDroneLabModule(module)) {
     drawStorageModule(module, hovered, phase);
   } else if (isPowerStationModule(module) && (getModuleDef(module.type).footprintSize || 1) > 1) {
     drawPowerStationModule(module, hovered, phase);

@@ -3,6 +3,7 @@
 // ============================================================
 import { state, saveGame } from '../state.js';
 import { refresh } from '../ui/refresh.js';
+import { getFactionCraftTimeMult } from './factions.js';
 
 const _timeouts = {};
 
@@ -57,7 +58,9 @@ function scheduleJob(job) {
  */
 export function enqueueCraftJob({ kind, recipeId, name, durationMs }) {
   if (!canEnqueueCraft()) return null;
-  const dur = Math.max(250, Math.floor(durationMs || 1000));
+  let mult = state.researchUnlocks?.crafting_efficiency ? 0.5 : 1;
+  mult *= getFactionCraftTimeMult() || 1;
+  const dur = Math.max(250, Math.floor((durationMs || 1000) * mult));
   const now = Date.now();
   const job = {
     jobId: `cj_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`,

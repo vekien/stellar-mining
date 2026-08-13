@@ -60,6 +60,38 @@ export let state = {
   marketBoost: null,
   /** Per-resource SOL price variance percent, e.g. { iron: -12, copper: 8 } */
   marketVariance: {},
+  /** Per-SOL buy lots: { sol, offers: [{ type, qty, purchased }] } */
+  marketBuyOffers: null,
+
+  /** Quest progress: { [questId]: { status, stageIndex, done, flags } } */
+  quests: null,
+  /** Pinned quest ids for left tracker (max 3) */
+  trackedQuests: [],
+  /** Main story missions: { [id]: { status, stageIndex, done, flags } } */
+  missions: null,
+  /** Map distress beacon entity for mission 1 */
+  missionBeacon: null,
+  /** Key items held at base: [{ id, acquiredSol, flags }] */
+  keyItems: [],
+  /** Daily quest board: { sol, quests: [...] } */
+  dailyQuests: null,
+  /** Archived completed quests (newest first), max ~80 */
+  questHistory: [],
+  /** @deprecated legacy scalar — migrated into factionRep */
+  reputation: 0,
+  /** Per-faction standing: { frontier_union, ironhands, astral_institute } */
+  factionRep: null,
+  /** Unlocked standing perks: { [factionId]: string[] perkIds } */
+  factionPerks: null,
+  /** Lifetime gains (only increase): { coins, resources: { iron: n, ... }, _seeded } */
+  lifetimeGained: null,
+
+  /** Sector contracts: { periodStartSol, slots: [...] } */
+  contracts: null,
+  /** AI Trader rules: { [resourceType]: { enabled, keepPct, demandOnly } } */
+  autoTradeRules: null,
+  /** Unique scanner pings this SOL */
+  uniqueSignatures: [],
 
   // Player settings
   settings: {
@@ -86,6 +118,7 @@ export let state = {
   firstCraftable: false,
   firstNodeSwitch: false,
   redirectTutActive: false,
+  redirectTargetType: null, // 'iron' | 'copper' during diversify tutorial
   upgradesTutActive: false,
   seenMsgs: {},
   eventCounts: {},
@@ -184,6 +217,29 @@ export function saveGame() {
       base: state.base,
       sol: state.sol, solTimer: state.solTimer, rp: state.rp, marketBoost: state.marketBoost, extraDemands: state.extraDemands,
       marketVariance: state.marketVariance && typeof state.marketVariance === 'object' ? state.marketVariance : {},
+      marketBuyOffers: state.marketBuyOffers || null,
+      quests: state.quests || null,
+      trackedQuests: Array.isArray(state.trackedQuests) ? state.trackedQuests : [],
+      missions: state.missions || null,
+      missionBeacon: state.missionBeacon || null,
+      keyItems: Array.isArray(state.keyItems) ? state.keyItems : [],
+      dailyQuests: state.dailyQuests || null,
+      questHistory: Array.isArray(state.questHistory) ? state.questHistory.slice(0, 80) : [],
+      reputation: state.reputation || 0,
+      factionRep: state.factionRep && typeof state.factionRep === 'object' ? state.factionRep : null,
+      factionPerks: state.factionPerks && typeof state.factionPerks === 'object' ? state.factionPerks : null,
+      lifetimeGained: state.lifetimeGained && typeof state.lifetimeGained === 'object'
+        ? {
+            coins: Math.max(0, Math.floor(Number(state.lifetimeGained.coins) || 0)),
+            resources: state.lifetimeGained.resources && typeof state.lifetimeGained.resources === 'object'
+              ? state.lifetimeGained.resources
+              : {},
+            _seeded: !!state.lifetimeGained._seeded,
+          }
+        : null,
+      contracts: state.contracts || null,
+      autoTradeRules: state.autoTradeRules || null,
+      uniqueSignatures: state.uniqueSignatures || [],
       settings: state.settings,
       solStarted: state.solStarted, tutStep: state.tutStep,
       firstDeposit: state.firstDeposit, firstCraftable: state.firstCraftable,
@@ -234,6 +290,13 @@ export function saveGame() {
           pickupType: s.pickupType ?? null,
           pickupId: s.pickupId ?? null,
           loadBuffer: s.loadBuffer ?? 0,
+          autoAssign: !!s.autoAssign,
+          shield: s.shield ?? null,
+          maxShield: s.maxShield ?? null,
+          cargoHold: s.cargoHold || 0,
+          cargoHoldResource: s.cargoHoldResource || null,
+          missionJob: s.missionJob || null,
+          missionCargo: s.missionCargo || null,
         })),
         // Drones are not persisted — they respawn fresh from the lab on each load
       }));
@@ -257,6 +320,44 @@ export function loadGame() {
     state.marketBoost = d.marketBoost ?? null;
     state.extraDemands = Array.isArray(d.extraDemands) ? d.extraDemands : [];
     state.marketVariance = d.marketVariance && typeof d.marketVariance === 'object' ? d.marketVariance : {};
+    state.marketBuyOffers = d.marketBuyOffers && typeof d.marketBuyOffers === 'object'
+      ? {
+          sol: Number(d.marketBuyOffers.sol) || 1,
+          offers: Array.isArray(d.marketBuyOffers.offers)
+            ? d.marketBuyOffers.offers
+                .filter((o) => o && o.type)
+                .map((o) => ({
+                  type: o.type,
+                  qty: Math.max(0, Math.floor(Number(o.qty) || 0)),
+                  purchased: Math.max(0, Math.floor(Number(o.purchased) || 0)),
+                }))
+            : [],
+        }
+      : null;
+    state.quests = d.quests && typeof d.quests === 'object' ? d.quests : null;
+    state.trackedQuests = Array.isArray(d.trackedQuests) ? d.trackedQuests : [];
+    state.missions = d.missions && typeof d.missions === 'object' ? d.missions : null;
+    state.missionBeacon = d.missionBeacon && typeof d.missionBeacon === 'object' ? d.missionBeacon : null;
+    state.keyItems = Array.isArray(d.keyItems) ? d.keyItems : [];
+    state.dailyQuests = d.dailyQuests && typeof d.dailyQuests === 'object' ? d.dailyQuests : null;
+    state.questHistory = Array.isArray(d.questHistory) ? d.questHistory.slice(0, 80) : [];
+    state.reputation = Math.max(0, Math.floor(Number(d.reputation) || 0));
+    state.factionRep = d.factionRep && typeof d.factionRep === 'object' ? d.factionRep : null;
+    state.factionPerks = d.factionPerks && typeof d.factionPerks === 'object' ? d.factionPerks : null;
+    if (d.lifetimeGained && typeof d.lifetimeGained === 'object') {
+      state.lifetimeGained = {
+        coins: Math.max(0, Math.floor(Number(d.lifetimeGained.coins) || 0)),
+        resources: d.lifetimeGained.resources && typeof d.lifetimeGained.resources === 'object'
+          ? d.lifetimeGained.resources
+          : {},
+        _seeded: !!d.lifetimeGained._seeded,
+      };
+    } else {
+      state.lifetimeGained = null;
+    }
+    state.contracts = d.contracts && typeof d.contracts === 'object' ? d.contracts : null;
+    state.autoTradeRules = d.autoTradeRules && typeof d.autoTradeRules === 'object' ? d.autoTradeRules : null;
+    state.uniqueSignatures = Array.isArray(d.uniqueSignatures) ? d.uniqueSignatures : [];
     // Strip special node types (e.g. crashed_ship) from saved demand
     {
       const ok = (type) => {
@@ -312,6 +413,11 @@ export function loadGame() {
     if (state.researchUnlocks.hp_boost) { state.researchUnlocks.health_increase = true; delete state.researchUnlocks.hp_boost; }
     // defense → armor_plating
     if (state.researchUnlocks.defense) { state.researchUnlocks.armor_plating = true; delete state.researchUnlocks.defense; }
+    // drone_lab + drone_crafting merged → either unlocks both
+    if (state.researchUnlocks.drone_lab || state.researchUnlocks.drone_crafting) {
+      state.researchUnlocks.drone_lab = true;
+      state.researchUnlocks.drone_crafting = true;
+    }
     state.researchUnlocksList = Array.isArray(d.researchUnlocksList) ? d.researchUnlocksList : [];
     // Migrate old list entry names
     for (const r of state.researchUnlocksList) {
@@ -422,6 +528,13 @@ export function loadGame() {
            loadBuffer: sd.loadBuffer ?? 0,
            loadingPickup: false,
            unloadingDepot: false,
+           autoAssign: !!sd.autoAssign,
+           shield: Number.isFinite(sd.shield) ? sd.shield : null,
+           maxShield: Number.isFinite(sd.maxShield) ? sd.maxShield : null,
+           cargoHold: Math.max(0, Math.floor(sd.cargoHold || 0)),
+           cargoHoldResource: sd.cargoHoldResource || null,
+           missionJob: sd.missionJob && typeof sd.missionJob === 'object' ? sd.missionJob : null,
+           missionCargo: sd.missionCargo || null,
            status:'idle', targetNode: sd.targetNode ?? null, targetEnemyId: null,
         depotType: sd.depotType === 'research_lab' ? 'base' : (sd.depotType || 'base'),
         depotId: sd.depotType === 'research_lab' ? null : (sd.depotId ?? null),

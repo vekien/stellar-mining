@@ -3,10 +3,11 @@
 // ============================================================
 export const TILE_W = 64;
 export const TILE_H = 32;
-export const GRID_COLS = 100;
-export const GRID_ROWS = 100;
-export const BASE_COL = 50;
-export const BASE_ROW = 50;
+// Large enough for BASE_RANGE T10 (70 tiles) with margin around the base.
+export const GRID_COLS = 150;
+export const GRID_ROWS = 150;
+export const BASE_COL = 75;
+export const BASE_ROW = 75;
 export const BASE_FOOTPRINT_RADIUS = 1;
 
 export function isBaseFootprintCell(col, row) {

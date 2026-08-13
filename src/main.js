@@ -6,6 +6,7 @@ import { generateNodes } from './data/nodes.js';
 import { MINE_TIERS } from './data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from './data/crafts.js';
 import { BASE_COL, BASE_ROW } from './constants.js';
+import { BASE_RANGE } from './data/base.js';
 import { CRASHED_SHIP_NODE_TYPE } from './data/nodes.js';
 import { SOL_DURATION } from './data/sol.js';
 import { setStateRef, hideTooltip, openLogHistory, closeLogHistory, refreshLogUI, fmt } from './helpers.js';
@@ -24,11 +25,17 @@ import {
   tickScreenShake, tickRangePulses, tickNodeParticles, tickCombatBeams, tickEmpBlasts,
 } from './render/animations.js';
 import { scheduleNextEvent, tickSOL, rollMarketDemands, rollMarketVariance, sanitizeMarketDemands } from './systems/sol.js';
+import { ensureMarketBuyOffers } from './systems/market.js';
+import { ensureQuests, evaluateAllQuests } from './systems/quests.js';
+import { ensureLifetimeGained } from './systems/lifetime.js';
+import { ensureFactionRep } from './systems/factions.js';
+import { bootMissions, tickMissionBeacon } from './systems/missions.js';
+import { patchMissionTracker } from './ui/missionsUI.js';
 import { fireRandomEvent } from './systems/events.js';
 import { tickAdmiral, showTransmissionMessage, showOnce } from './ui/transmissions.js';
-import { tickShip, tickEvents, flushTickEvents, spawnShip } from './systems/ships.js';
+import { tickShip, tickEvents, flushTickEvents, spawnShip, getEffectiveShipCapacity } from './systems/ships.js';
 import { tickCombat } from './systems/combat.js';
-import { tickDrone, spawnDrone } from './systems/drones.js';
+import { tickDrone, spawnDrone, tickBlackHoleDrones } from './systems/drones.js';
 import './systems/research.js';
 import { getMaxShield } from './systems/research.js';
 import { SHIELD_REGEN_INTERVAL_S, SHIELD_REGEN_PER_PURCHASE_PER_TICK, AUTO_REGEN_HP_PER_PURCHASE } from './data/research.js';
@@ -101,6 +108,11 @@ initRefresh();
 initInput(canvas);
 initDevPanel();
 setOnCameraMove(renderTutPointers);
+// HUD tool tips (currency / Dev / About / Settings / New Game)
+requestAnimationFrame(() => {
+  window.bindTippyIn?.(document.getElementById('header-right'));
+  window.bindTippyIn?.(document.querySelector('.hud-left'));
+});
 
 // ── Node init ─────────────────────────────────────────────────
 function initNodes() {
@@ -127,23 +139,17 @@ if (!loaded) spawnShip('scout');
 // Schedule first event if not already scheduled
 if (state.nextEventSol === null) scheduleNextEvent();
 
-// Show about window for first-time players
-if (!state.shownAboutWindow) {
-  state.shownAboutWindow = true;
-  saveGame();
-  document.getElementById('about-overlay').classList.add('show');
-}
-
-// Ensure market demand + variance exist from the very first SOL
+// Ensure market demand + variance + buy lots exist from the very first SOL
 sanitizeMarketDemands();
 if (!state.marketBoost) {
-  rollMarketDemands(); // also rolls variance
+  rollMarketDemands(); // also rolls variance + buy offers
 } else {
   if (!state.marketBoost.multiplier) state.marketBoost.multiplier = 1.5;
   if (!state.marketVariance || !Object.keys(state.marketVariance).length) {
     rollMarketVariance();
   }
 }
+ensureMarketBuyOffers();
 
 // Normalise ships missing mineTier (e.g. from old saves)
 for (const s of state.ships) {
@@ -154,7 +160,16 @@ focusOnBase(2.0, { snap: true });
 updateHeader();
 showStartupInfrastructureWarnings();
 
-const crashedShipNodes = state.nodes.filter((node) => node.type === CRASHED_SHIP_NODE_TYPE);
+// Only surface derelicts that are unlocked AND inside current base range (visible on map)
+function isCrashedShipVisible(node) {
+  if (!node?.gr || node.type !== CRASHED_SHIP_NODE_TYPE) return false;
+  const bl = state.base.level || 1;
+  if ((node.minLevel || 1) > bl) return false;
+  const halfR = BASE_RANGE[bl - 1] || 6;
+  const dist = Math.max(Math.abs(node.gr[0] - BASE_COL), Math.abs(node.gr[1] - BASE_ROW));
+  return dist <= halfR;
+}
+const crashedShipNodes = state.nodes.filter(isCrashedShipVisible);
 if (crashedShipNodes.length > 0) {
   const [col, row] = crashedShipNodes[0].gr;
   setTimeout(() => showOnce('zoe_crashed_ship_detected', NPCS.zoe.transmissionLines.crashed_ship_detected(col, row), 20, 'zoe'), 1400);
@@ -188,6 +203,15 @@ for (const ship of state.ships) {
     }
   }
 }
+
+// Lifetime economy counters + quests + factions + missions
+ensureLifetimeGained();
+ensureFactionRep();
+ensureQuests();
+evaluateAllQuests();
+bootMissions();
+patchMissionTracker(true);
+window.syncLeftHudUi?.();
 
 // Tutorial / banner setup
 if (state.ships.some(s => s.targetNode !== null)) {
@@ -417,6 +441,7 @@ function gameLoop() {
   tickNodeParticles(dt);
   tickSOL(dt);
   tickAdmiral(dt);
+  tickMissionBeacon(dt);
 
   if ((state.base.health || 0) > 0) _baseDestroyedNoticeShown = false;
   else if (!_baseDestroyedNoticeShown) {
@@ -515,6 +540,7 @@ function gameLoop() {
 
   tickCombat(dt);
   for (const s of state.ships) tickShip(s, dt);
+  tickBlackHoleDrones(dt);
   for (const d of (state.drones || [])) tickDrone(d, dt);
 
   state.highestAvailableNodeTier = Math.max(1, ...state.ships.map(s => s.mineTier || 1));
@@ -560,6 +586,7 @@ function getSelectedActionSig(ship) {
     ship.unloadingDepot ? 1 : 0,
     ship.loadingPickup ? 1 : 0,
     ship.capacity,
+    getEffectiveShipCapacity(ship),
     ship.flySpeed,
     ship.mineSpeed,
     ship.mineBonus,
@@ -609,7 +636,7 @@ function patchShipCards() {
   const selectedShipForSig = state.selectedShip !== null
     ? state.ships.find(s => s.id === state.selectedShip)
     : null;
-  const sig = state.ships.map(s => `${s.id}:${s.status}:${!!s.unloadingDepot}:${s.cargo}/${s.capacity}`).join('|')
+  const sig = state.ships.map(s => `${s.id}:${s.status}:${!!s.unloadingDepot}:${s.cargo}/${getEffectiveShipCapacity(s)}`).join('|')
     + `|sel:${state.selectedShip ?? '-'}|selDist:${selectedShipForSig ? getDistanceToBaseTiles(selectedShipForSig) : '-'}|selDest:${selectedShipForSig ? selectedShipForSig.destX : '-'}:${selectedShipForSig ? selectedShipForSig.destY : '-'}|sol:${state.sol}|coins:${state.coins}`;
   if (sig === _lastPatchSig) {
     requestAnimationFrame(patchShipCards);
@@ -619,10 +646,11 @@ function patchShipCards() {
 
   for (const ship of state.ships) {
     // Cargo bar
+    const cap = Math.max(1, getEffectiveShipCapacity(ship));
     const fill = document.getElementById(`cargo-fill-${ship.id}`);
-    if (fill) fill.style.width = `${ship.cargo / ship.capacity * 100}%`;
+    if (fill) fill.style.width = `${ship.cargo / cap * 100}%`;
     const txt = document.getElementById(`cargo-text-${ship.id}`);
-    if (txt) txt.textContent = `▲ ${ship.cargo}/${ship.capacity}`;
+    if (txt) txt.textContent = `▲ ${ship.cargo}/${cap}`;
     // Status badge (no-op if text unchanged — avoids flicker)
     const badge = document.getElementById(`ship-status-${ship.id}`);
     if (badge) {

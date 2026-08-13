@@ -297,11 +297,12 @@ export const SHIP_DEFS = {
   swift: {
     role: 'mining', capacity: 6,   flySpeed: 220, mineSpeed: 2.5, mineTier: 1, render: RENDER_SWIFT,
   },
+  // mineTier = base level unlock; kept >= highest material tier in craft recipe
   hauler: {
-    role: 'mining', capacity: 50,  flySpeed: 60,  mineSpeed: 2.5, mineTier: 2, render: RENDER_HAULER,
+    role: 'mining', capacity: 50,  flySpeed: 60,  mineSpeed: 2.5, mineTier: 3, render: RENDER_HAULER,
   },
   freighter: {
-    role: 'mining', capacity: 100, flySpeed: 60,  mineSpeed: 2.5, mineTier: 3, render: RENDER_FREIGHTER,
+    role: 'mining', capacity: 100, flySpeed: 60,  mineSpeed: 2.5, mineTier: 5, render: RENDER_FREIGHTER,
   },
 
   // ── Cargo Transport ────────────────────────────────────────────
@@ -309,7 +310,7 @@ export const SHIP_DEFS = {
     role: 'transport', capacity: 500,  flySpeed: 25, mineSpeed: 0, loadSpeed: 10, mineTier: 2, render: RENDER_COURIER,
   },
   deep_hauler: {
-    role: 'transport', capacity: 1000, flySpeed: 25, mineSpeed: 0, loadSpeed: 50, mineTier: 4, render: RENDER_TITAN,
+    role: 'transport', capacity: 1000, flySpeed: 25, mineSpeed: 0, loadSpeed: 50, mineTier: 5, render: RENDER_TITAN,
   },
 
   // ── Combat ─────────────────────────────────────────────────────
@@ -319,12 +320,12 @@ export const SHIP_DEFS = {
     hp: 3200,  attack: 45,  attackSpeed: 1.8,
   },
   interceptor: {
-    role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 4,
+    role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 5,
     render: RENDER_SCOUT,
     hp: 10000, attack: 60,  attackSpeed: 1.2,
   },
   destroyer: {
-    role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 5,
+    role: 'combat', capacity: 0, flySpeed: 155, mineSpeed: 0, mineTier: 7,
     render: RENDER_FREIGHTER,
     hp: 20000, attack: 100, attackSpeed: 0.4,
   },
@@ -337,7 +338,7 @@ export const SHIP_DEFS = {
     hp: 18000, attack: 400, attackSpeed: 0.35, range: 24,
   },
   colossus: {
-    role: 'garrison', capacity: 0, flySpeed: 39, mineSpeed: 0, mineTier: 5,
+    role: 'garrison', capacity: 0, flySpeed: 39, mineSpeed: 0, mineTier: 7,
     render: RENDER_TITAN,
     hp: 50000, attack: 900, attackSpeed: 0.15, range: 42,
   },

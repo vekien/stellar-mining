@@ -95,11 +95,20 @@ export function addCoins(n, opts = {}) {
   }
   const before = _stateRef.coins || 0;
   _stateRef.coins = clampCoins(before + delta);
-  _headerCoinCb?.();
+  const gained = Math.max(0, (_stateRef.coins || 0) - before);
+  if (gained > 0) {
+    try {
+      import('./systems/lifetime.js').then((m) => m.recordLifetimeCoins?.(gained)).catch(() => {});
+    } catch (_) { /* ignore */ }
+  }
+  _headerCoinCb?.(gained > 0 ? gained : 0);
   // Partial fill to cap still counts as success if any coins were added
   return (_stateRef.coins || 0) > before || delta === 0;
 }
-export function spendCoins(n) { _stateRef.coins = clampCoins((_stateRef.coins || 0) - n); _headerCoinCb?.(); }
+export function spendCoins(n) {
+  _stateRef.coins = clampCoins((_stateRef.coins || 0) - n);
+  _headerCoinCb?.(0);
+}
 
 // ── Canvas log entries ──
 // state is imported lazily via the getter to avoid circular deps at module init

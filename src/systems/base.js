@@ -3,7 +3,9 @@
 // ============================================================
 import { state } from '../state.js';
 import { BASE_UPGRADE_COSTS, BASE_RANGE, BASE_MAX_SHIPS, BASE_TIER_REQS } from '../data/base.js';
+import { BASE_COL, BASE_ROW } from '../constants.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
+import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 import { addLog, fmt, addCoins, spendCoins } from '../helpers.js';
 import { refresh } from '../ui/refresh.js';
 import { spawnRangePulse, spawnNodeUnlock } from '../render/animations.js';
@@ -14,6 +16,9 @@ import { patchSolPanel } from '../ui/panels.js';
 import { invalidateResourceBar, updateHeaderRP, updateHeaderShips } from '../ui/ui.js';
 import { HEALTH_INCREASE_HP_PER_PURCHASE } from '../data/research.js';
 import { getResearchPointCap } from '../data/research.js';
+import { spawnDrone } from './drones.js';
+import { isBaseUpgradeLocked } from './quests.js';
+import { getFactionBaseHpMult, getFactionRpCapBonus } from './factions.js';
 
 export function getRepairCost(amount) {
   return { coins: amount }; // 1:1 coin per HP
@@ -33,6 +38,10 @@ window.repairBase = function(amount) {
 };
 
 window.upgradeBase = function() {
+  if (isBaseUpgradeLocked()) {
+    addLog('⚠ Complete the Tutorial quest before upgrading the Base.');
+    return;
+  }
   const bl = state.base.level;
   const prevRange = BASE_RANGE[(bl - 1)] || 6;
   const cost = BASE_UPGRADE_COSTS[bl];
@@ -56,10 +65,13 @@ window.upgradeBase = function() {
     duration: 950,
   };
   const hpBoostBonus = (state.hpBoostCount || 0) * HEALTH_INCREASE_HP_PER_PURCHASE;
-  state.base.maxHealth = 10000 + (state.base.level - 1) * 10000 + hpBoostBonus;
+  const baseHp = Math.round((10000 + (state.base.level - 1) * 10000 + hpBoostBonus) * getFactionBaseHpMult());
+  state.base.maxHealth = baseHp;
   state.base.health = state.base.maxHealth;
-  const rpCap = getResearchPointCap(state.base.level);
-  state.rp = Math.min(state.rp + 1, rpCap);
+  const rpCap = getResearchPointCap(state.base.level) + getFactionRpCapBonus();
+  const rpBefore = state.rp || 0;
+  state.rp = Math.min(rpBefore + 5, rpCap);
+  const rpGained = Math.max(0, (state.rp || 0) - rpBefore);
   updateHeaderRP();
   updateHeaderShips();
   spawnRangePulse(BASE_RANGE[state.base.level-1]);
@@ -68,7 +80,27 @@ window.upgradeBase = function() {
     node.fadeAge = 0; node.fadeDuration = 1.2;
     setTimeout(() => spawnNodeUnlock(node), 300 + i * 200);
   });
-  addLog(`⬆ Base upgraded to Tier ${state.base.level}!`);
+
+  // Derelicts only when unlocked AND inside the new visible range
+  const halfR = BASE_RANGE[state.base.level - 1] || 6;
+  const newlyVisibleCrashed = state.nodes.filter((n) => {
+    if (n.type !== CRASHED_SHIP_NODE_TYPE) return false;
+    if ((n.minLevel || 1) > state.base.level) return false;
+    const dist = Math.max(Math.abs(n.gr[0] - BASE_COL), Math.abs(n.gr[1] - BASE_ROW));
+    if (dist > halfR) return false;
+    // Newly unlocked this tier, or newly inside range (was beyond prevRange)
+    return (n.minLevel || 1) === state.base.level || dist > prevRange;
+  });
+  if (newlyVisibleCrashed.length) {
+    const [col, row] = newlyVisibleCrashed[0].gr;
+    const msgKey = `zoe_crashed_ship_${state.base.level}_${col}_${row}`;
+    setTimeout(() => showOnce(msgKey, NPCS.zoe.transmissionLines.crashed_ship_detected(col, row), 20, 'zoe'), 1400);
+    newlyVisibleCrashed.forEach((node, i) => {
+      setTimeout(() => spawnDrone(node, 'crashed_ship'), 2200 + i * 600);
+    });
+  }
+
+  addLog(`⬆ Base upgraded to Tier ${state.base.level}!${rpGained > 0 ? ` (+${rpGained} RP)` : ''}`);
 
   if (state.base.level === 2) {
     setTimeout(() => showOnce('juno_base_lv2_upgrade', NPCS.juno.transmissionLines.base_lv2_upgrade, 28, 'juno'), 900);
@@ -78,6 +110,8 @@ window.upgradeBase = function() {
   if (state.base.level === 3) {
     setTimeout(() => showOnce('dax_lv3_intro', NPCS.dax.transmissionLines.dax_lv3_intro, 18, 'dax'), 900);
     setTimeout(() => showOnce('kai_lv3_intro', NPCS.kai.transmissionLines.kai_lv3_intro, 18, 'kai'), 3200);
+    setTimeout(() => showOnce('rigs_base_lv3_hauler', NPCS.rigs.transmissionLines.base_lv3_hauler, 14, 'rigs'), 5200);
+    import('./missions.js').then((m) => m.onBaseLevelUp?.(3)).catch(() => {});
   }
 
   const newShips = CRAFT_RECIPES.filter(r => r.mineTier === state.base.level);

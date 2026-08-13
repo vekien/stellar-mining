@@ -15,18 +15,24 @@
 
 <div id="top-bars">
   <div id="header" class="hud">
-    <div class="island sol">
-      <div class="hud-planet" aria-hidden="true"><span class="ms-icon ms-icon-fill">public</span></div>
-      <div class="hud-sol-meta">
-        <div class="hud-system">KEPLER-7</div>
-        <div class="hud-time" id="hdr-sol">SOL 1 · 03:00</div>
+    <div class="hud-left">
+      <div class="island sol">
+        <div class="hud-planet" aria-hidden="true"><span class="ms-icon ms-icon-fill">public</span></div>
+        <div class="hud-sol-meta">
+          <div class="hud-system">KEPLER-7</div>
+          <div class="hud-time" id="hdr-sol">SOL 1 · 03:00</div>
+        </div>
       </div>
+      <button type="button" class="island currency" id="hdr-coins-btn" onclick="openHdrPanel('market')" data-tippy-content="Credits · open Trade" aria-label="Credits">
+        <span class="hud-cash-ico" aria-hidden="true">$</span>
+        <span class="hud-cash-val" id="hdr-coins">0</span>
+      </button>
     </div>
 
     <nav class="island nav" aria-label="Main">
       <button type="button" class="hdr-btn" data-panel="sol" onclick="openHdrPanel('sol')">OVERVIEW</button>
       <button type="button" class="hdr-btn" data-panel="command" onclick="openHdrPanel('command')">COMMAND</button>
-      <button type="button" class="hdr-btn" data-panel="resources" onclick="openHdrPanel('resources')">RESOURCES</button>
+      <button type="button" class="hdr-btn" data-panel="resources" onclick="openHdrPanel('resources')">INVENTORY</button>
       <button type="button" class="hdr-btn" data-panel="craft" id="hdr-btn-craft" onclick="openHdrPanel('craft')">CRAFT</button>
       <button type="button" class="hdr-btn" data-panel="market" onclick="openHdrPanel('market')">TRADE</button>
       <button type="button" class="hdr-btn" data-panel="fleet" onclick="openHdrPanel('fleet')">SHIPS</button>
@@ -36,7 +42,7 @@
 
     <div class="island tools" id="header-right">
       <div id="dev-panel">
-        <button type="button" class="hdr-tool" title="Dev"><span class="ms-icon">terminal</span></button>
+        <button type="button" class="hdr-tool" data-tippy-content="Developer tools" aria-label="Developer tools"><span class="ms-icon">terminal</span></button>
         <div id="dev-menu">
           <button id="dev-btn-coins">Max: Money</button>
           <button id="dev-btn-resources">Max: Resources</button>
@@ -56,9 +62,9 @@
           <button id="dev-btn-transmission">UI: Test Transmission</button>
         </div>
       </div>
-      <button type="button" class="hdr-tool" onclick="openAbout()" title="About"><span class="ms-icon">help</span></button>
-      <button type="button" class="hdr-tool" onclick="openSettings()" title="Settings"><span class="ms-icon">settings</span></button>
-      <button type="button" class="hdr-tool hdr-tool-new" onclick="promptNewGame()" title="New Game"><span class="ms-icon">refresh</span> NEW</button>
+      <button type="button" class="hdr-tool" onclick="openAbout()" data-tippy-content="About" aria-label="About"><span class="ms-icon">help</span></button>
+      <button type="button" class="hdr-tool" onclick="openSettings()" data-tippy-content="Settings" aria-label="Settings"><span class="ms-icon">settings</span></button>
+      <button type="button" class="hdr-tool hdr-tool-new" onclick="promptNewGame()" data-tippy-content="Start a new game" aria-label="New Game"><span class="ms-icon">refresh</span> NEW</button>
     </div>
   </div>
 </div>
@@ -68,6 +74,28 @@
     <canvas id="stars-canvas"></canvas>
     <canvas id="main-canvas"></canvas>
     <div id="craft-tracker" class="ct-hidden"></div>
+    <div id="left-hud-dock" data-panel="collapsed">
+      <div id="left-hud-rail" class="left-hud-rail" aria-label="Mission and quest tabs">
+        <button type="button" id="mission-log-tab" class="left-hud-tab is-mission" onclick="openLeftHud('mission')" aria-label="Show mission" title="Mission" aria-expanded="false" hidden>
+          <span class="ms-icon ms-icon-fill">flag</span>
+        </button>
+        <button type="button" id="quest-log-tab" class="left-hud-tab is-quest" onclick="openLeftHud('quests')" aria-label="Show quest log" title="Quests" aria-expanded="false" hidden>
+          <span class="ms-icon">assignment</span>
+        </button>
+        <span id="quest-log-tab-count" hidden aria-hidden="true">0</span>
+      </div>
+      <div id="mission-tracker" class="mt-hidden" aria-label="Active mission"></div>
+      <div id="quest-tracker" class="qt-hidden" aria-label="Active quests"></div>
+    </div>
+    <div id="beacon-modal-overlay">
+      <div id="beacon-modal" class="beacon-modal-window" onclick="event.stopPropagation()">
+        <div class="panel-shell-head beacon-modal-drag-handle">
+          <div class="panel-shell-title">DISTRESS BEACON</div>
+          <button type="button" class="panel-shell-close" onclick="closeBeaconModal()">✕</button>
+        </div>
+        <div id="beacon-modal-body" class="beacon-modal-body"></div>
+      </div>
+    </div>
     <div id="ship-modal-overlay">
       <div id="ship-modal" class="ship-modal-window" onclick="event.stopPropagation()">
         <div class="panel-shell-head ship-modal-drag-handle">
@@ -93,7 +121,7 @@
 <div id="base-panel-overlay" onclick="handleBasePanelOverlayClick(event)">
       <div id="base-panel"></div>
     </div>
-    <div id="admiral-panel">
+    <div id="admiral-panel" onclick="openCommsFromTransmission()" title="Open COMMS log" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCommsFromTransmission()}">
       <div class="adm-from">◈ INCOMING TRANSMISSION</div>
       <div class="adm-divider"></div>
       <div class="adm-header">
@@ -106,8 +134,9 @@
       <div class="adm-divider adm-divider-gap"></div>
       <div class="adm-body" id="admiral-body"></div>
       <div class="adm-progress-bar"><div class="adm-progress-fill" id="admiral-progress"></div></div>
-      <div class="admiral-close-wrap"><button class="adm-close-btn" onclick="dismissAdmiral()">Close</button></div>
+      <div class="admiral-close-wrap"><button class="adm-close-btn" onclick="event.stopPropagation();dismissAdmiral()">Close</button></div>
     </div>
+    <div id="quest-reward-stack" class="quest-reward-stack" aria-live="polite"></div>
     <div id="tutorial-banner" onclick="dismissTutorial()">
       <div class="tut-card" onclick="event.stopPropagation()">
         <button class="tut-close" onclick="dismissTutorial()" title="Close">✕</button>
@@ -195,11 +224,13 @@
 
 <div id="log-history-overlay" onclick="closeLogHistory()">
   <div id="log-history-box" onclick="event.stopPropagation()">
-    <button class="about-close" onclick="closeLogHistory()">✕</button>
-    <h2 class="about-title">COMMAND LOG</h2>
-    <div class="about-divider"></div>
-    <div id="log-history-list"></div>
-    <button class="btn btn-full btn-top-14" onclick="closeLogHistory()">CLOSE</button>
+    <div class="panel-shell-head">
+      <div class="panel-shell-title">COMMAND LOG</div>
+      <button type="button" class="panel-shell-close" onclick="closeLogHistory()" title="Close">✕</button>
+    </div>
+    <div class="log-history-body">
+      <div id="log-history-list"></div>
+    </div>
   </div>
 </div>
 
@@ -413,12 +444,23 @@
 
 <div id="module-upgrade-overlay">
   <div id="module-upgrade-box" onclick="event.stopPropagation()">
-    <div class="module-upgrade-box-title" id="module-upgrade-title">◈ Upgrade</div>
-    <div class="module-upgrade-box-sub" id="module-upgrade-sub"></div>
-    <div id="module-upgrade-reqs" class="module-upgrade-reqs"></div>
+    <div class="mu-sheen" aria-hidden="true"></div>
+    <div class="mu-kicker" id="module-upgrade-title">UPGRADE</div>
+    <div class="mu-name" id="module-upgrade-name">—</div>
+    <div class="mu-tier-row" id="module-upgrade-sub">
+      <span class="mu-tier from">I</span>
+      <span class="mu-tier-arrow ms-icon">arrow_forward</span>
+      <span class="mu-tier to">II</span>
+    </div>
+    <div class="mu-cost-panel">
+      <div class="mu-cost-lab">REQUIREMENTS</div>
+      <div id="module-upgrade-reqs" class="module-upgrade-reqs"></div>
+    </div>
     <div class="module-upgrade-box-actions">
-      <button class="btn primary" type="button" id="module-upgrade-confirm" onclick="confirmModuleUpgradeOverlay()">CONFIRM</button>
-      <button class="btn" type="button" onclick="closeModuleUpgradeOverlay()">CANCEL</button>
+      <button class="btn primary mu-confirm" type="button" id="module-upgrade-confirm" onclick="confirmModuleUpgradeOverlay()">
+        <span class="ms-icon">upgrade</span> CONFIRM
+      </button>
+      <button class="btn mu-cancel" type="button" onclick="closeModuleUpgradeOverlay()">CANCEL</button>
     </div>
   </div>
 </div>
@@ -452,7 +494,7 @@
       <div class="att-picker-title" id="node-picker-title">◈ SELECT NODE</div>
       <button type="button" class="panel-shell-close" onclick="closeNodePicker()">✕</button>
     </div>
-    <div id="node-picker-filters" class="node-picker-filters"></div>
+
     <div id="node-picker-meta" class="node-picker-meta"></div>
     <div id="node-picker-body" class="att-picker-body node-picker-body"></div>
     <div class="node-picker-foot">

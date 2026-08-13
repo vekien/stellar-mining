@@ -8,4 +8,5 @@ export const canvasState = {
   storageHoverId: null,
   baseHovered: false,
   lastHoveredNode: null,
+  beaconHovered: false,
 };

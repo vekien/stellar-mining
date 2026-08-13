@@ -3,7 +3,7 @@
 // ============================================================
 import { TILE_H, BASE_COL, BASE_ROW, GRID_COLS, GRID_ROWS, BASE_FOOTPRINT_RADIUS, isBaseFootprintCell } from '../constants.js';
 import { state, bumpShipIdCounter } from '../state.js';
-import { RESOURCE_DEFS, MINE_TIERS, isStorableResource } from '../data/resources.js';
+import { RESOURCE_DEFS, MINE_TIERS, isStorableResource, getResourceTier } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import { SHIP_DEFS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
           UPGRADE_CAP_COST, UPGRADE_FLY_COST, UPGRADE_MINE_COST, UPGRADE_MINE_BONUS_COST,
@@ -29,7 +29,35 @@ import { enqueueCraftJob, countCraftJobs, canEnqueueCraft, getCraftQueueCap } fr
 import { updateHeaderShips } from '../ui/ui.js';
 import { isStorageOperational } from '../data/storage.js';
 import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getModuleFootprintHalf, getDepotModules, recordModuleImport } from '../data/modules.js';
+// getDepotModules used for storage + contract center depots
 import { getBlackHoleRadiusScale } from '../render/animations.js';
+import { isShipCraftLocked, evaluateCollectObjectives, evaluateAssignObjectives, notifyShipCrafted, notifyShipUpgraded } from './quests.js';
+import { HAZARD_HARDENING_BH_FLOOR, CARGO_STRAPS_MULT, hasMineBoost, MINE_BOOST_MULT } from './research/definitions.js';
+import { applyContractDelivery, isContractCenterModule } from './contracts.js';
+import { onShipMissionBaseArrive, onShipMissionBeaconArrive } from './missions.js';
+import {
+  scaleCraftReqs,
+  scaleShipUpgradeCoins,
+  getFactionSalvageMult,
+  getFactionMineSpeedMult,
+  getFactionLoadSpeedMult,
+  getFactionCombatHpMult,
+  getFactionRepairCostMult,
+  getFactionBhFloorBonus,
+} from './factions.js';
+
+function shipUpgCost(costFn, ship, stat, chunk) {
+  return scaleShipUpgradeCoins(upgradeTotalCost(costFn, ship, stat, chunk));
+}
+
+/** Mining bay capacity including Cargo Straps research. */
+export function getEffectiveShipCapacity(ship) {
+  let cap = Math.max(0, ship?.capacity || 0);
+  if (state.researchUnlocks?.cargo_straps && (ship?.mineSpeed || 0) > 0) {
+    cap = Math.floor(cap * CARGO_STRAPS_MULT);
+  }
+  return cap;
+}
 
 function getBlackHoleSpeedMult(ship) {
   if (!state.blackHole) return 1;
@@ -41,7 +69,10 @@ function getBlackHoleSpeedMult(ship) {
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist >= radius) return 1;
   const t = dist / radius; // 0 = center, 1 = edge
-  return 0.1 + 0.8 * t;   // 0.1 at center, 0.9 at edge
+  let floor = state.researchUnlocks?.hazard_hardening ? HAZARD_HARDENING_BH_FLOOR : 0.1;
+  floor = Math.min(0.85, floor + (getFactionBhFloorBonus() || 0));
+  // floor at center → ~0.9 at edge
+  return floor + (0.9 - floor) * t;
 }
 import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
 
@@ -65,6 +96,17 @@ function resolveShipDepot(ship) {
     const storage = getStorageModules().find(s => s.id === ship.depotId);
     if (storage) return { type: 'storage', facility: storage, label: storage.name, operational: isStorageOperational(storage) };
   }
+  if (ship.depotType === 'contract_center' && ship.depotId !== null) {
+    const center = getDepotModules(state.modules).find((m) => m.id === ship.depotId && isContractCenterModule(m));
+    if (center) {
+      return {
+        type: 'contract_center',
+        facility: center,
+        label: center.name || 'Contracts Office',
+        operational: isStorageOperational(center),
+      };
+    }
+  }
   if (ship.depotType === 'power_station' && ship.depotId !== null) {
     const station = getPowerStations().find(s => s.id === ship.depotId);
     if (station) return { type: 'power_station', facility: station, label: station.name, operational: (station.health || 0) > 0 };
@@ -74,9 +116,9 @@ function resolveShipDepot(ship) {
 
 function getShipDepotDestination(ship) {
   const depot = resolveShipDepot(ship);
-  if (depot.type === 'storage' && depot.facility) {
+  if ((depot.type === 'storage' || depot.type === 'contract_center') && depot.facility) {
     const pos = gridToWorld(depot.facility.col, depot.facility.row);
-    return { x: pos.x, y: pos.y + TILE_H / 2 - 20, depotType: 'storage', depotId: depot.facility.id };
+    return { x: pos.x, y: pos.y + TILE_H / 2 - 20, depotType: depot.type, depotId: depot.facility.id };
   }
   if (depot.type === 'power_station' && depot.facility) {
     const pos = gridToWorld(depot.facility.col, depot.facility.row);
@@ -210,11 +252,73 @@ function clearTransportCargo(ship) {
   ship.cargo = 0;
   ship.cargoResource = null;
   ship.cargoManifest = null;
+  ship.cargoHold = 0;
+  ship.cargoHoldResource = null;
   ship.loadBuffer = 0;
   ship.loadingPickup = false;
   ship.unloadingDepot = false;
   ship.unloadDeliveredManifest = null;
   ship.unloadFloatieIndex = 0;
+}
+
+/** Move active bay cargo into Resource Hold (Haul Integrity). */
+function stashCargoToHold(ship) {
+  const amt = Math.floor(ship.cargo || 0);
+  const type = ship.cargoResource;
+  if (amt <= 0 || !type) {
+    ship.cargo = 0;
+    ship.cargoResource = null;
+    ship.cargoManifest = null;
+    return;
+  }
+  const holdAmt = Math.floor(ship.cargoHold || 0);
+  const holdType = ship.cargoHoldResource;
+  if (holdAmt > 0 && holdType && holdType !== type) {
+    addLog(`⚠ ${ship.name} hold of ${holdAmt} ${RESOURCE_DEFS[holdType]?.label || holdType} overwritten`);
+    ship.cargoHold = amt;
+    ship.cargoHoldResource = type;
+  } else if (holdType === type || !holdAmt) {
+    ship.cargoHold = holdAmt + amt;
+    ship.cargoHoldResource = type;
+  } else {
+    ship.cargoHold = amt;
+    ship.cargoHoldResource = type;
+  }
+  addLog(`▣ ${ship.name} stashed ${amt} ${RESOURCE_DEFS[type]?.label || type} in Resource Hold`);
+  ship.cargo = 0;
+  ship.cargoResource = null;
+  ship.cargoManifest = null;
+}
+
+/** Queue deposits for main bay + hold (base / storage / contract). */
+function queueMiningDeposits(ship) {
+  const depotType = ship.depotType || 'base';
+  const depotId = ship.depotId ?? null;
+  if (ship.cargo > 0 && ship.cargoResource && RESOURCE_DEFS[ship.cargoResource]) {
+    tickEvents.push({
+      type: 'deposit',
+      name: ship.name,
+      cargoResource: ship.cargoResource,
+      amount: ship.cargo,
+      depotType,
+      depotId,
+    });
+  }
+  if ((ship.cargoHold || 0) > 0 && ship.cargoHoldResource && RESOURCE_DEFS[ship.cargoHoldResource]) {
+    tickEvents.push({
+      type: 'deposit',
+      name: ship.name,
+      cargoResource: ship.cargoHoldResource,
+      amount: ship.cargoHold,
+      depotType,
+      depotId,
+    });
+  }
+  ship.cargo = 0;
+  ship.cargoResource = null;
+  ship.cargoManifest = null;
+  ship.cargoHold = 0;
+  ship.cargoHoldResource = null;
 }
 
 function stopTransportShip(ship) {
@@ -279,6 +383,9 @@ function getDepotFreeCapacity(ship, depot, resourceType) {
   if (depot.type === 'base') return Number.MAX_SAFE_INTEGER;
   if (!depot.facility) return 0;
   if (depot.type === 'storage') return depot.facility && isStorageOperational(depot.facility) ? getModuleFreeCapacity(depot.facility) : 0;
+  if (depot.type === 'contract_center') {
+    return depot.facility && isStorageOperational(depot.facility) ? Number.MAX_SAFE_INTEGER : 0;
+  }
   if (depot.type === 'power_station' && resourceType) {
     return depot.facility.health > 0 ? getPowerStationResourceFreeCapacity(depot.facility, resourceType) : 0;
   }
@@ -291,7 +398,7 @@ function canReturnCargo(ship, depot, resourceType, cargoAmount = ship.cargo) {
   if (cargoManifest && Object.keys(cargoManifest).length) {
     if (depot.type === 'base') return true;
     if (!depot.facility) return false;
-    if (depot.type === 'storage') return getDepotFreeCapacity(ship, depot, resourceType) > 0;
+    if (depot.type === 'storage' || depot.type === 'contract_center') return getDepotFreeCapacity(ship, depot, resourceType) > 0;
     if (depot.type === 'power_station') {
       return Object.entries(cargoManifest).some(([type, amount]) => (
         amount > 0 && getPowerStationResourceFreeCapacity(depot.facility, type) > 0
@@ -346,21 +453,47 @@ function startTransportToDepot(ship) {
   setTransportCargoDestination(ship, 'depot');
 }
 
+/** Scout starter hull costs — used to pace the iron↔copper diversify tutorial. */
+const SCOUT_REQS = { iron: 75, copper: 50 };
+
+function checkDiversifyTutorial() {
+  if (state.firstCraftable || state.seenMsgs['diversify_done']) {
+    state.redirectTutActive = false;
+    return;
+  }
+  const iron = state.resources.iron || 0;
+  const copper = state.resources.copper || 0;
+  const hasIron = iron >= SCOUT_REQS.iron;
+  const hasCopper = copper >= SCOUT_REQS.copper;
+  // Ready to craft — hand off to craft tutorial
+  if (hasIron && hasCopper) {
+    state.redirectTutActive = false;
+    state.redirectTargetType = null;
+    return;
+  }
+  // Enough of one scout material, still need the other
+  if (hasIron && !hasCopper) {
+    state.redirectTutActive = true;
+    state.redirectTargetType = 'copper';
+  } else if (hasCopper && !hasIron) {
+    state.redirectTutActive = true;
+    state.redirectTargetType = 'iron';
+  }
+}
+
 function applyDepositMilestones(ev) {
   if (state.tutStep === 3) { state.tutStep=4; state.seenMsgs['tut_mining_done']=true; document.querySelectorAll('.tut-pointer').forEach(el=>el.remove()); }
   import('../ui/tutorial.js').then(({ checkTradeTutorial }) => checkTradeTutorial());
   if (!state.firstDeposit && ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
     state.firstDeposit = true;
-    state.redirectTutActive = true;
-    setTimeout(() => showOnce('first_deposit', NPCS.juno.transmissionLines.first_deposit, 15, 'juno'), 800);
+    setTimeout(() => showOnce('first_deposit', NPCS.byte.transmissionLines.first_deposit, 15, 'byte'), 800);
   }
-  if (!state.firstCraftable && ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
-    const canBuildAny = CRAFT_RECIPES.some(r => Object.entries(r.reqs).every(([res, amt]) => (state.resources[res]||0) >= amt));
-    if (canBuildAny) {
-      state.firstCraftable = true;
-      if (state.tutStep <= 4) state.tutStep = 5;
-      setTimeout(() => showOnce('first_craftable', NPCS.rigs.transmissionLines.first_craftable, 15, 'rigs'), 1200);
-    }
+  // Base stockpile deposits drive collect quests; always re-check + refresh HUD
+  if (ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
+    evaluateCollectObjectives();
+  } else {
+    // Storage/power still may show other live quest progress
+    window.patchQuestsPanel?.();
   }
 }
 
@@ -373,9 +506,16 @@ function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, count
   let depotLabel = state.base.name || 'Base Station';
   let depositBlocked = false;
   let floatiePos = null;
-  if (ev.depotType === 'storage' && ev.depotId !== null) {
-    const storage = getStorageModules().find(s => s.id === ev.depotId);
-    if (storage) {
+  if ((ev.depotType === 'storage' || ev.depotType === 'contract_center') && ev.depotId !== null) {
+    const storage = getDepotModules(state.modules).find(s => s.id === ev.depotId);
+    if (storage && isContractCenterModule(storage)) {
+      // Contract intake — does not stockpile; tallies toward active contracts
+      deposited = applyContractDelivery(ev.cargoResource, ev.amount);
+      depotLabel = storage.name || 'Contracts Office';
+      depositBlocked = deposited < ev.amount;
+      const w = gridToWorld(storage.col, storage.row);
+      floatiePos = { x: w.x, y: w.y - 12 };
+    } else if (storage) {
       const free = getModuleFreeCapacity(storage);
       deposited = Math.min(ev.amount, free);
       storage.inventory[ev.cargoResource] = (storage.inventory[ev.cargoResource] || 0) + deposited;
@@ -411,6 +551,9 @@ function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, count
     import('./statsHistory.js').then((m) => m.recordSolSnapshot?.()).catch(() => {});
   }
   if (countTrip) state.trips++;
+  if (deposited > 0 && ev.cargoResource) {
+    import('./lifetime.js').then((m) => m.recordLifetimeResource?.(ev.cargoResource, deposited)).catch(() => {});
+  }
   if (logDelivery) addLog(`📦 ${ev.name} delivered ${deposited} ${RESOURCE_DEFS[ev.cargoResource].label} to ${depotLabel}${depositBlocked ? ' (depot full)' : ''}`);
   if (showFloatieFx && deposited > 0) spawnFloatie(ev.cargoResource, deposited, floatiePos);
   if ((ev.depotType === 'storage' || ev.depotType === 'power_station') && state.selectedModule === ev.depotId && window.patchStorageModal) {
@@ -418,6 +561,10 @@ function applyDepositEvent(ev, { logDelivery = true, showFloatieFx = true, count
     if (overlay?.style.display === 'flex') window.patchStorageModal();
   }
   if (checkMilestones) applyDepositMilestones(ev);
+  else if (deposited > 0 && ev.depotType !== 'storage' && ev.depotType !== 'power_station') {
+    // Progress bars still need a live refresh when milestones are skipped
+    evaluateCollectObjectives();
+  }
   if (refresh.resources) refresh.resources();
   return { deposited, depotLabel, depositBlocked };
 }
@@ -527,19 +674,12 @@ window.completeCraftShipJob = function(job) {
   if (!recipeId) return;
   spawnShip(recipeId);
   bumpPirateStatusOnExpand();
-  if (!state.shipCraftNotices) state.shipCraftNotices = {};
-  state.shipCraftNotices[recipeId] = Date.now() + 3000;
-  setTimeout(() => {
-    if (state.shipCraftNotices?.[recipeId] && Date.now() >= state.shipCraftNotices[recipeId]) {
-      delete state.shipCraftNotices[recipeId];
-      if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
-      if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') {
-        window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true });
-      }
-    }
-  }, 3050);
   if (refresh.ui) refresh.ui();
   if (state.basePanelOpen && refresh.basePanel) refresh.basePanel();
+  // Re-enable BUILD immediately once the queue slot frees
+  if (window.isHdrPanelOpen?.('craft') || window._hdrPanelOpen === 'craft') {
+    window.openHdrPanel?.('craft', { refresh: true, preserveScroll: true });
+  }
 };
 
 // ── Spawn ──
@@ -588,7 +728,12 @@ export function spawnShip(type = 'scout') {
     attachmentCds:  {},
     depotType: 'base', depotId: null,
     pickupType: null, pickupId: null,
+    autoAssign: false,
+    shield: null,
+    maxShield: null,
     cargo:0, cargoResource:null,
+    cargoHold: 0,
+    cargoHoldResource: null,
     cargoManifest: null,
     loadBuffer: 0,
     loadingPickup: false,
@@ -607,13 +752,12 @@ export function spawnShip(type = 'scout') {
   updateHeaderShips();
   addLog(`⚡ ${ship.name} is ready for deployment.`);
 
-  // Rigs upgrade tutorial — fires once when the player builds their first non-starter ship
-  if (state.ships.length === 2 && !state.seenMsgs['rigs_upgrades']) {
-    setTimeout(() => {
-      showOnce('rigs_upgrades', NPCS.rigs.transmissionLines.rigs_upgrades, 20, 'rigs');
-      state.upgradesTutActive = true;
-      if (refresh.ui) refresh.ui();
-    }, 2500);
+  notifyShipCrafted(type);
+  if (state.tutStep === 8 && state.ships.length >= 2) {
+    state.tutStep = 9;
+    document.querySelectorAll('.tut-pointer').forEach((el) => el.remove());
+    try { window.closeHdrPanelType?.('craft'); } catch (_) { /* ignore */ }
+    if (refresh.ui) refresh.ui();
   }
 }
 
@@ -631,15 +775,40 @@ export function assignShip(ship, node) {
   const accessible = [];
   for (let t = 1; t <= ship.mineTier; t++) accessible.push(...MINE_TIERS[t].resources);
   if (!isSpecialNode && !accessible.includes(node.type)) return;
-  if (ship.cargo > 0) addLog(`⚠ ${ship.name} dropped ${ship.cargo} cargo to change course`);
-  clearTransportCargo(ship);
+  if (ship.cargo > 0) {
+    if (state.researchUnlocks?.haul_integrity && !isTransportShip(ship)) {
+      // 100% of bay → Resource Hold; bay clears for the new node
+      stashCargoToHold(ship);
+    } else {
+      addLog(`⚠ ${ship.name} dropped ${ship.cargo} cargo to change course`);
+      ship.cargo = 0;
+      ship.cargoResource = null;
+      ship.cargoManifest = null;
+    }
+  } else if (isTransportShip(ship)) {
+    clearTransportCargo(ship);
+  }
   if (state.tutStep < 2) state.tutStep = 2;
-  state.redirectTutActive = false;
+  // Diversify tutorial complete once they lock onto the needed ore type
+  if (state.redirectTutActive && state.redirectTargetType && node.type === state.redirectTargetType) {
+    state.redirectTutActive = false;
+    state.seenMsgs['diversify_done'] = true;
+    state.redirectTargetType = null;
+  } else if (state.redirectTutActive && state.redirectTargetType && node.type !== state.redirectTargetType) {
+    // Keep guiding until they pick the right ore
+  } else {
+    state.redirectTutActive = false;
+  }
 
+  if (state.tutStep === 9 && state.ships.length >= 2 && !state.seenMsgs['first_craft_assigned']) {
+    state.seenMsgs['first_craft_assigned'] = true;
+    document.querySelectorAll('.tut-pointer').forEach((el) => el.remove());
+  }
 
   document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   removeReassignTooltip();
   ship.targetNode = node.id;
+  evaluateAssignObjectives();
   ship.status = 'flying';
   const pos = nodeWorldPos(node);
   ship.destX = pos.x; ship.destY = pos.y-20;
@@ -693,6 +862,29 @@ export function tickShip(ship, dt) {
     }
   }
 
+  // Mission retrieve: keep destination locked to job phase
+  if (ship.missionJob?.type === 'retrieve_beacon' && !baseDown) {
+    const job = ship.missionJob;
+    if (job.phase === 'to_beacon' && state.missionBeacon) {
+      const w = gridToWorld(state.missionBeacon.col, state.missionBeacon.row);
+      ship.destX = w.x;
+      ship.destY = w.y;
+      ship.targetNode = null;
+      if (ship.status !== 'flying') {
+        ship.status = 'flying';
+        ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
+      }
+    } else if (job.phase === 'to_base' || job.phase === 'to_base_deliver') {
+      const depotDest = getShipDepotDestination(ship);
+      ship.destX = depotDest.x;
+      ship.destY = depotDest.y;
+      if (ship.status !== 'returning' && ship.status !== 'flying') {
+        ship.status = 'returning';
+        ship.flightTotalDist = Math.hypot(ship.destX - ship.x, ship.destY - ship.y);
+      }
+    }
+  }
+
   let FLY_SPEED = ship.status === 'holding' ? 100 : 80 * flySpeedToMultiplier(ship.flySpeed);
   if (ship.status === 'flying' || ship.status === 'returning' || ship.status === 'holding') {
     FLY_SPEED *= getBlackHoleSpeedMult(ship);
@@ -714,6 +906,10 @@ export function tickShip(ship, dt) {
     if (dist < arrivalRadius) {
       if (ship.status==='flying') {
         ship.x = ship.destX; ship.y = ship.destY;
+        if (ship.missionJob?.type === 'retrieve_beacon' && ship.missionJob.phase === 'to_beacon') {
+          onShipMissionBeaconArrive(ship);
+          return;
+        }
         if (isTransportShip(ship)) {
           const pickup = resolveShipPickup(ship);
           if (!pickup.operational) {
@@ -752,7 +948,7 @@ export function tickShip(ship, dt) {
         }
 
         ship.loadingPickup = true;
-        ship.loadBuffer += (ship.loadSpeed || 0) * dt;
+        ship.loadBuffer += (ship.loadSpeed || 0) * getFactionLoadSpeedMult() * dt;
         const room = Math.max(0, manifestTotal - ship.cargo);
         const loadAmount = Math.min(room, Math.floor(ship.loadBuffer));
         if (loadAmount > 0) {
@@ -798,7 +994,7 @@ export function tickShip(ship, dt) {
         if (isTransportShip(ship)) {
           if (ship.cargo > 0) {
             ship.unloadingDepot = true;
-            ship.loadBuffer += (ship.loadSpeed || 0) * dt;
+            ship.loadBuffer += (ship.loadSpeed || 0) * getFactionLoadSpeedMult() * dt;
             const unloadAmount = Math.min(ship.cargo, Math.floor(ship.loadBuffer));
             if (unloadAmount > 0) {
               const moved = unloadTransportCargo(ship, depot, unloadAmount);
@@ -832,12 +1028,31 @@ export function tickShip(ship, dt) {
           return;
         }
         
-        if (ship.cargo>0 && ship.cargoResource && RESOURCE_DEFS[ship.cargoResource]) {
-          tickEvents.push({ type:'deposit', name:ship.name, cargoResource:ship.cargoResource, amount:ship.cargo, depotType: ship.depotType || 'base', depotId: ship.depotId ?? null });
-        }
+        queueMiningDeposits(ship);
 
-        ship.cargo=0;
-        ship.cargoResource=null;
+        if (ship.missionJob?.type === 'retrieve_beacon') {
+          onShipMissionBaseArrive(ship);
+          // Continue mission leg (to_beacon or finished)
+          if (ship.missionJob?.phase === 'to_beacon') {
+            ship.status = 'flying';
+            return;
+          }
+          // Mission done — may have resumed prior node (status already flying)
+          if (!ship.missionJob && !ship.missionCargo) {
+            if (ship.targetNode != null && ship.status === 'flying') {
+              return;
+            }
+            if (ship.targetNode != null) {
+              const node = state.nodes.find(n => n.id === ship.targetNode);
+              if (node) { ship.status = 'pausing'; ship.pauseTimer = 0.4; }
+              else { ship.targetNode = null; ship.status = 'idle'; tickEvents.push({ type: 'idle', ship }); }
+              return;
+            }
+            ship.status = 'idle';
+            tickEvents.push({ type: 'idle', ship });
+            return;
+          }
+        }
 
         if (ship.targetNode !== null) {
           const node = state.nodes.find(n => n.id === ship.targetNode);
@@ -895,15 +1110,19 @@ export function tickShip(ship, dt) {
     }
   } else if (ship.status==='mining') {
     ship.mineTimer += dt;
-    const MINE_INTERVAL = 1.0 / ship.mineSpeed;
     const node = state.nodes.find(n => n.id === ship.targetNode);
     if (!node) { ship.targetNode=null; ship.status='idle'; tickEvents.push({ type:'idle', ship }); return; }
     if (node.type === CRASHED_SHIP_NODE_TYPE) {
       ship.status = 'idle';
       return;
     }
+    let mineSpd = (ship.mineSpeed || 0.01) * getFactionMineSpeedMult();
+    const nodeTier = getResourceTier(node.type) || node.minLevel || 1;
+    if (hasMineBoost(state, nodeTier)) mineSpd *= MINE_BOOST_MULT;
+    const MINE_INTERVAL = 1.0 / Math.max(0.01, mineSpd);
     if (ship.mineTimer >= MINE_INTERVAL) {
-      const free = Math.max(0, ship.capacity - ship.cargo);
+      const cap = getEffectiveShipCapacity(ship);
+      const free = Math.max(0, cap - ship.cargo);
       if (free <= 0) {
         ship.mineTimer = 0;
         ship.status = 'returning';
@@ -919,7 +1138,7 @@ export function tickShip(ship, dt) {
         ship.cargo += gained;
         ship.cargoResource = node.type;
         ship.mineTimer = 0;
-        if (ship.cargo >= ship.capacity) {
+        if (ship.cargo >= cap) {
           ship.status = 'returning';
           const depotDest = getShipDepotDestination(ship);
           ship.destX = depotDest.x; ship.destY = depotDest.y;
@@ -976,7 +1195,11 @@ window.sellShip = function(shipId, sellVal) {
 window.salvageShip = function(shipId) {
   const ship = state.ships.find(s => s.id === shipId); if (!ship) return;
   if (state.ships.length <= 1) { addLog('⚠ Cannot salvage your last ship!'); return; }
-  const salvage = getShipSalvageRewards(ship);
+  const salvageMult = getFactionSalvageMult();
+  const salvage = getShipSalvageRewards(ship).map(({ type, amount }) => ({
+    type,
+    amount: Math.max(1, Math.floor(amount * salvageMult)),
+  }));
   for (const { type, amount } of salvage) {
     state.resources[type] = (state.resources[type] || 0) + amount;
   }
@@ -993,8 +1216,8 @@ window.craftShip = function(recipeId) {
   const recipe = CRAFT_RECIPES.find(r => r.id === recipeId); if (!recipe) return;
   for (const [r,n] of Object.entries(recipe.reqs)) if ((state.resources[r]||0) < n) return;
   for (const [r,n] of Object.entries(recipe.reqs)) state.resources[r] -= n;
-  if (state.tutStep === 7) {
-    state.tutStep = 8; state.basePanelOpen = false;
+  // Instant craft path — stay on step 8 until spawnShip advances to assign
+  if (state.tutStep === 8) {
     document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
   }
   dismissTransmission();
@@ -1022,6 +1245,10 @@ window.craftShip = function(recipeId) {
 
 window.startCraftShip = function(recipeId) {
   const recipe = CRAFT_RECIPES.find(r => r.id === recipeId); if (!recipe) return;
+  if (isShipCraftLocked(recipeId)) {
+    addLog('⚠ Complete the Tutorial quest before crafting other hulls.');
+    return;
+  }
   const maxShips = BASE_MAX_SHIPS[(state.base.level-1)] || 20;
   const activeShipCrafts = countCraftJobs('ship');
   if ((state.ships.length + activeShipCrafts) >= maxShips) {
@@ -1032,13 +1259,9 @@ window.startCraftShip = function(recipeId) {
     addLog(`⚠ Craft queue full (${getCraftQueueCap()} slots). Upgrade the Base for more.`);
     return;
   }
-  for (const [r, n] of Object.entries(recipe.reqs)) if ((state.resources[r] || 0) < n) return;
-  for (const [r, n] of Object.entries(recipe.reqs)) state.resources[r] -= n;
-
-  if (state.tutStep === 7) {
-    state.tutStep = 8;
-    document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
-  }
+  const craftReqs = scaleCraftReqs(recipe.reqs);
+  for (const [r, n] of Object.entries(craftReqs)) if ((state.resources[r] || 0) < n) return;
+  for (const [r, n] of Object.entries(craftReqs)) state.resources[r] -= n;
 
   const durationMs = getShipCraftTimeMs(recipeId);
   const job = enqueueCraftJob({
@@ -1049,8 +1272,13 @@ window.startCraftShip = function(recipeId) {
   });
   if (!job) {
     // Refund if enqueue failed
-    for (const [r, n] of Object.entries(recipe.reqs)) state.resources[r] = (state.resources[r] || 0) + n;
+    for (const [r, n] of Object.entries(craftReqs)) state.resources[r] = (state.resources[r] || 0) + n;
     return;
+  }
+  // BUILD pressed — clear craft-build tutorial pointer (wait for ship spawn → step 9)
+  if (state.tutStep === 8 || recipeId === 'scout') {
+    state.seenMsgs['tut_build_pressed'] = true;
+    document.querySelectorAll('.tut-pointer').forEach((el) => el.remove());
   }
   addLog(`🛠 Queued: ${recipe.name} (${Math.ceil(durationMs / 1000)}s) · ${getCraftQueueCap()} slots`);
   if (refresh.ui) refresh.ui();
@@ -1072,7 +1300,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
 
   if (stat === 'capacity') {
     const allowed = Math.min(chunk, cap - ship.capacityLevel); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_CAP_COST, ship, 'capacity', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_CAP_COST, ship, 'capacity', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.capacityLevel += allowed;
     ship.capacity = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity);
@@ -1082,7 +1310,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     const role = SHIP_DEFS[ship.type]?.role;
     if (role === 'combat' || role === 'garrison') return;
     const allowed = Math.min(chunk, cap - ship.flySpeedLevel); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_FLY_COST, ship, 'flySpeed', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_FLY_COST, ship, 'flySpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.flySpeedLevel += allowed;
     ship.flySpeed = flySpeedFromLevel(ship.type, ship.flySpeedLevel);
@@ -1091,7 +1319,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
   } else if (stat === 'mineSpeed') {
     if ((ship.mineSpeed || 0) <= 0) return;
     const allowed = Math.min(chunk, cap - ship.mineSpeedLevel); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_MINE_COST, ship, 'mineSpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.mineSpeedLevel += allowed;
     ship.mineSpeed = mineSpeedFromLevel(ship.type, ship.mineSpeedLevel);
@@ -1101,7 +1329,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     if ((ship.mineSpeed || 0) <= 0) return;
     const bonusCap = mineBonusUpgradeCap(ship.mineTier);
     const allowed = Math.min(chunk, bonusCap - (ship.mineBonusLevel || 0)); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_MINE_BONUS_COST, ship, 'mineBonus', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_MINE_BONUS_COST, ship, 'mineBonus', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.mineBonusLevel = (ship.mineBonusLevel || 0) + allowed;
     ship.mineBonus = mineBonusFromLevel(ship.mineBonusLevel);
@@ -1109,7 +1337,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
 
   } else if (stat === 'loadSpeed') {
     const allowed = Math.min(chunk, cap - (ship.loadSpeedLevel||0)); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.loadSpeedLevel = (ship.loadSpeedLevel || 0) + allowed;
     ship.loadSpeed = loadSpeedFromLevel(ship.type, ship.loadSpeedLevel);
@@ -1117,7 +1345,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
 
   } else if (stat === 'hp') {
     const allowed = Math.min(chunk, cap - (ship.hpLevel||0)); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_HP_COST, ship, 'hp', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_HP_COST, ship, 'hp', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.hpLevel = (ship.hpLevel || 0) + allowed;
     ship.hp = hpFromLevel(ship.type, ship.hpLevel);
@@ -1127,7 +1355,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
 
   } else if (stat === 'attack') {
     const allowed = Math.min(chunk, cap - (ship.attackLevel||0)); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_ATTACK_COST, ship, 'attack', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_ATTACK_COST, ship, 'attack', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.attackLevel = (ship.attackLevel || 0) + allowed;
     ship.attack = attackFromLevel(ship.type, ship.attackLevel);
@@ -1135,7 +1363,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
 
   } else if (stat === 'atkRate') {
     const allowed = Math.min(chunk, cap - (ship.atkRateLevel||0)); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.atkRateLevel = (ship.atkRateLevel || 0) + allowed;
     ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel);
@@ -1145,7 +1373,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     const role = SHIP_DEFS[ship.type]?.role;
     if (role !== 'garrison') return;
     const allowed = Math.min(chunk, cap - (ship.rangeLevel || 0)); if (allowed <= 0) return;
-    const cost = upgradeTotalCost(UPGRADE_RANGE_COST, ship, 'range', allowed); if (state.coins < cost) return;
+    const cost = shipUpgCost(UPGRADE_RANGE_COST, ship, 'range', allowed); if (state.coins < cost) return;
     spendCoins(cost);
     ship.rangeLevel = (ship.rangeLevel || 0) + allowed;
     ship.range = rangeFromLevel(ship.type, ship.rangeLevel);
@@ -1154,8 +1382,9 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
   } else if (stat === 'mineTier') {
     const fromTier = ship.mineTier;
     const nextTier = ship.mineTier + 1; if (nextTier > 10) return;
-    const cost = SHIP_TIER_COSTS[nextTier]; if (!cost || state.coins < cost) return;
-    const resReqs = SHIP_TIER_REQS[nextTier];
+    const cost = scaleShipUpgradeCoins(SHIP_TIER_COSTS[nextTier] || 0);
+    if (!cost || state.coins < cost) return;
+    const resReqs = scaleCraftReqs(SHIP_TIER_REQS[nextTier] || {});
     if (resReqs) {
       for (const [r, n] of Object.entries(resReqs)) {
         if ((state.resources[r] || 0) < n) return;
@@ -1170,8 +1399,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     const role = SHIP_DEFS[ship.type]?.role;
     if (role === 'combat' || role === 'garrison') normalizeShipAttachments(ship, role);
     addLog(`⬆ ${ship.name} upgraded to ${MINE_TIERS[nextTier].label}!`);
-    state.upgradesTutActive = false;
-    document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
+    notifyShipUpgraded();
     dismissTransmission();
     checkTradeTutorial();
     patchSolPanel('power');
@@ -1181,8 +1409,7 @@ window.upgradeShip = function(shipId, stat, chunk = 1) {
     return;
   }
 
-  state.upgradesTutActive = false;
-  document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
+  notifyShipUpgraded();
   dismissTransmission();
   checkTradeTutorial();
   patchSolPanel('power');
@@ -1206,18 +1433,18 @@ window.upgradeShipAll = function(shipId, levels) {
     const mineChk = n ? cap - ship.mineSpeedLevel : Math.min(levels, cap - ship.mineSpeedLevel);
     const bonusCap = mineBonusUpgradeCap(ship.mineTier);
     const bonusChk = n ? bonusCap - (ship.mineBonusLevel || 0) : Math.min(levels, bonusCap - (ship.mineBonusLevel || 0));
-    if (capChk  > 0) { const c = upgradeTotalCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk);  total += c; upgrades.push(() => { ship.capacityLevel  += capChk;  ship.capacity   = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity); }); }
-    if (flyChk  > 0) { const c = upgradeTotalCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel  += flyChk;  ship.flySpeed   = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
-    if (mineChk > 0) { const c = upgradeTotalCost(UPGRADE_MINE_COST, ship, 'mineSpeed', mineChk); total += c; upgrades.push(() => { ship.mineSpeedLevel += mineChk; ship.mineSpeed  = mineSpeedFromLevel(ship.type, ship.mineSpeedLevel); }); }
-    if (bonusChk > 0) { const c = upgradeTotalCost(UPGRADE_MINE_BONUS_COST, ship, 'mineBonus', bonusChk); total += c; upgrades.push(() => { ship.mineBonusLevel = (ship.mineBonusLevel || 0) + bonusChk; ship.mineBonus = mineBonusFromLevel(ship.mineBonusLevel); }); }
+    if (capChk  > 0) { const c = shipUpgCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk);  total += c; upgrades.push(() => { ship.capacityLevel  += capChk;  ship.capacity   = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity); }); }
+    if (flyChk  > 0) { const c = shipUpgCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel  += flyChk;  ship.flySpeed   = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
+    if (mineChk > 0) { const c = shipUpgCost(UPGRADE_MINE_COST, ship, 'mineSpeed', mineChk); total += c; upgrades.push(() => { ship.mineSpeedLevel += mineChk; ship.mineSpeed  = mineSpeedFromLevel(ship.type, ship.mineSpeedLevel); }); }
+    if (bonusChk > 0) { const c = shipUpgCost(UPGRADE_MINE_BONUS_COST, ship, 'mineBonus', bonusChk); total += c; upgrades.push(() => { ship.mineBonusLevel = (ship.mineBonusLevel || 0) + bonusChk; ship.mineBonus = mineBonusFromLevel(ship.mineBonusLevel); }); }
 
   } else if (role === 'transport') {
     const capChk  = n ? cap - ship.capacityLevel               : Math.min(levels, cap - ship.capacityLevel);
     const flyChk  = n ? cap - ship.flySpeedLevel               : Math.min(levels, cap - ship.flySpeedLevel);
     const loadChk = n ? cap - (ship.loadSpeedLevel||0)         : Math.min(levels, cap - (ship.loadSpeedLevel||0));
-    if (capChk  > 0) { const c = upgradeTotalCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk);  total += c; upgrades.push(() => { ship.capacityLevel  += capChk;  ship.capacity   = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity); }); }
-    if (flyChk  > 0) { const c = upgradeTotalCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel  += flyChk;  ship.flySpeed   = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
-    if (loadChk > 0) { const c = upgradeTotalCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', loadChk); total += c; upgrades.push(() => { ship.loadSpeedLevel = (ship.loadSpeedLevel||0) + loadChk; ship.loadSpeed = loadSpeedFromLevel(ship.type, ship.loadSpeedLevel); }); }
+    if (capChk  > 0) { const c = shipUpgCost(UPGRADE_CAP_COST,  ship, 'capacity',  capChk);  total += c; upgrades.push(() => { ship.capacityLevel  += capChk;  ship.capacity   = capacityFromTierAndLevel(ship.type, ship.mineTier, ship.capacityLevel, ship.capacity); }); }
+    if (flyChk  > 0) { const c = shipUpgCost(UPGRADE_FLY_COST,  ship, 'flySpeed',  flyChk);  total += c; upgrades.push(() => { ship.flySpeedLevel  += flyChk;  ship.flySpeed   = flySpeedFromLevel(ship.type, ship.flySpeedLevel); }); }
+    if (loadChk > 0) { const c = shipUpgCost(UPGRADE_LOAD_COST, ship, 'loadSpeed', loadChk); total += c; upgrades.push(() => { ship.loadSpeedLevel = (ship.loadSpeedLevel||0) + loadChk; ship.loadSpeed = loadSpeedFromLevel(ship.type, ship.loadSpeedLevel); }); }
 
   } else if (role === 'combat' || role === 'garrison') {
     const hpChk   = n ? cap - (ship.hpLevel||0)                : Math.min(levels, cap - (ship.hpLevel||0));
@@ -1226,10 +1453,10 @@ window.upgradeShipAll = function(shipId, levels) {
     const rangeChk = role === 'garrison'
       ? (n ? cap - (ship.rangeLevel||0) : Math.min(levels, cap - (ship.rangeLevel||0)))
       : 0;
-    if (hpChk   > 0) { const c = upgradeTotalCost(UPGRADE_HP_COST,       ship, 'hp',       hpChk);   total += c; upgrades.push(() => { ship.hpLevel       = (ship.hpLevel||0) + hpChk;     ship.hp          = hpFromLevel(ship.type, ship.hpLevel); if (!Number.isFinite(ship.currentHp) || ship.currentHp > ship.hp) ship.currentHp = ship.hp; }); }
-    if (atkChk  > 0) { const c = upgradeTotalCost(UPGRADE_ATTACK_COST,   ship, 'attack',   atkChk);  total += c; upgrades.push(() => { ship.attackLevel   = (ship.attackLevel||0) + atkChk;  ship.attack      = attackFromLevel(ship.type, ship.attackLevel); }); }
-    if (rateChk > 0) { const c = upgradeTotalCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate',  rateChk); total += c; upgrades.push(() => { ship.atkRateLevel  = (ship.atkRateLevel||0) + rateChk; ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel); }); }
-    if (rangeChk > 0) { const c = upgradeTotalCost(UPGRADE_RANGE_COST, ship, 'range', rangeChk); total += c; upgrades.push(() => { ship.rangeLevel = (ship.rangeLevel||0) + rangeChk; ship.range = rangeFromLevel(ship.type, ship.rangeLevel); }); }
+    if (hpChk   > 0) { const c = shipUpgCost(UPGRADE_HP_COST,       ship, 'hp',       hpChk);   total += c; upgrades.push(() => { ship.hpLevel       = (ship.hpLevel||0) + hpChk;     ship.hp          = hpFromLevel(ship.type, ship.hpLevel); if (!Number.isFinite(ship.currentHp) || ship.currentHp > ship.hp) ship.currentHp = ship.hp; }); }
+    if (atkChk  > 0) { const c = shipUpgCost(UPGRADE_ATTACK_COST,   ship, 'attack',   atkChk);  total += c; upgrades.push(() => { ship.attackLevel   = (ship.attackLevel||0) + atkChk;  ship.attack      = attackFromLevel(ship.type, ship.attackLevel); }); }
+    if (rateChk > 0) { const c = shipUpgCost(UPGRADE_ATK_RATE_COST, ship, 'atkRate',  rateChk); total += c; upgrades.push(() => { ship.atkRateLevel  = (ship.atkRateLevel||0) + rateChk; ship.attackSpeed = atkRateFromLevel(ship.type, ship.atkRateLevel); }); }
+    if (rangeChk > 0) { const c = shipUpgCost(UPGRADE_RANGE_COST, ship, 'range', rangeChk); total += c; upgrades.push(() => { ship.rangeLevel = (ship.rangeLevel||0) + rangeChk; ship.range = rangeFromLevel(ship.type, ship.rangeLevel); }); }
   }
 
   if (total <= 0 || state.coins < total) return;
@@ -1239,8 +1466,7 @@ window.upgradeShipAll = function(shipId, levels) {
   const label = levels === 'max' ? 'MAX' : `+${levels}`;
   addLog(`⬆ ${ship.name} all stats ${label} — $${fmt(total)} spent`);
   if (window.refreshShipUpgrades) window.refreshShipUpgrades();
-  state.upgradesTutActive = false;
-  document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
+  notifyShipUpgraded();
   dismissTransmission();
   checkTradeTutorial();
   patchSolPanel('power');
@@ -1288,6 +1514,12 @@ window.setShipDepot = function(shipId, depotValue) {
     const storage = getStorageModules().find(s => s.id === depotId);
     if (!storage) return;
     ship.depotType = 'storage';
+    ship.depotId = depotId;
+  } else if (String(depotValue).startsWith('contract_center:')) {
+    const depotId = Number(String(depotValue).split(':')[1]);
+    const center = getDepotModules(state.modules).find((m) => m.id === depotId && isContractCenterModule(m));
+    if (!center) return;
+    ship.depotType = 'contract_center';
     ship.depotId = depotId;
   } else if (String(depotValue).startsWith('power_station:')) {
     const depotId = Number(String(depotValue).split(':')[1]);

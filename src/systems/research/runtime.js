@@ -13,6 +13,7 @@ import { addLog } from '../../helpers.js';
 import { refresh } from '../../ui/refresh.js';
 import { updateHeaderRP } from '../../ui/ui.js';
 import { rollMarketDemands } from '../sol.js';
+import { rollContracts } from '../contracts.js';
 import { saveGame } from '../../state.js';
 
 // ── Compute current max shield from purchases ─────────────────
@@ -98,6 +99,76 @@ window.purchaseResearch = function(unlockId) {
       trackUnlock(unlockId, def.name, 1);
       rollMarketDemands();
       addLog(`■ Multi-Demand active! 3 resources are now in demand each SOL.`);
+      break;
+
+    case 'drone_lab':
+      // Single unlock grants lab building + drone craft
+      state.researchUnlocks.drone_lab = true;
+      state.researchUnlocks.drone_crafting = true;
+      trackUnlock('drone_lab', def.name, 1);
+      addLog(`+ Research unlocked: ${def.name} — Drone Lab and drone crafting available.`);
+      break;
+
+    case 'research_lab':
+      // Lab building + synthesis recipes (was a dead early unlock)
+      state.researchUnlocks.research_lab = true;
+      state.researchUnlocks.resource_synthesis = true;
+      trackUnlock('research_lab', def.name, 1);
+      addLog(`+ Research unlocked: ${def.name} — place labs and run synthesis recipes.`);
+      break;
+
+    case 'factions':
+      state.researchUnlocks.factions = true;
+      trackUnlock('factions', def.name, 1);
+      import('../factions.js').then((m) => m.ensureFactionRep?.()).catch(() => {});
+      addLog(`+ Research unlocked: ${def.name} — Faction standings and faction dailies online.`);
+      import('../../ui/transmissions.js').then((tx) => {
+        import('../../data/npcs.js').then(({ NPCS }) => {
+          const text = NPCS.juno?.transmissionLines?.factions_unlock;
+          if (text) tx.showOnce?.('research_factions', text, null, 'juno');
+        }).catch(() => {});
+      }).catch(() => {});
+      break;
+
+    case 'daily_quests':
+      state.researchUnlocks[unlockId] = true;
+      trackUnlock(unlockId, def.name, 1);
+      import('../dailyQuests.js').then((m) => m.rollDailyQuests(true)).catch(() => {});
+      addLog(`+ Research unlocked: ${def.name} — daily SOL quests are live.`);
+      import('../../ui/transmissions.js').then((tx) => {
+        import('../../data/npcs.js').then(({ NPCS }) => {
+          const text = NPCS.sera?.transmissionLines?.daily_quests_unlock;
+          if (text) tx.showOnce?.('research_daily_quests', text, null, 'sera');
+        }).catch(() => {});
+      }).catch(() => {});
+      break;
+
+    case 'cargo_straps':
+      state.researchUnlocks[unlockId] = true;
+      trackUnlock(unlockId, def.name, 1);
+      addLog(`+ Research unlocked: ${def.name} — mining ships +20% cargo capacity.`);
+      break;
+
+    case 'unlock_contracts':
+    case 'contracts_slot_2':
+    case 'contracts_slot_3':
+      state.researchUnlocks[unlockId] = true;
+      trackUnlock(unlockId, def.name, 1);
+      rollContracts(true);
+      addLog(`+ Research unlocked: ${def.name}`);
+      break;
+
+    case 'combat_shields':
+      state.researchUnlocks[unlockId] = true;
+      trackUnlock(unlockId, def.name, 1);
+      for (const ship of state.ships || []) {
+        const maxHp = Math.max(0, ship.hp || 0);
+        if (maxHp > 0) {
+          ship.maxShield = maxHp;
+          ship.shield = maxHp;
+        }
+      }
+      addLog(`◈ Combat Shields online — fleet energy barriers charged.`);
       break;
 
     default:

@@ -3,6 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { addLog, fmt, addCoins, spendCoins, isLightColor } from '../helpers.js';
+import { scaleCraftReqs } from '../systems/factions.js';
 import { refresh } from './refresh.js';
 import { canvasState } from '../render/canvasState.js';
 import { getCraft } from '../data/crafts.js';
@@ -538,9 +539,10 @@ window.startPlaceTurret = function() {
     return;
   }
   if (state.coins < turretDef.cost) return;
-  for (const [r, n] of Object.entries(turretDef.reqs)) if ((state.resources[r] || 0) < n) return;
+  const craftReqs = scaleCraftReqs(turretDef.reqs);
+  for (const [r, n] of Object.entries(craftReqs)) if ((state.resources[r] || 0) < n) return;
   spendCoins(turretDef.cost);
-  for (const [r, n] of Object.entries(turretDef.reqs)) state.resources[r] -= n;
+  for (const [r, n] of Object.entries(craftReqs)) state.resources[r] -= n;
   const durationMs = getTurretCraftTimeMs(turretType);
   const job = enqueueCraftJob({
     kind: 'turret',
@@ -550,7 +552,7 @@ window.startPlaceTurret = function() {
   });
   if (!job) {
     addCoins(turretDef.cost);
-    for (const [r, n] of Object.entries(turretDef.reqs)) state.resources[r] = (state.resources[r] || 0) + n;
+    for (const [r, n] of Object.entries(craftReqs)) state.resources[r] = (state.resources[r] || 0) + n;
     return;
   }
   addLog(`🛠 Queued: ${turretDef.name} (${Math.ceil(durationMs / 1000)}s)`);

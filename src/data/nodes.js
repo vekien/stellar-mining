@@ -3,19 +3,22 @@
 // ============================================================
 // BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE have moved to data/base.js.
 // Re-exported here for backward compatibility.
-export { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE } from './base.js';
+import { BASE_NODE_NO_SPAWN } from './base.js';
+export { BASE_UPGRADE_COSTS, BASE_MAX_SHIPS, BASE_RANGE, BASE_NODE_NO_SPAWN } from './base.js';
 
+// Bands align with BASE_RANGE maxDist (+7/tier). minDist starts past the base no-spawn ring.
+// Higher bands keep a few early ores (iron/copper/…) so late game still has basic feedstock.
 export const NODE_BANDS = [
-  { minLevel: 1,  minDist: 2,  maxDist: 5,  types: ['iron','iron','iron','copper','copper','oxygen','nickel','silicon','cobalt'] },
-  { minLevel: 2,  minDist: 6,  maxDist: 10, types: ['iron','iron','copper','copper','oxygen','nickel','silicon','cobalt','titanium','aluminum'] },
-  { minLevel: 3,  minDist: 11, maxDist: 15, types: ['copper','copper','oxygen','nickel','silicon','cobalt','titanium','aluminum','gold','chromium'] },
-  { minLevel: 4,  minDist: 16, maxDist: 20, types: ['oxygen','nickel','silicon','cobalt','titanium','aluminum','gold','chromium','silver','neon'] },
-  { minLevel: 5,  minDist: 21, maxDist: 25, types: ['silicon','cobalt','titanium','aluminum','gold','chromium','silver','neon','platinum','xenon'] },
-  { minLevel: 6,  minDist: 26, maxDist: 30, types: ['titanium','aluminum','gold','chromium','silver','neon','platinum','xenon','iridium','palladium'] },
-  { minLevel: 7,  minDist: 31, maxDist: 35, types: ['gold','chromium','silver','neon','platinum','xenon','iridium','palladium','uranium','osmium'] },
-  { minLevel: 8,  minDist: 36, maxDist: 40, types: ['silver','neon','platinum','xenon','iridium','palladium','osmium','rhodium','hafnium'] },
-  { minLevel: 9,  minDist: 41, maxDist: 45, types: ['platinum','xenon','iridium','palladium','osmium','rhodium','hafnium','hafnium'] },
-  { minLevel: 10, minDist: 46, maxDist: 50, types: ['iridium','palladium','uranium','uranium','osmium','rhodium','hafnium'] },
+  { minLevel: 1,  minDist: 3,  maxDist: 7,  types: ['iron','iron','iron','copper','copper','oxygen','nickel','silicon','cobalt'] },
+  { minLevel: 2,  minDist: 8,  maxDist: 14, types: ['iron','iron','copper','copper','oxygen','nickel','silicon','cobalt','titanium','aluminum'] },
+  { minLevel: 3,  minDist: 15, maxDist: 21, types: ['iron','copper','oxygen','nickel','silicon','cobalt','titanium','aluminum','gold','chromium'] },
+  { minLevel: 4,  minDist: 22, maxDist: 28, types: ['iron','oxygen','nickel','silicon','cobalt','titanium','aluminum','gold','chromium','silver','neon'] },
+  { minLevel: 5,  minDist: 29, maxDist: 35, types: ['iron','copper','silicon','cobalt','titanium','aluminum','gold','chromium','silver','neon','platinum','xenon'] },
+  { minLevel: 6,  minDist: 36, maxDist: 42, types: ['iron','copper','titanium','aluminum','gold','chromium','silver','neon','platinum','xenon','iridium','palladium'] },
+  { minLevel: 7,  minDist: 43, maxDist: 49, types: ['iron','iron','copper','gold','chromium','silver','neon','platinum','xenon','iridium','palladium','uranium','osmium'] },
+  { minLevel: 8,  minDist: 50, maxDist: 56, types: ['iron','copper','oxygen','silver','neon','platinum','xenon','iridium','palladium','osmium','rhodium','hafnium'] },
+  { minLevel: 9,  minDist: 57, maxDist: 63, types: ['iron','iron','copper','nickel','platinum','xenon','iridium','palladium','osmium','rhodium','hafnium','hafnium'] },
+  { minLevel: 10, minDist: 64, maxDist: 70, types: ['iron','iron','copper','copper','iridium','palladium','uranium','uranium','osmium','rhodium','hafnium'] },
 ];
 
 export const CRASHED_SHIP_NODE_TYPE = 'crashed_ship';
@@ -23,10 +26,11 @@ const CRASHED_SHIP_SPRITES = [
   'assets/images/crashed_ships/crashed_ship_1.png',
   'assets/images/crashed_ships/crashed_ship_2.png',
 ];
+// Derelicts only unlock from base rank 5+
 const CRASHED_SHIP_SPAWNS = [
-  { minLevel: 1 },
-  { minLevel: 3 },
-  { minLevel: 6 },
+  { minLevel: 5 },
+  { minLevel: 7 },
+  { minLevel: 9 },
   { minLevel: 10 },
 ];
 
@@ -56,21 +60,29 @@ function isTooCloseToExisting(col, row, picked, minSeparation) {
   return false;
 }
 
+export function nodeChebFromBase(col, row, baseCol, baseRow) {
+  return Math.max(Math.abs(col - baseCol), Math.abs(row - baseRow));
+}
+
+export function isInsideBaseNodeNoSpawn(col, row, baseCol, baseRow) {
+  return nodeChebFromBase(col, row, baseCol, baseRow) <= BASE_NODE_NO_SPAWN;
+}
+
 export function generateNodes(baseCol, baseRow, seed) {
   const rand = mulberry32(seed || 1);
   const all = [];
   let id = 0;
   const minSeparation = 2;
-  const relMin = 2;
-  const relMax = 48;
+  const relMax = 70;
+  const noSpawn = BASE_NODE_NO_SPAWN;
 
   for (const band of NODE_BANDS) {
     const candidates = [];
     for (let dc = -band.maxDist; dc <= band.maxDist; dc++) {
       for (let dr = -band.maxDist; dr <= band.maxDist; dr++) {
         const cheb = Math.max(Math.abs(dc), Math.abs(dr));
+        if (cheb <= noSpawn) continue;
         if (cheb < band.minDist || cheb > band.maxDist) continue;
-        if (Math.abs(dc) < relMin || Math.abs(dr) < relMin) continue;
         if (Math.abs(dc) > relMax || Math.abs(dr) > relMax) continue;
         candidates.push([baseCol + dc, baseRow + dr]);
       }
@@ -105,8 +117,8 @@ export function generateNodes(baseCol, baseRow, seed) {
   for (let dc = -relMax; dc <= relMax; dc++) {
     for (let dr = -relMax; dr <= relMax; dr++) {
       const cheb = Math.max(Math.abs(dc), Math.abs(dr));
+      if (cheb <= noSpawn) continue;
       if (cheb < 8 || cheb > relMax) continue;
-      if (Math.abs(dc) < relMin || Math.abs(dr) < relMin) continue;
       const col = baseCol + dc;
       const row = baseRow + dr;
       if (occupied.has(`${col},${row}`)) continue;

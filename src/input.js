@@ -175,8 +175,19 @@ export function initInput(canvas) {
       }
     }
 
+    // Mission distress beacon hover
+    let hoveredBeacon = null;
+    const missionBeacon = state.missionBeacon;
+    if (missionBeacon && missionBeacon.phase !== 'claimed' && !state.placingTurret && !state.placingModule) {
+      const bw = gridToWorld(missionBeacon.col, missionBeacon.row);
+      const bdx = wx - bw.x, bdy = wy - (bw.y + TILE_H / 2);
+      if (bdx * bdx + bdy * bdy < 40 * 40) hoveredBeacon = missionBeacon;
+    }
+    canvasState.beaconHovered = !!hoveredBeacon;
+
     if (hoveringBlackHole) {
       canvasState.lastHoveredNode = null;
+      canvasState.beaconHovered = false;
       const tt = tooltipEl();
       tt.innerHTML = `
         <div class="tt-name">● Black Hole</div>
@@ -185,6 +196,26 @@ export function initInput(canvas) {
       `;
       tt.style.display = 'block';
       moveTooltip(e);
+    } else if (hoveredBeacon) {
+      canvasState.lastHoveredNode = null;
+      const phase = hoveredBeacon.phase || 'idle';
+      const phaseLab = phase === 'decrypting'
+        ? 'Decrypting payload…'
+        : phase === 'ready'
+          ? 'Data Box ready for recovery'
+          : 'Click to inspect';
+      const phaseColor = phase === 'ready' ? '#7dffb0' : phase === 'decrypting' ? '#ffe066' : '#9ecbb4';
+      const tt = tooltipEl();
+      tt.innerHTML = `
+        <div class="tt-name" style="color:#7dffb0;">◈ Distress Beacon</div>
+        <div>Status: <span style="color:${phaseColor}">${phaseLab}</span></div>
+        <div style="margin-top:4px;color:#6ab890;">Mission objective · emergency band</div>
+      `;
+      tt.style.display = 'block';
+      moveTooltip(e);
+      if (!state.placingTurret && !state.placingModule && !state.pendingAssign) {
+        canvas.style.cursor = 'pointer';
+      }
     } else if (hoveredTurret) {
       canvasState.lastHoveredNode = null;
       const hpPct    = Math.round(hoveredTurret.health / hoveredTurret.maxHealth * 100);
@@ -295,15 +326,21 @@ export function initInput(canvas) {
     } else if (onBase) {
       if (canvasState.lastHoveredNode !== null) canvasState.lastHoveredNode = null;
       hideTooltip();
+      if (!state.placingTurret && !state.placingModule && !state.pendingAssign) canvas.style.cursor = '';
     } else {
       if (canvasState.lastHoveredNode !== null) canvasState.lastHoveredNode = null;
       hideTooltip();
       if (!hoveredTurret && !state.placingTurret && !state.placingModule) { canvasState.turretHoverCol = -1; canvasState.turretHoverRow = -1; }
+      if (!state.placingTurret && !state.placingModule && !state.pendingAssign) canvas.style.cursor = '';
     }
   });
 
   canvas.addEventListener('mouseleave', () => {
-    canvasState.lastHoveredNode = null; canvasState.baseHovered = false; canvasState.storageHoverId = null; hideTooltip();
+    canvasState.lastHoveredNode = null;
+    canvasState.baseHovered = false;
+    canvasState.storageHoverId = null;
+    canvasState.beaconHovered = false;
+    hideTooltip();
   });
 
   // ── KEYBOARD ────────────────────────────────────────────────
@@ -559,6 +596,23 @@ function handleCanvasClick(canvas, clientX, clientY) {
       focusOn(tcx, tcy, cam.zoom);
       openTurretModal(turret.id);
       return;
+    }
+  }
+
+  // Mission distress beacon
+  {
+    const b = state.missionBeacon;
+    if (b && b.phase !== 'claimed') {
+      const bw = gridToWorld(b.col, b.row);
+      const bcx = bw.x, bcy = bw.y + TILE_H / 2;
+      const bdx = wx - bcx, bdy = wy - bcy;
+      if (bdx * bdx + bdy * bdy < 36 * 36) {
+        focusOn(bcx, bcy, cam.zoom);
+        import('./systems/missions.js').then((m) => {
+          m.inspectBeacon?.();
+        }).catch(() => {});
+        return;
+      }
     }
   }
 

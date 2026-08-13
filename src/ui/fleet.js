@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from '../state.js';
 import { isStorageModule, isPowerStationModule, getModuleFreeCapacity, getPowerStationResourceFreeCapacity, getDepotModules } from '../data/modules.js';
-import { RESOURCE_DEFS, MINE_TIERS } from '../data/resources.js';
+import { RESOURCE_DEFS, MINE_TIERS, getResourceTier } from '../data/resources.js';
 import { CRAFT_SHIPS as CRAFT_RECIPES } from '../data/crafts.js';
 import {
   SHIP_DEFS, TIER_COLORS, SHIP_TIER_COSTS, TIER_UPGRADE_CAP,
@@ -19,7 +19,12 @@ import { SHIP_TIER_REQS, BASE_RANGE } from '../data/base.js';
 import { BASE_POS, cam, ZOOM_MAX_V, focusOn, gridToWorld } from '../render/camera.js';
 import { TILE_H, BASE_COL, BASE_ROW } from '../constants.js';
 import { CRASHED_SHIP_NODE_TYPE } from '../data/nodes.js';
-import { assignShip } from '../systems/ships.js';
+import { assignShip, getEffectiveShipCapacity } from '../systems/ships.js';
+import { canRetrieveBeaconItem, assignShipRetrieveBeacon } from '../systems/missions.js';
+
+function shipCap(ship) {
+  return Math.max(0, getEffectiveShipCapacity(ship));
+}
 import { PLAYER_SHOOT_RANGE, HQ_SHOOT_RANGE } from '../data/combat.js';
 import {
   ATTACHMENT_DEFS,
@@ -33,6 +38,11 @@ import {
 } from '../data/attachments.js';
 import { fmt, addLog, getResourceIconPath, resourceIconHtml, isLightColor } from '../helpers.js';
 import { getShipRepairCost } from '../systems/combat.js';
+import { scaleShipUpgradeCoins, scaleCraftReqs } from '../systems/factions.js';
+
+function shipUpgCost(costFn, ship, stat, chunk) {
+  return scaleShipUpgradeCoins(upgradeTotalCost(costFn, ship, stat, chunk));
+}
 import { refresh } from './refresh.js';
 import { getSellPrice } from '../systems/market.js';
 import { removeReassignTooltip, showReassignTooltip, checkTradeTutorial, renderTutPointers } from './tutorial.js';
@@ -485,7 +495,7 @@ export function renderShipsList() {
     card.className = `ship-card ${isSelected?'selected':''} ${ship.status!=='idle'?'busy':''}`;
     const role    = SHIP_DEFS[ship.type]?.role || 'mining';
     const hasCargo = role === 'mining' || role === 'transport' || role === 'unique';
-    const pct = hasCargo ? ship.cargo / Math.max(1, ship.capacity) * 100 : 0;
+    const pct = hasCargo ? ship.cargo / Math.max(1, shipCap(ship)) * 100 : 0;
     const statusMeta = getShipStatusMeta(ship);
 
     const safeTierNum = Math.min(10, Math.max(1, ship.mineTier || 1));
@@ -538,7 +548,7 @@ export function renderShipsList() {
       const cargoText = document.createElement('span');
       cargoText.id = `cargo-text-${ship.id}`;
       cargoText.style.cssText = 'font-size:14px;color:#8ab;margin-left:auto;';
-      cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
+      cargoText.textContent = `${ship.cargo} / ${shipCap(ship)}`;
       row2.appendChild(dot);
       row2.appendChild(resLabel);
       row2.appendChild(cargoText);
@@ -559,7 +569,7 @@ export function renderShipsList() {
         const cargoText = document.createElement('span');
         cargoText.id = `cargo-text-${ship.id}`;
         cargoText.style.cssText = 'font-size:14px;color:#8ab;margin-left:auto;';
-        cargoText.textContent = `${ship.cargo} / ${ship.capacity}`;
+        cargoText.textContent = `${ship.cargo} / ${shipCap(ship)}`;
         row2.appendChild(cargoText);
       }
     }
@@ -585,11 +595,7 @@ export function renderShipsList() {
         state.tutStep = 4; state.seenMsgs['tut_mining_done'] = true;
         document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
       }
-      if (state.tutStep === 8) {
-        state.tutStep = 9;
-        document.querySelectorAll('.tut-pointer').forEach(el => el.remove());
-        checkTradeTutorial();
-      }
+      // tutStep 9 = assign new craft; selection alone keeps the assign pointer
       if (state.pendingAssign && state.pendingAssign !== ship.id) {
         state.pendingAssign = null; canvas.style.cursor = '';
         window.restoreShipModalFromMapPick?.();
@@ -694,11 +700,20 @@ function getShipTypeLabel(ship) {
 function buildDepotOptionsHtml(ship) {
   const depotModules = getDepotModules(state.modules);
   const storageModules = depotModules.filter(isStorageModule);
+  const contractCenters = depotModules.filter((m) => m.type === 'contract_center');
   const powerStations = depotModules.filter(isPowerStationModule);
   return `<option value="base" ${ship.depotType === 'base' || ship.depotType === 'research_lab' ? 'selected' : ''}>${state.base.name || 'Base Station'}</option>`
     + storageModules.map(storage => `<option value="storage:${storage.id}" ${ship.depotType === 'storage' && ship.depotId === storage.id ? 'selected' : ''}>${storage.name}</option>`).join('')
+    + contractCenters.map((c) => `<option value="contract_center:${c.id}" ${ship.depotType === 'contract_center' && ship.depotId === c.id ? 'selected' : ''}>${c.name || 'Contracts Office'}</option>`).join('')
     + powerStations.map(station => `<option value="power_station:${station.id}" ${ship.depotType === 'power_station' && ship.depotId === station.id ? 'selected' : ''}>${station.name}</option>`).join('');
 }
+
+window.toggleShipAutoAssign = function(shipId, enabled) {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship || !state.researchUnlocks?.ai_node_assignment) return;
+  ship.autoAssign = !!enabled;
+  if (refresh.ui) refresh.ui();
+};
 
 function buildPickupOptionsHtml(ship) {
   const depotModules = getDepotModules(state.modules);
@@ -778,6 +793,7 @@ window.closeShipModal = function() {
   if (canvas) canvas.style.cursor = '';
   removeReassignTooltip();
   closeShipModal();
+  document.querySelectorAll('.tut-pointer').forEach((el) => el.remove());
   if (refresh.ui) refresh.ui();
 };
 
@@ -795,6 +811,7 @@ window.setShipModalTab = function(tab) {
   _shipModalTab = normalizeShipModalTab(tab);
   _shipModalForceRebuild = true;
   renderActionPanel();
+  requestAnimationFrame(() => window.renderTutPointers?.());
 };
 
 let _tierTrackAnimating = false;
@@ -1108,11 +1125,13 @@ function smInfoRow(k, v, cls = '', id = '') {
 
 function statusPillClass(statusMeta) {
   const b = (statusMeta?.badge || '').toUpperCase();
+  if (b === 'DESTROYED' || b === 'REPAIR') return 'destroyed';
+  if (b === 'COMBAT') return 'combat';
   if (b === 'HOLDING') return 'holding';
   if (b === 'LOADING' || b === 'UNLOADING') return 'loading';
   if (b === 'IDLE') return 'idle';
   if (b === 'MINING') return 'mining';
-  if (b === 'EN ROUTE' || b === 'RETURNING') return 'patrol';
+  if (b === 'EN ROUTE' || b === 'RETURNING' || b === 'RTB') return 'patrol';
   return 'idle';
 }
 
@@ -1128,7 +1147,7 @@ function buildDetailsPane(ship) {
   const holdingReason = getShipHoldingReason(ship);
   const dist = getShipDistanceInfo(ship);
   const routeError = getShipRouteError(ship);
-  const cargoStr = `${fmt(ship.cargo)}<span class="unit">/${fmt(ship.capacity)}</span>`;
+  const cargoStr = `${fmt(ship.cargo)}<span class="unit">/${fmt(shipCap(ship))}</span>`;
   const rangeStr = dist.atBase ? '0<span class="unit"> tiles</span>' : `${dist.tiles}<span class="unit"> tiles</span>`;
   const tierStr = tierDef?.label || `Tier ${toRoman(safeTier)}`;
   const statusClean = (statusMeta.message || '').replace(/^[^\w]+/, '').trim() || statusMeta.badge;
@@ -1165,7 +1184,7 @@ function buildDetailsPane(ship) {
     assign = smInfoRow('PICKUP', getShipPickupLabel(ship))
       + smInfoRow('DROPOFF', getShipDepotFilterLabel(ship))
       + smInfoRow('MANIFEST', getShipCargoSummary(ship))
-      + smInfoRow('HOLD', `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`, '', 'action-panel-cargo');
+      + smInfoRow('HOLD', `${fmt(ship.cargo)} / ${fmt(shipCap(ship))}`, '', 'action-panel-cargo');
   } else if (role === 'combat' || role === 'garrison') {
     const wpnRange = formatWeaponRange(ship);
     const dps = Math.round((ship.attack || 0) * (ship.attackSpeed || 0));
@@ -1322,14 +1341,56 @@ function buildMiningPrimary(ship) {
     ? (node.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(node.type))
     : false;
   const tierStr = MINE_TIERS[safeTier]?.label || `Tier ${toRoman(safeTier)}`;
+  const autoAssignUnlocked = !!state.researchUnlocks?.ai_node_assignment;
+  const autoToggle = autoAssignUnlocked
+    ? `<label class="sm-auto-assign">
+        <input type="checkbox" ${ship.autoAssign ? 'checked' : ''} onchange="toggleShipAutoAssign(${ship.id}, this.checked)" />
+        <span>Auto Assign</span>
+      </label>`
+    : '';
+
+  const missionRetrieve = canRetrieveBeaconItem() && !ship.missionJob && !ship.missionCargo
+    ? `<div class="sm-mission-retrieve">
+        <div class="sm-mission-retrieve-glow"></div>
+        <div class="sm-mission-retrieve-kicker">◈ MISSION OBJECTIVE</div>
+        <div class="sm-mission-retrieve-title">Data Box ready for recovery</div>
+        <div class="sm-mission-retrieve-desc">Returns to base, collects the Data Box from the distress beacon, then delivers it home.</div>
+        <button type="button" class="btn primary sm-mission-retrieve-btn" onclick="assignShipRetrieveBeacon(${ship.id})">
+          <span class="ms-icon ms-icon-fill">database</span> RETRIEVE DATA BOX
+        </button>
+      </div>`
+    : (ship.missionJob || ship.missionCargo
+      ? `<div class="sm-mission-retrieve active">
+          <div class="sm-mission-retrieve-kicker">◈ MISSION IN PROGRESS</div>
+          <div class="sm-mission-retrieve-title">${ship.missionCargo ? 'Returning with Data Box' : (ship.missionJob?.phase === 'to_beacon' ? 'En route to beacon' : 'Clearing cargo at base')}</div>
+        </div>`
+      : '');
 
   return `<div class="sm-details">
     <div class="sm-details-info" style="flex:1">
+      ${missionRetrieve}
       <div class="sm-info-block sm-info-block-fill">
         <div class="blk-title">◈ NODE</div>
+        ${autoToggle}
         ${nodeCard}
         ${smInfoRow('MINE TIER', tierStr, '', 'action-panel-tier')}
         ${smInfoRow('COMPAT', node ? (canMine ? 'Can mine' : 'Tier too low') : '—', node ? (canMine ? 'ok' : 'bad') : '', 'action-panel-compat')}
+        ${(() => {
+          const holdAmt = Math.floor(ship.cargoHold || 0);
+          const holdType = ship.cargoHoldResource;
+          if (holdAmt > 0 && holdType && RESOURCE_DEFS[holdType]) {
+            return smInfoRow(
+              'RESOURCE HOLD',
+              `${fmt(holdAmt)} ${RESOURCE_DEFS[holdType].label}`,
+              'ok',
+              'action-panel-hold',
+            );
+          }
+          if (state.researchUnlocks?.haul_integrity) {
+            return smInfoRow('RESOURCE HOLD', 'Empty', '', 'action-panel-hold');
+          }
+          return '';
+        })()}
         <div class="sm-hint">Click the node card to assign or switch. Use Pick on Map to choose from the sector view.</div>
       </div>
       <div class="sm-info-block sm-info-block-fill">
@@ -1339,7 +1400,7 @@ function buildMiningPrimary(ship) {
           <select id="action-panel-depot-select" onchange="setShipDepot(${ship.id}, this.value)">${buildDepotOptionsHtml(ship)}</select>
         </div>
         ${holdingReason ? `<div class="sm-details-alert" id="action-panel-holding-reason">${msIcon('warning')}<span>${holdingReason}</span></div>` : `<div class="sm-details-alert" id="action-panel-holding-reason" hidden></div>`}
-        ${smInfoRow('CARGO', `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`, '', 'action-panel-cargo')}
+        ${smInfoRow('CARGO', `${fmt(ship.cargo)} / ${fmt(shipCap(ship))}`, '', 'action-panel-cargo')}
         ${smInfoRow('HOLDING', holdingReason ? 'Yes — blocked' : 'No', holdingReason ? 'bad' : 'ok', 'action-panel-holding-flag')}
         <div class="sm-hint">Free space at dropoff or change depot to leave holding pattern.</div>
       </div>
@@ -1351,7 +1412,7 @@ function buildTransportPrimary(ship) {
   const routeError = getShipRouteError(ship);
   const holdingReason = getShipHoldingReason(ship);
   const transportSummary = getShipTransportSummary(ship);
-  const cargoPct = ship.capacity > 0 ? (ship.cargo / ship.capacity) * 100 : 0;
+  const cargoPct = shipCap(ship) > 0 ? (ship.cargo / shipCap(ship)) * 100 : 0;
 
   return `<div class="sm-details">
     <div class="sm-details-info" style="flex:1">
@@ -1371,7 +1432,7 @@ function buildTransportPrimary(ship) {
       </div>
       <div class="sm-info-block sm-info-block-fill">
         <div class="blk-title">◈ INVENTORY <span class="blk-sub" id="action-panel-transporting-label">${transportSummary.label}</span></div>
-        ${smInfoRow('CARGO', `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`, '', 'action-panel-cargo')}
+        ${smInfoRow('CARGO', `${fmt(ship.cargo)} / ${fmt(shipCap(ship))}`, '', 'action-panel-cargo')}
         <div class="sm-cargo-bar"><i id="action-panel-cargo-bar" style="width:${cargoPct}%"></i></div>
         <div id="action-panel-transporting" style="flex:1;min-height:0;overflow:auto;margin-top:8px">${getShipInventoryHtml(ship)}</div>
       </div>
@@ -1482,7 +1543,6 @@ function buildCombatPrimary(ship, isCombat) {
 let _attachPickerShipId = null;
 let _attachPickerSlot = 0;
 let _nodePickerShipId = null;
-let _nodePickerFilter = 'all';
 let _shipMapPickPrev = null;
 
 function ensureShipMapPickActions() {
@@ -1506,7 +1566,6 @@ window.openNodePicker = function(shipId) {
     return;
   }
   _nodePickerShipId = shipId;
-  _nodePickerFilter = 'all';
   window.restoreShipModalFromMapPick?.({ silent: true });
   state.pendingAssign = null;
   const canvas = document.getElementById('main-canvas');
@@ -1537,97 +1596,170 @@ window.closeNodePicker = function() {
 function renderNodePicker() {
   const ship = state.ships.find((s) => s.id === _nodePickerShipId);
   const body = document.getElementById('node-picker-body');
-  const filtersEl = document.getElementById('node-picker-filters');
   const metaEl = document.getElementById('node-picker-meta');
   if (!ship || !body) return;
 
   const accessible = getShipAccessibleResources(ship);
   const nodes = (state.nodes || []).filter((n) => isNodeInBaseRange(n));
-  const types = [...new Set(nodes.map((n) => n.type).filter((t) => t && t !== CRASHED_SHIP_NODE_TYPE))];
-  types.sort((a, b) => (RESOURCE_DEFS[a]?.label || a).localeCompare(RESOURCE_DEFS[b]?.label || b));
 
-  if (filtersEl) {
-    const chips = [`<button type="button" class="node-picker-chip${_nodePickerFilter === 'all' ? ' on' : ''}" data-filter="all">ALL</button>`];
-    for (const t of types) {
-      const def = RESOURCE_DEFS[t];
-      chips.push(`<button type="button" class="node-picker-chip${_nodePickerFilter === t ? ' on' : ''}" data-filter="${t}">
-        <span class="dot" style="background:${def?.color || '#8ab'}"></span>${(def?.label || t).toUpperCase()}
-      </button>`);
+  // Group resource nodes by type; keep crashed ships as individuals
+  const byType = new Map();
+  const specials = [];
+  for (const n of nodes) {
+    if (n.type === CRASHED_SHIP_NODE_TYPE) {
+      specials.push(n);
+      continue;
     }
-    filtersEl.innerHTML = chips.join('');
-    filtersEl.querySelectorAll('.node-picker-chip').forEach((chip) => {
-      chip.onclick = () => {
-        _nodePickerFilter = chip.dataset.filter || 'all';
-        renderNodePicker();
-      };
-    });
+    if (!byType.has(n.type)) byType.set(n.type, []);
+    byType.get(n.type).push(n);
   }
 
-  const visible = nodes.filter((n) => _nodePickerFilter === 'all' || n.type === _nodePickerFilter);
-  // Prefer free + mineable first
-  visible.sort((a, b) => {
-    const occA = getNodeOccupant(a.id, ship.id) ? 1 : 0;
-    const occB = getNodeOccupant(b.id, ship.id) ? 1 : 0;
-    if (occA !== occB) return occA - occB;
-    const canA = a.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(a.type) ? 0 : 1;
-    const canB = b.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(b.type) ? 0 : 1;
-    if (canA !== canB) return canA - canB;
-    return (a.type || '').localeCompare(b.type || '');
+  // Ships assigned per resource type (for Assigned X/Y)
+  const shipsOnType = Object.create(null);
+  for (const s of (state.ships || [])) {
+    if (s.targetNode == null) continue;
+    const tn = (state.nodes || []).find((n) => n.id === s.targetNode);
+    if (!tn?.type || tn.type === CRASHED_SHIP_NODE_TYPE) continue;
+    shipsOnType[tn.type] = (shipsOnType[tn.type] || 0) + 1;
+  }
+
+  const groups = [...byType.entries()].map(([type, list]) => {
+    const tier = getResourceTier(type) || list[0]?.minLevel || 1;
+    const free = list.filter((n) => !getNodeOccupant(n.id, ship.id));
+    const assigned = shipsOnType[type] || 0;
+    const isCurrent = list.some((n) => n.id === ship.targetNode);
+    const canMine = accessible.includes(type);
+    return { type, list, tier, free, assigned, total: list.length, isCurrent, canMine };
   });
 
-  const freeCount = visible.filter((n) => {
-    const can = n.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(n.type);
-    return can && !getNodeOccupant(n.id, ship.id);
-  }).length;
+  const byTierThenName = (a, b) => {
+    if (b.tier !== a.tier) return b.tier - a.tier;
+    const la = RESOURCE_DEFS[a.type]?.label || a.type;
+    const lb = RESOURCE_DEFS[b.type]?.label || b.type;
+    return la.localeCompare(lb);
+  };
+
+  // Available = mineable (free, full, or current). Locked = tier too high for ship.
+  const available = groups.filter((g) => g.canMine).sort(byTierThenName);
+  const locked = groups.filter((g) => !g.canMine).sort(byTierThenName);
 
   if (metaEl) {
     const tierLab = MINE_TIERS[ship.mineTier || 1]?.label || `Tier ${toRoman(ship.mineTier || 1)}`;
-    metaEl.innerHTML = `Mine tier <b>${tierLab}</b> · <b>${freeCount}</b> free · occupied / locked nodes disabled`;
+    metaEl.innerHTML = `Mine tier <b>${tierLab}</b> · <b>${available.length}</b> available · <b>${locked.length}</b> locked · higher tiers first`;
   }
 
-  if (!visible.length) {
-    body.innerHTML = `<div class="sm-hint" style="padding:18px;text-align:center">No nodes in range for this filter.</div>`;
+  if (!groups.length && !specials.length) {
+    body.innerHTML = `<div class="sm-hint" style="padding:18px;text-align:center">No nodes in range.</div>`;
     return;
   }
 
-  body.innerHTML = visible.map((n) => {
-    const def = RESOURCE_DEFS[n.type] || {};
-    const occ = getNodeOccupant(n.id, ship.id);
-    const isCurrent = ship.targetNode === n.id;
-    const canMine = n.type === CRASHED_SHIP_NODE_TYPE || accessible.includes(n.type);
-    const locked = !canMine;
-    const busy = !!occ;
-    const disabled = !isCurrent && (locked || busy);
+  const renderGroupCard = (g) => {
+    const def = RESOURCE_DEFS[g.type] || {};
+    const isLocked = !g.canMine;
+    const full = g.free.length === 0 && !g.isCurrent;
+    const disabled = !g.isCurrent && (isLocked || full);
     let statusCls = 'free';
-    let statusTxt = 'FREE';
+    let statusTxt = 'AVAILABLE';
     let who = '';
-    if (isCurrent) {
+    if (g.isCurrent) {
       statusCls = 'mine';
       statusTxt = 'CURRENT';
-    } else if (locked) {
+    } else if (isLocked) {
       statusCls = 'locked';
       statusTxt = 'LOCKED';
-      who = `Needs higher mine tier`;
-    } else if (busy) {
+      who = 'Needs higher mine tier';
+    } else if (full) {
       statusCls = 'busy';
-      statusTxt = 'OCCUPIED';
-      who = occ?.name || 'Another ship';
+      statusTxt = 'FULL';
+      who = 'All nodes occupied';
     }
-    const tierLab = MINE_TIERS[n.minLevel || 1]?.label || `Tier ${toRoman(n.minLevel || 1)}`;
-    return `<button type="button" class="np-card${isCurrent ? ' current' : ''}" data-node="${n.id}" ${disabled ? 'disabled' : ''}>
-      <div class="np-ico">${resourceIconHtml(n.type, 32)}</div>
-      <div>
-        <div class="np-name">${def.label || n.type} Node</div>
-        <div class="np-sub"><b style="color:${def.color || '#40b0e0'}">${def.label || n.type}</b> · ${tierLab}</div>
+    const tierLab = MINE_TIERS[g.tier]?.label || `Tier ${toRoman(g.tier)}`;
+    const stock = fmt(Math.floor(state.resources[g.type] || 0));
+    return `<button type="button" class="np-card${g.isCurrent ? ' current' : ''}${isLocked ? ' is-locked' : ''}" data-type="${g.type}" ${disabled ? 'disabled' : ''}>
+      <div class="np-ico">${resourceIconHtml(g.type, 32)}</div>
+      <div class="np-main">
+        <div class="np-name">
+          ${def.label || g.type}
+          <span class="np-assign-pill${g.assigned > 0 ? ' has' : ''}">${g.assigned}/${g.total} Assigned</span>
+        </div>
+        <div class="np-sub">
+          <b style="color:${def.color || '#40b0e0'}">${tierLab}</b>
+          <span class="np-sep">·</span>
+          <span class="np-stock">${stock} in stock</span>
+          <span class="np-sep">·</span>
+          <span>${g.free.length} free</span>
+        </div>
       </div>
-      <div class="np-status ${statusCls}">${statusTxt}${who ? `<span class="who">${who}</span>` : ''}</div>
+      <div class="np-right">
+        <div class="np-status ${statusCls}">${statusTxt}${who ? `<span class="who">${who}</span>` : ''}</div>
+      </div>
     </button>`;
-  }).join('');
+  };
+
+  // Crashed ships remain individual entries under Available when free/current
+  const specialAvailable = [];
+  const specialLocked = [];
+  for (const n of specials) {
+    const isCurrent = ship.targetNode === n.id;
+    const occ = getNodeOccupant(n.id, ship.id);
+    const busy = !!occ && !isCurrent;
+    const card = `<button type="button" class="np-card special${isCurrent ? ' current' : ''}" data-node="${n.id}" data-type="${n.type}" ${busy ? 'disabled' : ''}>
+      <div class="np-ico">${resourceIconHtml(n.type, 32) || '<span class="ms-icon">sailing</span>'}</div>
+      <div class="np-main">
+        <div class="np-name">${RESOURCE_DEFS[n.type]?.label || 'Crashed Ship'}</div>
+        <div class="np-sub">Special · investigate</div>
+      </div>
+      <div class="np-right">
+        <div class="np-status ${isCurrent ? 'mine' : (busy ? 'busy' : 'free')}">${isCurrent ? 'CURRENT' : (busy ? 'OCCUPIED' : 'FREE')}</div>
+      </div>
+    </button>`;
+    if (busy) specialLocked.push(card);
+    else specialAvailable.push(card);
+  }
+
+  const availableHtml = available.map(renderGroupCard).join('') + specialAvailable.join('');
+  const lockedHtml = locked.map(renderGroupCard).join('') + specialLocked.join('');
+
+  let html = '';
+  if (availableHtml) {
+    html += `<div class="np-section-lab">AVAILABLE NODES</div>${availableHtml}`;
+  }
+  if (lockedHtml) {
+    html += `<div class="np-section-lab locked">LOCKED NODES</div>${lockedHtml}`;
+  }
+  body.innerHTML = html || `<div class="sm-hint" style="padding:18px;text-align:center">No nodes in range.</div>`;
 
   body.querySelectorAll('.np-card:not(:disabled)').forEach((btn) => {
-    btn.onclick = () => window.selectShipNode?.(Number(btn.dataset.node));
+    btn.onclick = () => {
+      if (btn.dataset.node) {
+        window.selectShipNode?.(Number(btn.dataset.node));
+        return;
+      }
+      // Resource type card — random free node of that type
+      window.selectShipNodeType?.(btn.dataset.type);
+    };
   });
 }
+
+/** Assign ship to a random free node of the given resource type. */
+window.selectShipNodeType = function(type) {
+  const ship = state.ships.find((s) => s.id === _nodePickerShipId);
+  if (!ship || !type) return;
+  const nodes = (state.nodes || []).filter(
+    (n) => n.type === type && isNodeInBaseRange(n),
+  );
+  if (!nodes.length) return;
+  // Already on this type — keep assignment
+  if (nodes.some((n) => n.id === ship.targetNode)) {
+    window.closeNodePicker?.();
+    return;
+  }
+  const free = nodes.filter((n) => !getNodeOccupant(n.id, ship.id));
+  const pool = free.length ? free : nodes;
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  if (!pick) return;
+  window.selectShipNode?.(pick.id);
+};
 
 function maybeCloseShipAfterAssign(shipId) {
   if (state.settings?.closeShipAfterAssign === false) return false;
@@ -1928,11 +2060,11 @@ function buildShipModalContent(ship) {
   const curHp = Math.max(0, Math.round(ship.currentHp ?? ship.hp ?? 0));
   const maxHp = Math.max(1, Math.round((ship.hp || 1) * (isCombat ? getShipHpMultiplier(ship) : 1)));
   const hpPct = Math.max(0, Math.min(100, Math.round((curHp / maxHp) * 100)));
-  const cargoPct = ship.capacity > 0 ? Math.round((ship.cargo / ship.capacity) * 100) : 0;
+  const cargoPct = shipCap(ship) > 0 ? Math.round((ship.cargo / shipCap(ship)) * 100) : 0;
   const meterLabel = isCombat ? 'HEALTH' : 'CARGO';
   const meterValue = isCombat
     ? `${fmt(curHp)} / ${fmt(maxHp)}`
-    : `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`;
+    : `${fmt(ship.cargo)} / ${fmt(shipCap(ship))}`;
   const meterPct = isCombat ? hpPct : cargoPct;
   const meterBarBg = isCombat
     ? (hpPct > 60 ? 'linear-gradient(90deg,#2a8040,#4d8)' : hpPct > 30 ? 'linear-gradient(90deg,#a06010,#fa4)' : 'linear-gradient(90deg,#cc1010,#f44)')
@@ -1952,7 +2084,7 @@ function buildShipModalContent(ship) {
         <div class="lab-hero-name-row">
           <span id="ship-modal-name" class="storage-modal-name lab-hero-name">${ship.name}</span>
           <button type="button" title="Rename" class="storage-modal-rename-btn" onclick="openRenameOverlay(${ship.id})">✎</button>
-          <div id="ship-modal-status-pill" class="lab-status-pill">${statusMeta.badge}</div>
+          <div id="ship-modal-status-pill" class="sm-status-pill ${statusPillClass(statusMeta)}">${statusMeta.badge}</div>
         </div>
         <div class="lab-meter">
           <div class="lab-meter-head">
@@ -2009,17 +2141,15 @@ function patchShipModalContent(ship) {
   const holdingReason = getShipHoldingReason(ship);
   const routeError = getShipRouteError(ship);
   const transportSummary = getShipTransportSummary(ship);
-  const cargoText = `${ship.cargo} / ${ship.capacity}`;
+  const cargoText = `${ship.cargo} / ${shipCap(ship)}`;
 
   setTextIfChanged(document.getElementById('ship-modal-name'), ship.name);
 
   const pill = document.getElementById('ship-modal-status-pill');
   if (pill) {
-    const offline = (statusMeta.badge || '').toUpperCase() === 'DESTROYED'
-      || (statusMeta.badge || '').toUpperCase() === 'REPAIR'
-      || (ship.currentHp ?? ship.hp ?? 1) <= 0
-      || ship.status === 'destroyed';
-    pill.className = `lab-status-pill${offline ? ' offline' : ''}`;
+    const cls = statusPillClass(statusMeta);
+    const nextClass = `sm-status-pill ${cls}`;
+    if (pill.className !== nextClass) pill.className = nextClass;
     setTextIfChanged(pill, statusMeta.badge);
   }
 
@@ -2053,9 +2183,9 @@ function patchShipModalContent(ship) {
       const hull = document.getElementById('action-panel-hull-hp');
       if (hull) setHtmlIfChanged(hull, `${Math.round(curHp).toLocaleString()}<span style="font-size:12px;opacity:.7"> / ${maxHp.toLocaleString()}</span>`);
     } else {
-      setTextIfChanged(meterVal, `${fmt(ship.cargo)} / ${fmt(ship.capacity)}`);
+      setTextIfChanged(meterVal, `${fmt(ship.cargo)} / ${fmt(shipCap(ship))}`);
       meterVal.style.color = '#ffe066';
-      const pct = ship.capacity > 0 ? Math.round((ship.cargo / ship.capacity) * 100) : 0;
+      const pct = shipCap(ship) > 0 ? Math.round((ship.cargo / shipCap(ship)) * 100) : 0;
       meterBar.style.width = `${pct}%`;
       meterBar.style.background = 'linear-gradient(90deg,#caa020,#ffe066)';
     }
@@ -2108,12 +2238,25 @@ function patchShipModalContent(ship) {
 
   const cargoVital = document.getElementById('action-panel-cargo-vital');
   if (cargoVital) {
-    const html = `${fmt(ship.cargo)}<span class="unit">/${fmt(ship.capacity)}</span>`;
+    const html = `${fmt(ship.cargo)}<span class="unit">/${fmt(shipCap(ship))}</span>`;
     setHtmlIfChanged(cargoVital, html);
   }
   document.querySelectorAll('#action-panel-cargo').forEach(cargoEl => {
     setTextIfChanged(cargoEl, cargoText);
   });
+
+  const holdEl = document.getElementById('action-panel-hold');
+  if (holdEl) {
+    const holdAmt = Math.floor(ship.cargoHold || 0);
+    const holdType = ship.cargoHoldResource;
+    if (holdAmt > 0 && holdType && RESOURCE_DEFS[holdType]) {
+      setTextIfChanged(holdEl, `${fmt(holdAmt)} ${RESOURCE_DEFS[holdType].label}`);
+      holdEl.classList.add('ok');
+    } else {
+      setTextIfChanged(holdEl, 'Empty');
+      holdEl.classList.remove('ok');
+    }
+  }
 
   const distEl = document.getElementById('action-panel-dist');
   if (distEl) {
@@ -2132,7 +2275,7 @@ function patchShipModalContent(ship) {
 
   const cargoBar = document.getElementById('action-panel-cargo-bar');
   if (cargoBar) {
-    const pct = ship.capacity > 0 ? (ship.cargo / ship.capacity) * 100 : 0;
+    const pct = shipCap(ship) > 0 ? (ship.cargo / shipCap(ship)) * 100 : 0;
     cargoBar.style.width = `${pct}%`;
   }
 
@@ -2417,7 +2560,7 @@ function buildUpgradesSection(shipId) {
     for (const [r, n] of Object.entries(tierResReqs)) {
       const met = (state.resources[r] || 0) >= n;
       const label = RESOURCE_DEFS[r]?.label || r;
-      costChips += `<span class="sm-bp-chip${met ? '' : ' unmet'}" data-tippy-content="${label}">${resourceIconHtml(r, 18)}${fmt(n)}</span>`;
+      costChips += `<span class="sm-bp-chip${met ? '' : ' unmet'}" data-tippy-content="${label}">${resourceIconHtml(r, 22)}${fmt(n)}</span>`;
     }
   }
   if (nt && tCost != null) {
@@ -2427,7 +2570,7 @@ function buildUpgradesSection(shipId) {
 
   const tierActions = nt
     ? `<div class="sm-bp-cost">
-        <span class="cost-lab">COST</span>
+
         ${costChips}
         ${blockedByBase ? `<span class="sm-bp-chip unmet">Base T${nt} required</span>` : ''}
       </div>
@@ -2569,15 +2712,25 @@ function buildUpgradesSection(shipId) {
   function allBtn(levels, label) {
     const cost = allCost(levels);
     const disabled = cost <= 0 || state.coins < cost;
-    return `<button type="button" onclick="upgradeShipAll(${s2.id},'${levels}')" ${disabled ? 'disabled' : ''}>${label}<strong>${cost > 0 ? '$' + fmt(cost) : '—'}</strong></button>`;
+    return `<button type="button" class="sm-bulk-btn" onclick="upgradeShipAll(${s2.id},'${levels}')" ${disabled ? 'disabled' : ''}><span class="sm-bulk-lab">${label}</span><span class="sm-bulk-cost">${cost > 0 ? '$' + fmt(cost) : '—'}</span></button>`;
   }
 
   const bulk = `<div class="sm-bulk">${allBtn(5, '+5 ALL')}${allBtn(10, '+10 ALL')}${allBtn('max', 'MAX ALL')}</div>`;
 
+  const statsBlock = cards.length
+    ? `<div class="sm-stat-panel">
+        <div class="sm-stat-panel-head">
+          <span class="lab" id="ship-stat-increases">◈ SHIP STAT INCREASES</span>
+          <span class="sub">Spend coins to level individual stats</span>
+        </div>
+        <div class="sm-stat-upg-row">${cards.join('')}</div>
+        ${bulk}
+      </div>`
+    : '';
+
   return `<div style="display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;">
     ${tierBlock}
-    <div class="sm-stat-upg-row">${cards.join('')}</div>
-    ${bulk}
+    ${statsBlock}
   </div>`;
 }
 

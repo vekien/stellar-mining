@@ -100,6 +100,13 @@ export const CRAFTS = {
       reqs: { iron: 1200, copper: 900, oxygen: 500, nickel: 300, silicon: 400 },
     },
     {
+      id: 'contract_center',
+      name: 'Contracts Office',
+      desc: '3×3 powered office for sector supply contracts — deliveries tally on the board and do not stockpile',
+      cost: 14000,
+      reqs: { iron: 1300, copper: 1000, oxygen: 550, nickel: 350, silicon: 450 },
+    },
+    {
       id: 'power_station',
       name: 'Power Station',
       desc: '3x3 grid building for future power generation infrastructure',
